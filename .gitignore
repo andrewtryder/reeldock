@@ -154,3 +154,15 @@ Thumbs.db
 *.db
 *.db-journal
 data/
+
+# Proxmox / Native Deployment configuration and data
+config.yml
+cookies.txt
+output/
+tmp/
+cache/
+logs/
+*.mp4
+*.m4a
+*.mp3
+*.part

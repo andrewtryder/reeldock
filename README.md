@@ -98,9 +98,29 @@ Workflow:
 
 ## Proxmox Deployment (Recommended)
 
-The recommended pattern for Proxmox is to mount the NFS share at the **LXC/VM host level** and bind-mount it into the container.
+You can install `yt-abs-importer` on Proxmox VE either using our automated VM installer script or via manual LXC bind-mounts.
 
-### 1. Mount NFS on the host
+### 1. Automated VM Installer (Recommended)
+
+Our installer provisions a Debian 12 virtual machine on your Proxmox host running either in **Docker VM** or **Native VM** mode.
+
+> [!WARNING]
+> **Security Check:** Always inspect scripts before running them as `root` on your Proxmox host.
+> You can inspect the installer script at [scripts/proxmox/proxmox-install.sh](file:///Users/atr/code/yt-abs-importer/scripts/proxmox/proxmox-install.sh).
+
+SSH to your Proxmox host as `root` and run the interactive installer:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/andrewtryder/yt-abs-importer/main/scripts/proxmox/proxmox-install.sh)"
+```
+
+For complete instructions on configuration, mounts, logs, updates, and troubleshooting, read the [Proxmox Installer Documentation](file:///Users/atr/code/yt-abs-importer/scripts/proxmox/README.md).
+
+### 2. Manual LXC Container Setup
+
+The manual pattern for Proxmox is to mount the NFS share at the **LXC/VM host level** and bind-mount it into the container.
+
+#### A. Mount NFS on the host
 
 ```bash
 # On Proxmox host — add to /etc/fstab
@@ -110,7 +130,7 @@ nas.local:/volume1/podcasts  /mnt/podcasts  nfs  defaults,_netdev,nofail  0  0
 mount -t nfs nas.local:/volume1/podcasts /mnt/podcasts
 ```
 
-### 2. In your LXC container, bind-mount the host path
+#### B. In your LXC container, bind-mount the host path
 
 In Proxmox UI: Container → Resources → Add Mount Point:
 - Host path: `/mnt/podcasts`
@@ -121,7 +141,7 @@ Or via `pct.conf`:
 mp0: /mnt/podcasts,mp=/mnt/podcasts
 ```
 
-### 3. Run Docker Compose inside the LXC
+#### C. Run Docker Compose inside the LXC
 
 In `docker-compose.yml`, the volume becomes:
 ```yaml

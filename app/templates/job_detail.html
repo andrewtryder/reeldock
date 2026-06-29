@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}Job: {{ (job.output_title or job.source_title or job.id) | truncate(50) | e }} — yt-abs-importer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/jobs" class="back-link">← Jobs</a>
+  <h1 class="page-title">Job Detail</h1>
+</div>
+
+<div class="job-detail-layout">
+
+  <!-- Status card -->
+  <div class="card job-status-card">
+    <div class="job-header">
+      <div class="job-title-block">
+        <h2 class="job-title-text">{{ (job.output_title or job.source_title or "Unknown") | e }}</h2>
+        {% if job.uploader %}
+        <div class="job-uploader">{{ job.uploader | e }}</div>
+        {% endif %}
+      </div>
+      <span class="badge badge-{{ job.status.value }} badge-lg">{{ job.status.value }}</span>
+    </div>
+
+    {% if job.thumbnail_url %}
+    <img src="{{ job.thumbnail_url | e }}" alt="Thumbnail" class="detail-thumbnail" loading="lazy" />
+    {% endif %}
+
+    <div class="detail-grid">
+      <div class="detail-row">
+        <span class="detail-label">Status</span>
+        <span class="detail-value"><span class="badge badge-{{ job.status.value }}">{{ job.status.value }}</span></span>
+      </div>
+      {% if job.phase %}
+      <div class="detail-row">
+        <span class="detail-label">Phase</span>
+        <span class="detail-value">{{ job.phase | e }}</span>
+      </div>
+      {% endif %}
+      <div class="detail-row">
+        <span class="detail-label">Attempts</span>
+        <span class="detail-value">{{ job.attempts }}</span>
+      </div>
+      {% if job.duration %}
+      <div class="detail-row">
+        <span class="detail-label">Duration</span>
+        <span class="detail-value">{{ job.duration | duration }}</span>
+      </div>
+      {% endif %}
+      {% if job.chapter_count is not none %}
+      <div class="detail-row">
+        <span class="detail-label">Chapters</span>
+        <span class="detail-value">{{ job.chapter_count }}</span>
+      </div>
+      {% endif %}
+      <div class="detail-row">
+        <span class="detail-label">Source URL</span>
+        <span class="detail-value">
+          <a href="{{ job.url | e }}" target="_blank" rel="noopener" class="url-link">{{ job.url | truncate(60) | e }}</a>
+        </span>
+      </div>
+      {% if job.destination_folder %}
+      <div class="detail-row">
+        <span class="detail-label">Destination</span>
+        <span class="detail-value mono small">{{ job.destination_folder | e }}</span>
+      </div>
+      {% endif %}
+      {% if job.final_output_path %}
+      <div class="detail-row">
+        <span class="detail-label">Output Path</span>
+        <span class="detail-value mono small output-path">{{ job.final_output_path | e }}</span>
+      </div>
+      {% endif %}
+      <div class="detail-row">
+        <span class="detail-label">Created</span>
+        <span class="detail-value">{{ job.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if job.created_at else '—' }}</span>
+      </div>
+      {% if job.started_at %}
+      <div class="detail-row">
+        <span class="detail-label">Started</span>
+        <span class="detail-value">{{ job.started_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</span>
+      </div>
+      {% endif %}
+      {% if job.finished_at %}
+      <div class="detail-row">
+        <span class="detail-label">Finished</span>
+        <span class="detail-value">{{ job.finished_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</span>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if job.error_message %}
+    <div class="alert alert-error mt-4">
+      <strong>Error:</strong>
+      <pre class="error-pre">{{ job.error_message | e }}</pre>
+    </div>
+    {% endif %}
+
+    <!-- Action buttons -->
+    <div class="job-actions">
+      {% if job.status.value in ['failed', 'cancelled'] %}
+      <form method="POST" action="/api/jobs/{{ job.id }}/retry"
+            hx-post="/api/jobs/{{ job.id }}/retry"
+            hx-swap="none"
+            onsubmit="handleRetry(event, this)">
+        <button type="submit" class="btn btn-primary" id="retry-btn">
+          🔄 Retry Job
+        </button>
+      </form>
+      {% endif %}
+
+      {% if job.status.value in ['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
+      <form method="POST" action="/api/jobs/{{ job.id }}/cancel"
+            hx-post="/api/jobs/{{ job.id }}/cancel"
+            hx-swap="none"
+            onsubmit="handleCancel(event, this)">
+        <button type="submit" class="btn btn-danger" id="cancel-btn">
+          ✕ Cancel
+        </button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Log card -->
+  <div class="card log-card">
+    <div class="log-header">
+      <h3 class="log-title">Process Log</h3>
+      {% if job.status.value not in ['succeeded', 'failed', 'cancelled'] %}
+      <button class="btn btn-xs btn-secondary" onclick="refreshLog()" id="refresh-log-btn">↻ Refresh</button>
+      {% endif %}
+    </div>
+    <pre class="log-viewer" id="log-content">{{ log | e }}</pre>
+  </div>
+
+</div>
+
+<script>
+  // Auto-scroll log to bottom on load
+  const logViewer = document.getElementById('log-content');
+  if (logViewer) {
+    logViewer.scrollTop = logViewer.scrollHeight;
+  }
+
+  const activeStatuses = new Set(['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning']);
+  let currentStatus = '{{ job.status.value | e }}';
+
+  // Function to refresh log and scroll to bottom
+  function refreshLog() {
+    fetch('/api/jobs/{{ job.id }}/log')
+      .then(r => r.json())
+      .then(d => {
+        if (logViewer) {
+          // Check if user has scrolled up to read logs, if so, don't force scroll
+          const isAtBottom = logViewer.scrollHeight - logViewer.clientHeight <= logViewer.scrollTop + 50;
+          logViewer.textContent = d.log;
+          if (isAtBottom) {
+            logViewer.scrollTop = logViewer.scrollHeight;
+          }
+        }
+      });
+  }
+
+  // Poll log and status if active
+  if (activeStatuses.has(currentStatus)) {
+    const intervalId = setInterval(() => {
+      refreshLog();
+
+      // Check current job status
+      fetch('/api/jobs/{{ job.id }}')
+        .then(r => r.json())
+        .then(d => {
+          if (d.status !== currentStatus) {
+            // Status changed or finished, reload page once to refresh all cards/buttons
+            clearInterval(intervalId);
+            window.location.reload();
+          }
+        })
+        .catch(err => console.error("Error fetching job status:", err));
+    }, 2000);
+  }
+
+  function handleRetry(event, form) {
+    event.preventDefault();
+    fetch(form.action, { method: 'POST' })
+      .then(r => r.json())
+      .then(() => window.location.reload())
+      .catch(() => window.location.reload());
+  }
+
+  function handleCancel(event, form) {
+    event.preventDefault();
+    fetch(form.action, { method: 'POST' })
+      .then(r => r.json())
+      .then(() => window.location.reload())
+      .catch(() => window.location.reload());
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}yt-abs-importer{% endblock %}</title>
+  <meta name="description" content="YouTube to Audiobookshelf importer — convert YouTube videos to M4B audiobooks" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/app.css" />
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="logo">
+        <span class="logo-icon">▶</span>
+        <span class="logo-text">yt<span class="logo-accent">-abs-</span>importer</span>
+      </a>
+      <nav class="site-nav">
+        <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Import</a>
+        <a href="/jobs" class="nav-link {% if request.url.path.startswith('/jobs') %}active{% endif %}">Jobs</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <span>yt-abs-importer</span>
+    {% if settings.dry_run %}
+    <span class="badge badge-warning">DRY RUN MODE</span>
+    {% endif %}
+  </footer>
+</body>
+</html>

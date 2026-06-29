@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Import — yt-abs-importer{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+  <h1 class="hero-title">YouTube → Audiobookshelf</h1>
+  <p class="hero-subtitle">Paste a YouTube URL to convert a video to an M4B audiobook file</p>
+</div>
+
+<div class="card center-card">
+  {% if error %}
+  <div class="alert alert-error">
+    <span class="alert-icon">✕</span>
+    <span>{{ error | e }}</span>
+  </div>
+  {% endif %}
+
+  <form method="POST" action="/preview" class="url-form">
+    <div class="form-group">
+      <label for="url" class="form-label">YouTube URL</label>
+      <div class="input-row">
+        <input
+          id="url"
+          name="url"
+          type="url"
+          class="form-input url-input"
+          placeholder="https://www.youtube.com/watch?v=..."
+          value="{{ url | default('') | e }}"
+          required
+          autofocus
+        />
+        <button type="submit" class="btn btn-primary" id="preview-btn">
+          <span class="btn-icon">🔍</span>
+          Preview
+        </button>
+      </div>
+      <p class="form-hint">Single video URLs only. Playlists and channel URLs are {{ "allowed" if settings.allow_playlists else "not allowed" }}.</p>
+    </div>
+  </form>
+</div>
+
+<div class="info-grid">
+  <div class="info-card">
+    <div class="info-icon">🎵</div>
+    <h3>M4B Output</h3>
+    <p>Downloads audio and remuxes to M4B with embedded metadata, thumbnail, and chapters.</p>
+  </div>
+  <div class="info-card">
+    <div class="info-icon">📚</div>
+    <h3>Audiobookshelf Ready</h3>
+    <p>Files are written directly to your Audiobookshelf media directory for instant discovery.</p>
+  </div>
+  <div class="info-card">
+    <div class="info-icon">🔄</div>
+    <h3>Background Jobs</h3>
+    <p>Downloads run in the background. Track progress and retry failures from the Jobs page.</p>
+  </div>
+</div>
+
+<script>
+  document.querySelector('.url-form').addEventListener('submit', function(e) {
+    const btn = document.getElementById('preview-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Previewing...';
+    }
+  });
+</script>
+{% endblock %}

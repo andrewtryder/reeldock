@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Jobs — yt-abs-importer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Import Jobs</h1>
+  <a href="/" class="btn btn-secondary">+ New Import</a>
+</div>
+
+{% if not jobs %}
+<div class="empty-state">
+  <div class="empty-icon">📭</div>
+  <p>No jobs yet. <a href="/">Import your first video</a>.</p>
+</div>
+{% else %}
+<div class="filter-tabs">
+  <button class="filter-tab active" data-filter="all">All</button>
+  <button class="filter-tab" data-filter="running">Running</button>
+  <button class="filter-tab" data-filter="queued">Queued</button>
+  <button class="filter-tab" data-filter="completed">Completed</button>
+</div>
+
+<div class="jobs-table-wrap">
+  <table class="jobs-table">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Destination</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th>Updated</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr class="job-row" data-status="{{ job.status.value }}">
+        <td class="job-title-cell">
+          <a href="/jobs/{{ job.id }}" class="job-link">
+            {{ (job.output_title or job.source_title or job.url) | truncate(60) | e }}
+          </a>
+          {% if job.uploader %}
+          <div class="job-meta-sub">{{ job.uploader | e }}</div>
+          {% endif %}
+        </td>
+        <td class="job-dest-cell">
+          <span class="mono small">{{ job.destination_folder | default('—') | e }}</span>
+        </td>
+        <td>
+          <span class="badge badge-{{ job.status.value }}">{{ job.status.value }}</span>
+          {% if job.phase and job.phase != job.status %}
+          <span class="phase-tag">{{ job.phase }}</span>
+          {% endif %}
+        </td>
+        <td class="date-cell">{{ job.created_at.strftime('%Y-%m-%d %H:%M') if job.created_at else '—' }}</td>
+        <td class="date-cell">{{ job.updated_at.strftime('%Y-%m-%d %H:%M') if job.updated_at else '—' }}</td>
+        <td>
+          <a href="/jobs/{{ job.id }}" class="btn btn-xs btn-secondary">View</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<script>
+  document.querySelectorAll('.filter-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      // Toggle active class
+      document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      const filter = tab.getAttribute('data-filter');
+      const rows = document.querySelectorAll('.job-row');
+
+      rows.forEach(row => {
+        const status = row.getAttribute('data-status');
+        let show = false;
+
+        if (filter === 'all') {
+          show = true;
+        } else if (filter === 'running') {
+          show = ['running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'].includes(status);
+        } else if (filter === 'queued') {
+          show = (status === 'queued');
+        } else if (filter === 'completed') {
+          show = ['succeeded', 'failed', 'cancelled'].includes(status);
+        }
+
+        row.style.display = show ? '' : 'none';
+      });
+    });
+  });
+</script>
+{% endblock %}

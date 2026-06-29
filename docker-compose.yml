@@ -1,0 +1,116 @@
+# ============================================================
+# docker-compose.yml — yt-abs-importer
+# ============================================================
+#
+# Three services:
+#   app     — FastAPI web server
+#   worker  — RQ background worker
+#   redis   — Task queue
+#
+# Volume layout:
+#   ./data         → /data      (SQLite, work files, logs)
+#   /mnt/podcasts  → /media/podcasts  (NFS share, same as Audiobookshelf)
+#   ./config       → /config    (optional YAML config)
+#
+# ── NFS note ──────────────────────────────────────────────────────────────────
+# Recommended: Mount the NFS share on the HOST (e.g. in /etc/fstab or via
+# Proxmox), then bind-mount it here. This avoids Docker NFS driver quirks.
+#
+#   /etc/fstab example (Proxmox host):
+#     nas.local:/volume1/podcasts  /mnt/podcasts  nfs  defaults,_netdev  0  0
+#
+# Optional Docker NFS volume (NOT recommended for Proxmox — use host mount):
+# volumes:
+#   podcasts-nfs:
+#     driver: local
+#     driver_opts:
+#       type: nfs
+#       o: "addr=nas.local,rw,nfsvers=4"
+#       device: ":/volume1/podcasts"
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: yt-abs-importer:latest
+    container_name: yt-abs-importer-app
+    command: app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+      - /mnt/podcasts:/media/podcasts    # ← change to your NFS mount point
+      - ./config:/config
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite+aiosqlite:////data/app.db
+      - OUTPUT_ROOT=/media/podcasts
+      - WORK_DIR=/data/work
+      - ARCHIVE_FILE=/data/config/youtube-archive.txt
+      # Optional: set PUID/PGID to match your NFS share user
+      # - PUID=1000
+      # - PGID=1000
+      # Optional: Audiobookshelf integration
+      # - ABS_BASE_URL=http://audiobookshelf:13378
+      # - ABS_API_TOKEN=your-abs-api-token
+      # - ABS_LIBRARY_ID=your-library-id
+      # - ABS_SCAN_AFTER_SUCCESS=true
+      # Optional: Enable basic auth
+      # - AUTH_ENABLED=true
+      # - AUTH_USERNAME=admin
+      # - AUTH_PASSWORD=changeme
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: yt-abs-importer:latest
+    container_name: yt-abs-importer-worker
+    command: worker
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+      - /mnt/podcasts:/media/podcasts    # ← must match app service
+      - ./config:/config
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite+aiosqlite:////data/app.db
+      - OUTPUT_ROOT=/media/podcasts
+      - WORK_DIR=/data/work
+      - ARCHIVE_FILE=/data/config/youtube-archive.txt
+      # - PUID=1000
+      # - PGID=1000
+      # - ABS_BASE_URL=http://audiobookshelf:13378
+      # - ABS_API_TOKEN=your-abs-api-token
+      # - ABS_LIBRARY_ID=your-library-id
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: yt-abs-importer-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis-data:

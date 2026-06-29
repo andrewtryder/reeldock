@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Preview: {{ meta.title | e }} — yt-abs-importer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/" class="back-link">← Back</a>
+  <h1 class="page-title">Preview &amp; Configure</h1>
+</div>
+
+<div class="preview-layout">
+
+  <!-- Left: metadata -->
+  <div class="preview-meta card">
+    {% if meta.thumbnail %}
+    <div class="thumbnail-wrap">
+      <img src="{{ meta.thumbnail | e }}" alt="Video thumbnail" class="thumbnail" loading="lazy" />
+    </div>
+    {% endif %}
+
+    <div class="meta-fields">
+      <div class="meta-row">
+        <span class="meta-label">Title</span>
+        <span class="meta-value">{{ meta.title | e }}</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Channel</span>
+        <span class="meta-value">{{ meta.uploader | default('—') | e }}</span>
+      </div>
+      {% if meta.uploader_id %}
+      <div class="meta-row">
+        <span class="meta-label">Handle</span>
+        <span class="meta-value mono">{{ meta.uploader_id | e }}</span>
+      </div>
+      {% endif %}
+      {% if meta.channel_id %}
+      <div class="meta-row">
+        <span class="meta-label">Channel ID</span>
+        <span class="meta-value mono">{{ meta.channel_id | e }}</span>
+      </div>
+      {% endif %}
+      <div class="meta-row">
+        <span class="meta-label">Duration</span>
+        <span class="meta-value">{{ meta.duration | duration }}</span>
+      </div>
+      {% if meta.upload_date %}
+      <div class="meta-row">
+        <span class="meta-label">Upload Date</span>
+        <span class="meta-value">{{ meta.upload_date | format_date }}</span>
+      </div>
+      {% endif %}
+      <div class="meta-row">
+        <span class="meta-label">Chapters</span>
+        <span class="meta-value">
+          {% if meta.chapter_count > 0 %}
+            <span class="badge badge-success">{{ meta.chapter_count }} chapters</span>
+          {% else %}
+            <span class="badge badge-muted">None detected</span>
+          {% endif %}
+        </span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Video ID</span>
+        <span class="meta-value mono">{{ meta.id | e }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: job form -->
+  <div class="preview-form card">
+    <h2 class="card-title">Configure Import</h2>
+
+    <form method="POST" action="/jobs/create" id="import-form">
+      <!-- Hidden metadata fields -->
+      <input type="hidden" name="url" value="{{ url | e }}" />
+      <input type="hidden" name="video_id" value="{{ meta.id | e }}" />
+      <input type="hidden" name="source_title" value="{{ meta.title | e }}" />
+      <input type="hidden" name="uploader" value="{{ meta.uploader | default('') | e }}" />
+      <input type="hidden" name="uploader_id" value="{{ meta.uploader_id | default('') | e }}" />
+      <input type="hidden" name="channel" value="{{ meta.channel | default('') | e }}" />
+      <input type="hidden" name="channel_id" value="{{ meta.channel_id | default('') | e }}" />
+      <input type="hidden" name="duration" value="{{ meta.duration | default(0) }}" />
+      <input type="hidden" name="upload_date" value="{{ meta.upload_date | default('') | e }}" />
+      <input type="hidden" name="thumbnail_url" value="{{ meta.thumbnail | default('') | e }}" />
+      <input type="hidden" name="chapter_count" value="{{ meta.chapter_count | default(0) }}" />
+
+      <!-- Output title -->
+      <div class="form-group">
+        <label for="output_title" class="form-label">Output Title</label>
+        <input
+          id="output_title"
+          name="output_title"
+          type="text"
+          class="form-input"
+          value="{{ meta.title | e }}"
+          required
+        />
+        <p class="form-hint">This becomes the filename (sanitized). Edit to customize.</p>
+      </div>
+
+      <!-- Destination folder -->
+      <div class="form-group">
+        <label for="destination_folder" class="form-label">Destination Folder</label>
+        <select id="destination_folder" name="destination_folder" class="form-select">
+          <option value="">— Select folder —</option>
+          {% for folder in folders %}
+          <option value="{{ folder | e }}"
+            {% if folder == default_folder or folder == meta.uploader_id or folder == meta.uploader %}
+            selected
+            {% endif %}
+          >{{ folder | e }}</option>
+          {% endfor %}
+        </select>
+        <p class="form-hint">Folder under <code>{{ settings.output_root }}</code></p>
+      </div>
+
+      <!-- New folder creation -->
+      <div class="form-group">
+        <label for="new_folder" class="form-label">
+          Or Create New Folder
+          <span class="form-hint-inline">(leave empty to use selection above)</span>
+        </label>
+        <input
+          id="new_folder"
+          name="new_folder"
+          type="text"
+          class="form-input"
+          placeholder="e.g. @mychannelname"
+        />
+      </div>
+
+      <!-- Embed options -->
+      <fieldset class="form-group options-fieldset">
+        <legend class="form-label">Embed Options</legend>
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" name="embed_metadata" value="true" checked id="embed_metadata" />
+            <span>Embed metadata</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="embed_thumbnail" value="true" checked id="embed_thumbnail" />
+            <span>Embed thumbnail / cover art</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="embed_chapters" value="true" checked id="embed_chapters" />
+            <span>Embed chapters</span>
+          </label>
+          {% if settings.abs_configured %}
+          <label class="checkbox-label">
+            <input type="checkbox" name="trigger_abs_scan" value="true"
+              {% if settings.abs_scan_after_success %}checked{% endif %}
+              id="trigger_abs_scan" />
+            <span>Trigger Audiobookshelf library scan after success</span>
+          </label>
+          {% endif %}
+        </div>
+      </fieldset>
+
+      <button type="submit" class="btn btn-primary btn-large" id="create-btn">
+        <span class="btn-icon">▶</span>
+        Create M4B
+      </button>
+    </form>
+  </div>
+
+</div>
+
+<script>
+  document.getElementById('import-form').addEventListener('submit', function(e) {
+    const btn = document.getElementById('create-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Queuing Job...';
+    }
+  });
+</script>
+{% block content_end %}{% endblock %}
+{% endblock %}

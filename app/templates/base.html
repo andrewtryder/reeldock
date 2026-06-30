@@ -20,6 +20,7 @@
       <nav class="site-nav">
         <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Import</a>
         <a href="/jobs" class="nav-link {% if request.url.path.startswith('/jobs') %}active{% endif %}">Jobs</a>
+        <a href="/settings" class="nav-link {% if request.url.path.startswith('/settings') %}active{% endif %}">Settings</a>
       </nav>
     </div>
   </header>

@@ -275,6 +275,44 @@ class Settings(BaseSettings):
 _settings: Settings | None = None
 
 
+def _load_custom_settings(settings: Settings) -> None:
+    """Load user custom settings from json file on disk if exists."""
+    import json
+
+    path = _get_default_data_dir() / "settings.json"
+    if path.exists():
+        try:
+            with path.open() as fh:
+                data = json.load(fh)
+            if "output_root" in data:
+                settings.output_root = Path(data["output_root"])
+        except Exception:  # noqa: S110
+            pass
+
+
+def save_custom_settings(output_root: str) -> None:
+    """Write custom settings to settings.json and clear settings cache."""
+    import json
+
+    path = _get_default_data_dir() / "settings.json"
+    data = {}
+    if path.exists():
+        try:
+            with path.open() as fh:
+                data = json.load(fh)
+        except Exception:  # noqa: S110
+            pass
+
+    data["output_root"] = output_root.strip()
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as fh:
+        json.dump(data, fh, indent=2)
+
+    global _settings
+    _settings = None
+
+
 def get_settings() -> Settings:
     """Return cached settings instance, merging YAML values under env vars."""
     global _settings
@@ -288,4 +326,5 @@ def get_settings() -> Settings:
                 else:
                     os.environ[key] = str(val)
         _settings = Settings()
+        _load_custom_settings(_settings)
     return _settings

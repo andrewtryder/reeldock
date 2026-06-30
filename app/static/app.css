@@ -358,6 +358,7 @@ code, .mono {
   margin-bottom: 1.25rem;
 }
 .alert-error { background: var(--danger-dim); border: 1px solid rgba(248,113,113,0.3); color: var(--danger); }
+.alert-success { background: var(--success-dim); border: 1px solid rgba(74,222,128,0.3); color: var(--success); }
 .alert-icon { flex-shrink: 0; font-weight: 700; }
 .mt-4 { margin-top: 1rem; }
 

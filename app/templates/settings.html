@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Settings — yt-abs-importer{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+  <h1 class="hero-title">Settings</h1>
+  <p class="hero-subtitle">Configure application settings and directories</p>
+</div>
+
+<div class="card center-card">
+  {% if error %}
+  <div class="alert alert-error">
+    <span class="alert-icon">✕</span>
+    <span>{{ error | e }}</span>
+  </div>
+  {% endif %}
+
+  {% if success %}
+  <div class="alert alert-success">
+    <span class="alert-icon">✓</span>
+    <span>{{ success | e }}</span>
+  </div>
+  {% endif %}
+
+  <form method="POST" action="/settings" class="settings-form">
+    <div class="form-group">
+      <label for="output_root" class="form-label">Output Root Directory</label>
+      <input
+        id="output_root"
+        name="output_root"
+        type="text"
+        class="form-input"
+        placeholder="/media/podcasts"
+        value="{{ output_root if error else settings.output_root | e }}"
+        required
+      />
+      <p class="form-hint">The base directory where audiobooks will be saved. Must be an absolute path and writable by the application.</p>
+    </div>
+
+    <div class="form-actions" style="margin-top: 1.5rem;">
+      <button type="submit" class="btn btn-primary">
+        <span class="btn-icon">💾</span>
+        Save Settings
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

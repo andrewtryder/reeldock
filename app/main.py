@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import Settings, get_settings
+from app.config import Settings, get_settings, save_custom_settings
 from app.db import get_db, init_db
 from app.models import Job, JobStatus
 from app.queue import enqueue_job_task
@@ -497,6 +497,61 @@ def _register_routes(app: FastAPI, settings: Settings) -> None:
                 "settings": cfg,
                 "job": job,
                 "log": log_content,
+            },
+        )
+
+    @app.get("/settings", response_class=HTMLResponse)
+    async def page_settings(request: Request, cfg: SettingsDep) -> HTMLResponse:
+        return templates.TemplateResponse(
+            "settings.html",
+            {
+                "request": request,
+                "settings": cfg,
+            },
+        )
+
+    @app.post("/settings", response_class=HTMLResponse)
+    async def page_update_settings(
+        request: Request,
+        cfg: SettingsDep,
+        output_root: str = Form(...),
+    ) -> HTMLResponse:
+        import uuid
+
+        p = Path(output_root.strip())
+        error = None
+        if not p.is_absolute():
+            error = "Output root directory must be an absolute path."
+        else:
+            try:
+                p.mkdir(parents=True, exist_ok=True)
+                test_file = p / f".write_test_{uuid.uuid4()}"
+                test_file.touch()
+                test_file.unlink()
+            except Exception as exc:
+                error = f"Output root is not writable: {exc}"
+
+        if error:
+            return templates.TemplateResponse(
+                "settings.html",
+                {
+                    "request": request,
+                    "settings": cfg,
+                    "error": error,
+                    "output_root": output_root,
+                },
+                status_code=400,
+            )
+
+        save_custom_settings(output_root)
+        new_cfg = get_settings()
+
+        return templates.TemplateResponse(
+            "settings.html",
+            {
+                "request": request,
+                "settings": new_cfg,
+                "success": "Settings saved successfully and reloaded.",
             },
         )
 

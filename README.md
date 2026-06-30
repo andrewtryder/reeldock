@@ -214,6 +214,15 @@ docker compose logs -f worker
 All options can be set as environment variables or in `/config/config.yaml`.
 **Environment variables take precedence over YAML values.**
 
+### Configuring Output Root via the Web UI
+
+You can configure the `OUTPUT_ROOT` directory dynamically from the **Settings** page in the web interface. 
+
+* **How it works:** Saving a path on the Settings page writes to `/data/settings.json`, which overrides the environment variables or YAML configuration.
+* **Important Note for Docker Users:** The custom path must be a valid, writable path **inside the running container**. To ensure downloaded audiobooks persist on the host system and are discoverable by Audiobookshelf, you should choose a path that lies inside a mounted volume (typically `/media/podcasts` or its subdirectories). Configuring a path outside the mounted volumes will write to the container's temporary filesystem and will be lost when the container is recreated.
+
+
+
 | Variable | Default | Description |
 |---|---|---|
 | `APP_HOST` | `0.0.0.0` | Bind address |

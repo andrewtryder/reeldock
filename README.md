@@ -145,12 +145,11 @@ Or via `pct.conf`:
 mp0: /mnt/podcasts,mp=/mnt/podcasts
 ```
 
-#### C. Run Docker Compose inside the LXC
+#### C. Configure environment variables in `.env` inside the LXC
 
-In `docker-compose.yml`, the volume becomes:
-```yaml
-volumes:
-  - /mnt/podcasts:/media/podcasts
+Copy `.env.example` to `.env` and configure the host podcasts path. There is no need to modify `docker-compose.yml` directly:
+```env
+HOST_PODCASTS_DIR=/mnt/podcasts
 ```
 
 ---
@@ -188,12 +187,11 @@ cp .env.example .env
 mkdir -p data config
 ```
 
-### 3. Edit `docker-compose.yml`
+### 3. Configure podcast directory variables in `.env`
 
-Update the podcast volume to match your NFS mount:
-```yaml
-volumes:
-  - /mnt/podcasts:/media/podcasts  # ← your actual path
+Configure the podcast volume paths in your `.env` file. There is no need to modify `docker-compose.yml` directly:
+```env
+HOST_PODCASTS_DIR=/mnt/podcasts
 ```
 
 ### 4. Start
@@ -218,14 +216,39 @@ docker compose logs -f worker
 All options can be set as environment variables or in `/config/config.yaml`.
 **Environment variables take precedence over YAML values.**
 
+### Docker Volume Path Configuration
+
+When deploying under Docker, you need to understand the distinction between the three key directory configurations:
+
+1. **Host Path (`HOST_PODCASTS_DIR`)**: The directory path on your Docker host machine where podcasts are actually stored.
+2. **Container Path (`CONTAINER_PODCASTS_DIR`)**: The path inside the running Docker container where the host directory is mounted.
+3. **App Output Root (`OUTPUT_ROOT`)**: The path the application writes to inside the container. When running under Docker, this must match the **Container Path**.
+
+> [!IMPORTANT]
+> **Docker volume mounts must be configured** (via `HOST_PODCASTS_DIR` and `CONTAINER_PODCASTS_DIR` in `.env`) before the application can write to the share.
+
+#### Configuration Examples
+
+* **Mac Host Example (e.g. Synology share mounted on Mac):**
+  ```env
+  HOST_PODCASTS_DIR=/Volumes/Synology/Media/Podcasts
+  CONTAINER_PODCASTS_DIR=/media/podcasts
+  OUTPUT_ROOT=/media/podcasts
+  ```
+
+* **Linux / Proxmox Host Example:**
+  ```env
+  HOST_PODCASTS_DIR=/mnt/podcasts
+  CONTAINER_PODCASTS_DIR=/media/podcasts
+  OUTPUT_ROOT=/media/podcasts
+  ```
+
 ### Configuring Output Root via the Web UI
 
-You can configure the `OUTPUT_ROOT` directory dynamically from the **Settings** page in the web interface. 
+You can configure the `OUTPUT_ROOT` directory dynamically from the **Settings** page in the web interface.
 
 * **How it works:** Saving a path on the Settings page writes to `/data/settings.json`, which overrides the environment variables or YAML configuration.
-* **Important Note for Docker Users:** The custom path must be a valid, writable path **inside the running container**. To ensure downloaded audiobooks persist on the host system and are discoverable by Audiobookshelf, you should choose a path that lies inside a mounted volume (typically `/media/podcasts` or its subdirectories). Configuring a path outside the mounted volumes will write to the container's temporary filesystem and will be lost when the container is recreated.
-
-
+* **Important Note for Docker Users:** The settings path must be a valid, writable path **inside the running container** (normally `/media/podcasts`), **NOT the host path**. Configuring a path outside the mounted volumes will write to the container's temporary filesystem and will be lost when the container is recreated.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -240,7 +263,9 @@ You can configure the `OUTPUT_ROOT` directory dynamically from the **Settings** 
 | `DATABASE_URL` | `sqlite+aiosqlite:////data/app.db` | SQLite path |
 | `WORK_DIR` | `/data/work` | Temporary download directory |
 | `ARCHIVE_FILE` | `/data/config/youtube-archive.txt` | yt-dlp archive file |
-| `OUTPUT_ROOT` | `/media/podcasts` | Root of Audiobookshelf podcasts dir |
+| `HOST_PODCASTS_DIR` | `/mnt/podcasts` | Directory on the Docker host where podcasts are stored |
+| `CONTAINER_PODCASTS_DIR` | `/media/podcasts` | Directory path inside the Docker container for volume mount |
+| `OUTPUT_ROOT` | `/media/podcasts` | Root of podcasts dir inside the application/container |
 | `ALLOW_PLAYLISTS` | `false` | Allow playlist URLs |
 | `ALLOW_CHANNELS` | `false` | Allow channel URLs |
 | `DEFAULT_DESTINATION_FOLDER` | — | Pre-selected folder |

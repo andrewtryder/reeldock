@@ -45,12 +45,12 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./data:/data
-      - /tmp/hello:/media/podcasts # ← change to your NFS mount point
+      - ${HOST_PODCASTS_DIR:-/mnt/podcasts}:${CONTAINER_PODCASTS_DIR:-/media/podcasts}
       - ./config:/config
     environment:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=sqlite+aiosqlite:////data/app.db
-      - OUTPUT_ROOT=/media/podcasts
+      - OUTPUT_ROOT=${OUTPUT_ROOT:-/media/podcasts}
       - WORK_DIR=/data/work
       - ARCHIVE_FILE=/data/config/youtube-archive.txt
       # Optional: set PUID/PGID to match your NFS share user
@@ -85,12 +85,12 @@ services:
     restart: unless-stopped
     volumes:
       - ./data:/data
-      - /tmp/hello:/media/podcasts # ← must match app service
+      - ${HOST_PODCASTS_DIR:-/mnt/podcasts}:${CONTAINER_PODCASTS_DIR:-/media/podcasts}
       - ./config:/config
     environment:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=sqlite+aiosqlite:////data/app.db
-      - OUTPUT_ROOT=/media/podcasts
+      - OUTPUT_ROOT=${OUTPUT_ROOT:-/media/podcasts}
       - WORK_DIR=/data/work
       - ARCHIVE_FILE=/data/config/youtube-archive.txt
       # - PUID=1000

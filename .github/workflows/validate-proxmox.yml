@@ -32,7 +32,7 @@ jobs:
       
       - name: Validate Cloud-Init Schema
         run: |
-          cloud-init schema --validate --config scripts/proxmox/cloud-init-user-data.yml
+          cloud-init schema -c scripts/proxmox/cloud-init-user-data.yml
 
       # 3. Dry-run Host Installer with Mocked PVE commands
       - name: Test Installer Argument Parsing (Dry Run)

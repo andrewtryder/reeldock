@@ -138,7 +138,9 @@ def test_list_folders_handles_os_error(tmp_path: Path, mocker):
     (root / "ChannelB").mkdir()
 
     import os
+
     original_stat = os.stat
+
     def dummy_stat(path, *args, **kwargs):
         if "ChannelA" in str(path):
             raise OSError("Operation not supported")

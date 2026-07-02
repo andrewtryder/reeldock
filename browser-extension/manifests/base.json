@@ -1,13 +1,23 @@
 {
   "manifest_version": 3,
-  "name": "yt-abs-importer",
-  "description": "Queue YouTube videos into a local yt-abs-importer instance.",
+  "name": "YouTube ABS Importer",
+  "description": "Queue YouTube videos into a local YouTube ABS Importer instance.",
   "version": "0.1.0",
-  "icons": { "48": "icons/icon.svg", "128": "icons/icon.svg" },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Queue video with yt-abs-importer",
-    "default_icon": { "48": "icons/icon.svg", "128": "icons/icon.svg" }
+    "default_title": "Queue video with YouTube ABS Importer",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   },
   "options_ui": { "page": "options.html", "open_in_tab": false },
   "permissions": ["activeTab", "storage", "contextMenus", "tabs", "notifications"],

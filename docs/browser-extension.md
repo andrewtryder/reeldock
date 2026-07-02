@@ -29,6 +29,9 @@ EXTENSION_API_TOKEN=          # openssl rand -hex 32
 
 See [configuration.md](configuration.md) for the full environment variable reference.
 
+`POST /api/extension/queue` accepts an optional `allow_reimport` boolean for
+intentional duplicate imports.
+
 ## Security notes
 
 - Treat the extension API token like any other secret. The extension stores it in

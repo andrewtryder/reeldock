@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -100,6 +102,25 @@ def mocked_queue(monkeypatch):
         m.setattr("app.main.enqueue_job_task", lambda job_id: "rq-job-123")
         m.setattr("app.main.update_job_status", _noop)
         yield m
+
+
+def _seed_imported_video(video_id: str) -> None:
+    """Insert an imported video row directly into the sqlite test database."""
+    db_url = os.environ["DATABASE_URL"]
+    prefix = "sqlite+aiosqlite:///"
+    if not db_url.startswith(prefix):
+        raise AssertionError(f"Unexpected DATABASE_URL in test: {db_url}")
+    db_path = Path(db_url.removeprefix(prefix))
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO imported_videos (video_id, job_id, source_url, source_title)
+            VALUES (?, ?, ?, ?)
+            """,
+            (video_id, "existing-job", "https://www.youtube.com/watch?v=test123", "Old Title"),
+        )
+        conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +330,50 @@ def test_extension_queue_metadata_failure(
     )
     assert response.status_code == 422
     assert "yt-dlp failed" in response.text
+
+
+def test_extension_queue_rejects_already_imported(
+    extension_enabled_no_token_client, mocked_ytdlp, mocked_queue
+):
+    """Queue endpoint should fail early for already imported video ids."""
+    _seed_imported_video("test123")
+
+    response = extension_enabled_no_token_client.post(
+        "/api/extension/queue",
+        json={
+            "url": "https://www.youtube.com/watch?v=test123",
+            "destination_folder": "",
+            "output_title": "",
+            "embed_metadata": True,
+            "embed_thumbnail": True,
+            "embed_chapters": True,
+            "trigger_abs_scan": False,
+        },
+    )
+    assert response.status_code == 409
+    assert "already been imported" in response.text
+
+
+def test_extension_queue_allows_reimport_with_flag(
+    extension_enabled_no_token_client, mocked_ytdlp, mocked_queue
+):
+    """Queue endpoint should allow duplicates when allow_reimport=true."""
+    _seed_imported_video("test123")
+
+    response = extension_enabled_no_token_client.post(
+        "/api/extension/queue",
+        json={
+            "url": "https://www.youtube.com/watch?v=test123",
+            "destination_folder": "",
+            "output_title": "",
+            "embed_metadata": True,
+            "embed_thumbnail": True,
+            "embed_chapters": True,
+            "trigger_abs_scan": False,
+            "allow_reimport": True,
+        },
+    )
+    assert response.status_code == 201
 
 
 def test_extension_queue_json_parsing_error(

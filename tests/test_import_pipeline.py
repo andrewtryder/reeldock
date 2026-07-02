@@ -72,6 +72,7 @@ def test_pipeline_dry_run(test_db, mock_settings):
     assert job.final_output_path is not None
     assert Path(job.final_output_path).name == "Dry Run Test.m4b"
     assert Path(job.final_output_path).exists()
+    assert job.output_file_size == Path(job.final_output_path).stat().st_size
     assert len(job.attempts_log) == 1
     assert job.attempts_log[0].status == "succeeded"
     # DRY RUN: progress should be 100% complete
@@ -141,6 +142,7 @@ def test_pipeline_happy_path(
     assert job.progress_label == "Complete"
     assert job.chapter_count == 3
     assert job.final_output_path == str(final_output)
+    assert job.output_file_size == final_output.stat().st_size
     assert len(job.attempts_log) == 1
     assert job.attempts_log[0].status == "succeeded"
 
@@ -427,6 +429,7 @@ def test_database_migration_columns(test_db):
     assert "progress_eta" in cols
     assert "progress_speed" in cols
     assert "progress_label" in cols
+    assert "output_file_size" in cols
 
     # Check job_attempts columns
     cursor_attempts = connection.execute(text("PRAGMA table_info(job_attempts)"))

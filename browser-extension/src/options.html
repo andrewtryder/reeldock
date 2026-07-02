@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>yt-abs-importer options</title>
+  <title>YouTube ABS Importer options</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -287,8 +287,8 @@
 </head>
 <body>
   <h1>
-    <img class="app-icon" src="icons/icon.svg" alt="yt-abs-importer icon" />
-    yt-abs-importer Options
+    <img class="app-icon" src="icons/icon.svg" alt="YouTube ABS Importer icon" />
+    YouTube ABS Importer Options
   </h1>
 
   <label for="serverUrl">Server URL</label>
@@ -330,6 +330,14 @@
       <span class="checkbox-custom"></span>
     </div>
     <label for="triggerAbsScan">Trigger Audiobookshelf scan after success</label>
+  </div>
+
+  <div class="row">
+    <div class="checkbox-wrapper">
+      <input id="allowReimport" type="checkbox" />
+      <span class="checkbox-custom"></span>
+    </div>
+    <label for="allowReimport">Allow re-import (overwrite duplicate guard)</label>
   </div>
 
   <button id="save">Save settings</button>

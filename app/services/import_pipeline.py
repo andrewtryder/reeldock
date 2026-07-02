@@ -19,7 +19,12 @@ from app.models import Job, JobStatus
 from app.services.audiobookshelf import AudiobookshelfClient
 from app.services.ffmpeg import FfmpegProgress, FfmpegService
 from app.services.filesystem import FilesystemService
-from app.services.jobs import sync_get_job, sync_record_attempt, sync_update_job
+from app.services.jobs import (
+    sync_get_job,
+    sync_mark_video_imported,
+    sync_record_attempt,
+    sync_update_job,
+)
 from app.services.ytdlp import YtDlpService, parse_ytdlp_progress_line
 
 logger = logging.getLogger(__name__)
@@ -245,6 +250,7 @@ class ImportPipeline:
                     status=JobStatus.succeeded,
                     phase="succeeded",
                     final_output_path=str(output_path),
+                    output_file_size=output_path.stat().st_size,
                 )
                 self.db.commit()
                 sync_record_attempt(
@@ -286,6 +292,7 @@ class ImportPipeline:
                 embed_metadata=job.embed_metadata,
                 embed_thumbnail=job.embed_thumbnail,
                 embed_chapters=job.embed_chapters,
+                force_archive_bypass=bool(job.allow_reimport),
             )
 
             # Ensure archive parent dir exists
@@ -610,6 +617,13 @@ class ImportPipeline:
                 force=True,
             )
 
+            # Record successful imports in the DB-backed dedup ledger before
+            # marking the job succeeded. This also protects against races.
+            if not sync_mark_video_imported(self.db, job, overwrite=bool(job.allow_reimport)):
+                raise PipelineFailedError(
+                    "Video has already been imported. Duplicate import blocked."
+                )
+
             # ── Success ───────────────────────────────────────────────────────
             self._set_progress(
                 job,
@@ -619,12 +633,16 @@ class ImportPipeline:
                 speed="",
                 force=True,
             )
+            output_file_size = conv_artifact.filesize
+            if output_file_size is None and output_path.exists():
+                output_file_size = output_path.stat().st_size
             sync_update_job(
                 self.db,
                 job,
                 status=JobStatus.succeeded,
                 phase="succeeded",
                 final_output_path=str(output_path),
+                output_file_size=output_file_size,
             )
             self.db.commit()
             sync_record_attempt(

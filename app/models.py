@@ -84,6 +84,7 @@ class Job(Base):
     output_title: Mapped[str | None] = mapped_column(Text, nullable=True)
     destination_folder: Mapped[str | None] = mapped_column(Text, nullable=True)
     final_output_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     collision_mode: Mapped[str] = mapped_column(String(20), default="append_id")
 
     # Job options (stored as booleans)
@@ -91,6 +92,7 @@ class Job(Base):
     embed_thumbnail: Mapped[bool] = mapped_column(Boolean, default=True)
     embed_chapters: Mapped[bool] = mapped_column(Boolean, default=True)
     trigger_abs_scan: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_reimport: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Status
     status: Mapped[str] = mapped_column(
@@ -145,6 +147,24 @@ class Job(Base):
         if h:
             return f"{h}:{m:02d}:{s:02d}"
         return f"{m}:{s:02d}"
+
+
+# ---------------------------------------------------------------------------
+# ImportedVideo — canonical dedup ledger
+# ---------------------------------------------------------------------------
+
+
+class ImportedVideo(Base):
+    __tablename__ = "imported_videos"
+
+    # One row per successfully imported YouTube video.
+    video_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    job_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
 
 
 # ---------------------------------------------------------------------------

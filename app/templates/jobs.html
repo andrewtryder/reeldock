@@ -39,25 +39,25 @@
   <div class="p-container-padding max-w-5xl mx-auto w-full">
     <!-- Stats Bento Cards -->
     <section class="grid grid-cols-2 md:grid-cols-4 gap-gutter mb-stack-lg">
-      <div class="bg-surface-container border border-outline-variant p-4 rounded-xl flex flex-col gap-1">
+      <div class="jobs-stat-card section-entrance section-entrance-1 bg-surface-container border border-outline-variant p-4 rounded-xl flex flex-col gap-1">
         <span class="font-label-md text-label-md text-on-surface-variant">Active Jobs</span>
         <div class="flex items-baseline gap-2">
           <span class="font-headline-sm text-headline-sm text-primary">{{ ns.active }}</span>
         </div>
       </div>
-      <div class="bg-surface-container border border-outline-variant p-4 rounded-xl flex flex-col gap-1">
+      <div class="jobs-stat-card section-entrance section-entrance-2 bg-surface-container border border-outline-variant p-4 rounded-xl flex flex-col gap-1">
         <span class="font-label-md text-label-md text-on-surface-variant">Queued Jobs</span>
         <div class="flex items-baseline gap-2">
           <span class="font-headline-sm text-headline-sm text-on-surface-variant">{{ ns.queued }}</span>
         </div>
       </div>
-      <div class="bg-surface-container border border-outline-variant p-4 rounded-xl flex flex-col gap-1">
+      <div class="jobs-stat-card section-entrance section-entrance-3 bg-surface-container border border-outline-variant p-4 rounded-xl flex flex-col gap-1">
         <span class="font-label-md text-label-md text-on-surface-variant">Succeeded</span>
         <div class="flex items-baseline gap-2">
           <span class="font-headline-sm text-headline-sm text-green-400">{{ ns.succeeded }}</span>
         </div>
       </div>
-      <div class="bg-surface-container border border-outline-variant p-4 rounded-xl flex flex-col gap-1">
+      <div class="jobs-stat-card section-entrance section-entrance-3 bg-surface-container border border-outline-variant p-4 rounded-xl flex flex-col gap-1">
         <span class="font-label-md text-label-md text-on-surface-variant">Failed / Cancelled</span>
         <div class="flex items-baseline gap-2">
           <span class="font-headline-sm text-headline-sm text-error">{{ ns.failed }}</span>
@@ -66,33 +66,53 @@
     </section>
 
     <!-- Filters Section -->
-    <div class="flex justify-between items-center mb-4">
-      <div class="flex gap-2">
+    <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-4 section-entrance section-entrance-2">
+      <div class="flex flex-wrap gap-2">
         <button class="filter-tab px-4 py-1.5 rounded-lg border border-outline-variant font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer active-tab bg-secondary-container text-on-secondary-container" data-filter="all">All</button>
         <button class="filter-tab px-4 py-1.5 rounded-lg border border-outline-variant font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer" data-filter="running">Active</button>
         <button class="filter-tab px-4 py-1.5 rounded-lg border border-outline-variant font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer" data-filter="queued">Queued</button>
         <button class="filter-tab px-4 py-1.5 rounded-lg border border-outline-variant font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer" data-filter="completed">Completed</button>
       </div>
-      <a href="/" class="bg-primary-container text-on-primary-container px-4 py-2 rounded-lg font-headline-sm text-body-md flex items-center gap-2 hover:brightness-110 transition-all">
-        <span class="material-symbols-outlined text-[16px]">add</span>
-        New Import
-      </a>
+      <div class="flex items-center gap-2">
+        <button
+          id="bulk-delete-btn"
+          type="button"
+          class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-error/40 bg-error-container/30 text-error font-label-md text-label-md transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:bg-error-container/50"
+          disabled
+        >
+          <span class="material-symbols-outlined text-[16px]">delete</span>
+          Delete selected
+          <span id="bulk-delete-count" class="font-code text-code">(0)</span>
+        </button>
+        <a href="/" class="bg-primary-container text-on-primary-container px-4 py-2 rounded-lg font-headline-sm text-body-md flex items-center gap-2 hover:brightness-110 transition-all">
+          <span class="material-symbols-outlined text-[16px]">add</span>
+          New Import
+        </a>
+      </div>
     </div>
 
     <!-- Table Card -->
     {% if not jobs %}
-    <div class="bg-surface-container border border-outline rounded-xl p-12 text-center flex flex-col items-center gap-4">
-      <span class="material-symbols-outlined text-[48px] text-on-surface-variant opacity-60">hourglass_empty</span>
+    <div class="jobs-empty-state section-entrance section-entrance-3 bg-surface-container border border-outline rounded-xl p-12 text-center flex flex-col items-center gap-4">
+      <span class="material-symbols-outlined text-[48px] text-primary/80 opacity-90">hourglass_empty</span>
       <h3 class="font-headline-sm text-headline-sm text-on-surface">No import jobs found</h3>
       <p class="font-body-md text-body-md text-on-surface-variant max-w-sm">You haven't queued any audiobooks yet. Paste a YouTube URL on the import tab to get started.</p>
       <a href="/" class="bg-primary-container text-on-primary-container px-6 py-2.5 rounded-lg font-headline-sm text-body-md hover:brightness-110 transition-all">Import a Video</a>
     </div>
     {% else %}
-    <div class="bg-surface-container border border-outline rounded-xl overflow-hidden shadow-xl">
-      <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse" id="jobs-table">
+    <div class="section-entrance section-entrance-3 bg-surface-container border border-outline rounded-xl overflow-hidden shadow-xl">
+      <div class="overflow-x-auto custom-scrollbar jobs-table-scroll">
+        <table class="jobs-table-responsive w-full text-left border-collapse" id="jobs-table">
           <thead>
             <tr class="bg-surface-container-high/50 border-b border-outline-variant">
+              <th class="px-4 py-4 w-12">
+                <input
+                  id="jobs-select-all"
+                  type="checkbox"
+                  class="h-4 w-4 accent-primary cursor-pointer"
+                  title="Select all visible jobs"
+                />
+              </th>
               <th class="px-6 py-4 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Video Title</th>
               <th class="px-6 py-4 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Destination</th>
               <th class="px-6 py-4 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Status</th>
@@ -102,8 +122,16 @@
           </thead>
           <tbody class="divide-y divide-outline-variant">
             {% for job in jobs %}
-            <tr class="job-row hover:bg-surface-container-high/40 transition-colors" data-status="{{ job.status.value }}">
-              <td class="px-6 py-4 max-w-xs sm:max-w-sm truncate">
+            <tr class="job-row job-row-lift hover:bg-surface-container-high/40 transition-colors" data-status="{{ job.status.value }}" data-job-id="{{ job.id }}">
+              <td class="px-4 py-4">
+                <input
+                  type="checkbox"
+                  class="job-select h-4 w-4 accent-primary cursor-pointer"
+                  value="{{ job.id }}"
+                  aria-label="Select job {{ job.id }}"
+                />
+              </td>
+              <td data-label="Video Title" class="px-6 py-4 max-w-xs sm:max-w-sm truncate">
                 <a href="/jobs/{{ job.id }}" class="font-body-md text-on-surface font-semibold hover:text-primary transition-colors block truncate">
                   {{ (job.output_title or job.source_title or job.url) | e }}
                 </a>
@@ -111,10 +139,10 @@
                 <span class="font-label-md text-label-md text-on-surface-variant opacity-75 block mt-0.5 truncate">{{ job.uploader | e }}</span>
                 {% endif %}
               </td>
-              <td class="px-6 py-4 font-code text-code text-on-surface-variant truncate max-w-[150px]">
+              <td data-label="Destination" class="px-6 py-4 font-code text-code text-on-surface-variant truncate max-w-[150px]">
                 {{ job.destination_folder | default('—') | e }}
               </td>
-              <td class="px-6 py-4">
+              <td data-label="Status" class="px-6 py-4">
                 <div class="flex flex-col gap-1">
                   <!-- Badges matching status -->
                   {% if job.status.value in ['running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
@@ -138,18 +166,12 @@
                     {{ job.status.value }}
                   </span>
                   {% endif %}
-
-                  {% if job.progress_label %}
-                    <span class="font-code text-code text-primary">{{ job.progress_label }}{% if job.progress_percent is not none %} ({{ job.progress_percent | round | int }}%){% endif %}</span>
-                  {% elif job.phase and job.phase != job.status.value %}
-                    <span class="font-code text-code text-tertiary">{{ job.phase }}</span>
-                  {% endif %}
                 </div>
               </td>
-              <td class="px-6 py-4 font-code text-code text-on-surface-variant">
+              <td data-label="Created" class="px-6 py-4 font-code text-code text-on-surface-variant">
                 {{ job.created_at.strftime('%m-%d %H:%M') if job.created_at else '—' }}
               </td>
-              <td class="px-6 py-4 text-right">
+              <td data-label="Actions" class="px-6 py-4 text-right">
                 <div class="flex justify-end gap-2">
                   <a href="/jobs/{{ job.id }}" class="p-2 rounded-lg hover:bg-surface-container-highest text-on-surface-variant transition-all hover:text-on-surface flex items-center justify-center" title="View details">
                     <span class="material-symbols-outlined text-[18px]">description</span>
@@ -167,54 +189,148 @@
 </main>
 
 <script>
-  // Filter tabs logic
-  document.querySelectorAll('.filter-tab').forEach(tab => {
+  const filterTabs = document.querySelectorAll('.filter-tab');
+  const rows = Array.from(document.querySelectorAll('.job-row'));
+  const searchInput = document.getElementById('jobs-search-input');
+  const selectAll = document.getElementById('jobs-select-all');
+  const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+  const bulkDeleteCount = document.getElementById('bulk-delete-count');
+  const activeStatuses = ['running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'];
+
+  let activeFilter = 'all';
+  let searchTerm = '';
+
+  function rowMatchesFilter(status) {
+    if (activeFilter === 'all') return true;
+    if (activeFilter === 'running') return activeStatuses.includes(status);
+    if (activeFilter === 'queued') return status === 'queued';
+    if (activeFilter === 'completed') return ['succeeded', 'failed', 'cancelled'].includes(status);
+    return true;
+  }
+
+  function getVisibleRowCheckboxes() {
+    return rows
+      .filter(row => row.style.display !== 'none')
+      .map(row => row.querySelector('.job-select'))
+      .filter(Boolean);
+  }
+
+  function updateSelectionUi() {
+    if (!bulkDeleteBtn || !bulkDeleteCount) {
+      return;
+    }
+
+    const allCheckboxes = rows.map(row => row.querySelector('.job-select')).filter(Boolean);
+    const selectedCheckboxes = allCheckboxes.filter(cb => cb.checked);
+
+    bulkDeleteBtn.disabled = selectedCheckboxes.length === 0;
+    bulkDeleteCount.textContent = `(${selectedCheckboxes.length})`;
+
+    if (!selectAll) {
+      return;
+    }
+
+    const visibleCheckboxes = getVisibleRowCheckboxes();
+    const selectedVisibleCount = visibleCheckboxes.filter(cb => cb.checked).length;
+
+    if (visibleCheckboxes.length === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+      selectAll.disabled = true;
+      return;
+    }
+
+    selectAll.disabled = false;
+    selectAll.checked = selectedVisibleCount === visibleCheckboxes.length;
+    selectAll.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleCheckboxes.length;
+  }
+
+  function applyFilters() {
+    rows.forEach(row => {
+      const status = row.getAttribute('data-status') || '';
+      const text = row.innerText.toLowerCase();
+      const matchesFilter = rowMatchesFilter(status);
+      const matchesSearch = !searchTerm || text.includes(searchTerm);
+      row.style.display = (matchesFilter && matchesSearch) ? '' : 'none';
+    });
+
+    updateSelectionUi();
+  }
+
+  filterTabs.forEach(tab => {
     tab.addEventListener('click', () => {
-      // Toggle active classes
-      document.querySelectorAll('.filter-tab').forEach(t => {
+      filterTabs.forEach(t => {
         t.classList.remove('bg-secondary-container', 'text-on-secondary-container', 'active-tab');
       });
       tab.classList.add('bg-secondary-container', 'text-on-secondary-container', 'active-tab');
-
-      const filter = tab.getAttribute('data-filter');
-      const rows = document.querySelectorAll('.job-row');
-
-      rows.forEach(row => {
-        const status = row.getAttribute('data-status');
-        let show = false;
-
-        if (filter === 'all') {
-          show = true;
-        } else if (filter === 'running') {
-          show = ['running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'].includes(status);
-        } else if (filter === 'queued') {
-          show = (status === 'queued');
-        } else if (filter === 'completed') {
-          show = ['succeeded', 'failed', 'cancelled'].includes(status);
-        }
-
-        row.style.display = show ? '' : 'none';
-      });
+      activeFilter = tab.getAttribute('data-filter') || 'all';
+      applyFilters();
     });
   });
 
-  // Client-side search logic
-  const searchInput = document.getElementById('jobs-search-input');
   if (searchInput) {
-    searchInput.addEventListener('input', (e) => {
-      const term = e.target.value.toLowerCase();
-      const rows = document.querySelectorAll('.job-row');
-      
-      rows.forEach(row => {
-        // Only search currently filtered rows or search all
-        const text = row.innerText.toLowerCase();
-        if (text.includes(term)) {
-          row.style.display = '';
-        } else {
-          row.style.display = 'none';
-        }
-      });
+    searchInput.addEventListener('input', event => {
+      searchTerm = (event.target.value || '').toLowerCase().trim();
+      applyFilters();
     });
   }
+
+  rows.forEach(row => {
+    const checkbox = row.querySelector('.job-select');
+    if (checkbox) {
+      checkbox.addEventListener('change', updateSelectionUi);
+    }
+  });
+
+  if (selectAll) {
+    selectAll.addEventListener('change', event => {
+      const shouldCheck = Boolean(event.target.checked);
+      getVisibleRowCheckboxes().forEach(cb => {
+        cb.checked = shouldCheck;
+      });
+      updateSelectionUi();
+    });
+  }
+
+  if (bulkDeleteBtn) {
+    bulkDeleteBtn.addEventListener('click', async () => {
+      const selectedIds = rows
+        .map(row => row.querySelector('.job-select'))
+        .filter(cb => cb && cb.checked)
+        .map(cb => cb.value);
+
+      if (!selectedIds.length) {
+        return;
+      }
+
+      if (!window.confirm(`Delete ${selectedIds.length} selected job(s)?`)) {
+        return;
+      }
+
+      bulkDeleteBtn.disabled = true;
+      try {
+        const response = await fetch('/api/jobs/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_ids: selectedIds }),
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          const detail = payload.detail || 'Failed to delete selected jobs.';
+          window.alert(detail);
+          updateSelectionUi();
+          return;
+        }
+
+        window.location.reload();
+      } catch (error) {
+        window.alert('Network error while deleting selected jobs.');
+        updateSelectionUi();
+      }
+    });
+  }
+
+  applyFilters();
 </script>
 {% endblock %}

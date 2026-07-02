@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>yt-abs-importer</title>
+  <title>YouTube ABS Importer</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -69,6 +69,15 @@
       background: var(--surface);
       border-radius: 8px;
       border: 1px solid var(--outline-variant);
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 8px 0;
+      font-size: 0.85rem;
+      color: #c4c6d5;
     }
 
     #video a {
@@ -234,8 +243,8 @@
 </head>
 <body>
   <h1>
-    <img class="app-icon" src="icons/icon.svg" alt="yt-abs-importer icon" />
-    yt-abs-importer
+    <img class="app-icon" src="icons/icon.svg" alt="YouTube ABS Importer icon" />
+    YouTube ABS Importer
     <div id="status-dot" class="disconnected"></div>
   </h1>
 
@@ -243,6 +252,10 @@
 
   <div id="queue-form">
     <button id="queue" disabled>Queue video</button>
+    <label class="row" for="allow-reimport">
+      <input id="allow-reimport" type="checkbox" />
+      Allow re-import (overwrite duplicate guard)
+    </label>
   </div>
 
   <div id="result">

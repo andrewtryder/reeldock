@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   embedMetadata: true,
   embedThumbnail: true,
   embedChapters: true,
+  allowReimport: false,
 });
 
 // Storage keys we persist. Keep this list in sync with options.js.
@@ -18,6 +19,7 @@ export const STORAGE_KEYS = [
   'embedMetadata',
   'embedThumbnail',
   'embedChapters',
+  'allowReimport',
 ];
 
 // Load settings from storage, filling in defaults for missing keys.

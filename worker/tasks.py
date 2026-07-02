@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from app.config import get_settings
+from app.config import reload_settings
 from app.db import get_sync_db
 from app.models import JobStatus
 from app.services.import_pipeline import ImportPipeline
@@ -23,7 +23,7 @@ def run_import_job(job_id: str) -> None:
     """
     Execute the full import pipeline for a job.
     """
-    settings = get_settings()
+    settings = reload_settings()
     db = get_sync_db()
     started_at = datetime.now(tz=UTC)
 

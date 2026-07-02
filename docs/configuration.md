@@ -33,7 +33,7 @@ When the application loads its settings, it resolves them in the following order
 | `CONTAINER_PODCASTS_DIR` | `/media/podcasts` | Container mount point (Docker Compose only). |
 | `OUTPUT_ROOT` | `/media/podcasts` | Path where finished podcasts are written. (Must match Container Path in Docker). |
 | `WORK_DIR` | `/data/work` | Workspace for downloading and processing audio. |
-| `ARCHIVE_FILE` | `/data/config/youtube-archive.txt` | File where downloaded YouTube IDs are logged. |
+| `ARCHIVE_FILE` | `/data/config/youtube-archive.txt` | `yt-dlp` archive file used as a secondary duplicate guard at download time. |
 | **Download & Processing** | | |
 | `ALLOW_PLAYLISTS` | `false` | Allow importing full playlists. |
 | `ALLOW_CHANNELS` | `false` | Allow importing full channels. |

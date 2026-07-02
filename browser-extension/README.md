@@ -9,7 +9,8 @@ development builds. Nothing is published to a browser store.
 - **Popup** on YouTube video pages with a one-click "Queue video" button.
 - **Context menu** "Send to yt-abs-importer" on YouTube pages and links.
 - **Options page** to configure the server URL, API token, default destination
-  folder, embed flags, and the "trigger Audiobookshelf scan" toggle.
+  folder, embed flags, the "trigger Audiobookshelf scan" toggle, and a default
+  "allow re-import" toggle.
 - **LAN support**: host permissions for `127.0.0.1`, `localhost`, and the
   `192.168.*` / `10.*` / `172.16.*` ranges are included so the extension can
   reach a backend on the same LAN.
@@ -67,6 +68,8 @@ Click the extension icon → Options (or the gear icon on the popup) and set:
 - **Default destination folder**: subfolder under `OUTPUT_ROOT` (optional)
 - **Embed metadata / thumbnail / chapters**: passed through to the job
 - **Trigger Audiobookshelf scan after success**: passed through to the job
+- **Allow re-import by default**: sends `allow_reimport=true` for extension
+  queue requests unless overridden in the popup
 
 Use **Test connection** to verify the server is reachable and the token is
 accepted.

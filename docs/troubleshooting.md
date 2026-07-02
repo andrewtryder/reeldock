@@ -69,20 +69,19 @@ If downloads complete successfully in `yt-abs-importer` but do not show up in Au
 
 ---
 
-## 5. Archive File Skipping Downloads
+## 5. Duplicate Video Rejection
 
 ### Symptoms
-A job fails or finishes instantly with a message like:
-```
-[download] CcYToxtmFHs has already been recorded in the archive
-```
+Queueing a URL fails immediately with a `409` response (or UI error) indicating the video has already been imported.
 
 ### Cause
-By default, `yt-dlp` logs completed video IDs to `/data/config/youtube-archive.txt` to prevent duplicate downloads.
+The app now keeps a database ledger of successfully imported video IDs and rejects duplicate imports early.
+`yt-dlp` also keeps `/data/config/youtube-archive.txt` as a secondary duplicate guard during downloads.
 
 ### Fix
-* **Option A: Enable Archive Bypass**: Set `ALLOW_ARCHIVE_BYPASS=true` in your `.env` file or dynamically on the Settings page.
-* **Option B: Manually Edit the Archive**: Edit `/data/config/youtube-archive.txt` on your host machine and delete the line containing the corresponding YouTube ID.
+* **Option A: Enable Re-import for This Job**: In the web import form, check **Allow re-import (overwrite duplicate guard)**, or send `allow_reimport=true` to the API.
+* **Option B: Remove Historical Dedup Entries**: If you intentionally need a re-import, remove the video ID from the DB ledger and the archive file.
+* **Option C: Manually Edit the Archive**: Edit `/data/config/youtube-archive.txt` on your host machine and delete the line containing the corresponding YouTube ID.
   ```bash
   # Example to remove video ID CcYToxtmFHs
   grep -v "CcYToxtmFHs" data/config/youtube-archive.txt > /tmp/archive.tmp

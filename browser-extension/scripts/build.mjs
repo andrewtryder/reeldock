@@ -20,7 +20,7 @@ async function build(target) {
 
   // Copy source files the manifest references directly to the dist root,
   // plus the shared ES modules they import. Skip the standalone src/ folder.
-  const entries = ['popup.html', 'popup.js', 'options.html', 'options.js', 'background.js'];
+  const entries = ['popup.html', 'popup.js', 'options.html', 'options.js', 'background.js', 'ui.js'];
   for (const name of entries) {
     await cp(resolve(ROOT, 'src', name), resolve(dist, name));
   }

@@ -17,6 +17,8 @@ function updateStatusDot(connected) {
   }
 }
 
+let activeJobId = null;
+
 async function getActiveTabUrl() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab?.url || '';
@@ -28,9 +30,9 @@ async function getSettings() {
   return res.settings;
 }
 
-async function queueVideo(url) {
+async function queueVideo(url, allowReimport = false) {
   try {
-    const res = await chrome.runtime.sendMessage({ action: 'queue', url });
+    const res = await chrome.runtime.sendMessage({ action: 'queue', url, allowReimport });
     if (!res?.ok) throw new Error(res?.error || 'Queue failed');
     return res;
   } catch (err) {
@@ -53,12 +55,11 @@ function renderQueuedJob(data) {
 
   // Update job link (construct proper URL)
   const jobLink = $('job-link');
-  if (data.job_url) {
+  const serverUrl = data.serverUrl || 'http://localhost:8080';
+  if (data.job_url?.startsWith('http://') || data.job_url?.startsWith('https://')) {
     jobLink.href = data.job_url;
   } else {
-    // Fallback to server URL
-    const serverUrl = data.serverUrl || 'http://localhost:8080';
-    jobLink.href = `${serverUrl}${data.job_url}`;
+    jobLink.href = `${serverUrl}${data.job_url || ''}`;
   }
 
   // Render initial status
@@ -68,7 +69,7 @@ function renderQueuedJob(data) {
 function renderJobStatus(data) {
   // Update status badge
   const statusBadge = $('status-badge');
-  const statusText = $('#status-text');
+  const statusText = $('status-text');
 
   if (data.status === 'queued') {
     statusBadge.className = 'status-badge status-queued';
@@ -93,9 +94,9 @@ function renderJobStatus(data) {
   }
 
   // Update progress bar
-  const progressBarFill = $('#progress-bar-fill');
-  const progressPercentage = $('#progress-percentage');
-  const progressLabel = $('#progress-label');
+  const progressBarFill = $('progress-bar-fill');
+  const progressPercentage = $('progress-percentage');
+  const progressLabel = $('progress-label');
 
   const progress = data.progress_percent || data.progress || 0;
   progressBarFill.style.width = `${progress}%`;
@@ -136,6 +137,7 @@ async function init() {
   try {
     settings = await getSettings();
     serverUrl = settings.serverUrl || '';
+    $('allow-reimport').checked = Boolean(settings.allowReimport);
   } catch (err) {
     console.error('Error loading settings:', err);
     setStatus('Failed to load extension settings', 'err');
@@ -148,7 +150,7 @@ async function init() {
   }
 
   // Enable queue button
-  const queueButton = $('#queue');
+  const queueButton = $('queue');
   queueButton.disabled = false;
 }
 
@@ -159,21 +161,26 @@ async function onQueue() {
     return;
   }
 
-  const queueButton = $('#queue');
+  const allowReimport = $('allow-reimport')?.checked || false;
+
+  const queueButton = $('queue');
   queueButton.disabled = true;
   queueButton.textContent = 'Queuing…';
 
   try {
     setStatus('Queuing video...', 'pending');
 
-    const data = await queueVideo(url);
+    const data = await queueVideo(url, allowReimport);
 
     if (data.ok) {
+      activeJobId = data.job_id || null;
       setStatus('Video queued successfully!', 'ok');
       renderQueuedJob(data);
 
-      // Start WebSocket connection for real-time updates
-      startWebSocketConnection(data.job_id);
+      // Ask background service worker to own the WebSocket lifecycle.
+      chrome.runtime.sendMessage({ action: 'startWebSocket', jobId: data.job_id }).catch((err) => {
+        console.error('Failed to request WebSocket start:', err);
+      });
     } else {
       throw new Error(data.error || 'Queue failed');
     }
@@ -186,49 +193,40 @@ async function onQueue() {
   }
 }
 
-function startWebSocketConnection(jobId) {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
-  const wsUrl = `${protocol}//${host}/api/ws/jobs/${jobId}`;
+chrome.runtime.onMessage.addListener((message) => {
+  if (!message || typeof message.action !== 'string') return;
 
-  const ws = new WebSocket(wsUrl);
-
-  ws.onopen = function() {
-    console.log('WebSocket connected');
-    updateStatusDot(true);
-  };
-
-  ws.onmessage = function(event) {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.type === 'job_update') {
-        renderJobStatus(data.job);
-      }
-    } catch (error) {
-      console.error('Error parsing WebSocket message:', error);
-    }
-  };
-
-  ws.onerror = function(error) {
-    console.error('WebSocket error:', error);
+  if (message.action === 'queueError') {
+    setStatus(`Queue failed: ${message.error || 'Unknown error'}`, 'err');
     updateStatusDot(false);
-  };
+    return;
+  }
 
-  ws.onclose = function(event) {
-    console.log('WebSocket closed:', event.code, event.reason);
-    updateStatusDot(false);
+  if (message.action === 'websocketConnected') {
+    if (!activeJobId || message.jobId === activeJobId) updateStatusDot(true);
+    return;
+  }
 
-    // Attempt to reconnect after 5 seconds
-    if (event.code !== 1000) { // Not a normal closure
-      setTimeout(() => {
-        startWebSocketConnection(jobId);
-      }, 5000);
+  if (message.action === 'websocketDisconnected' || message.action === 'websocketError') {
+    if (!activeJobId || message.jobId === activeJobId) updateStatusDot(false);
+    return;
+  }
+
+  if (message.action === 'jobUpdate' && message.job) {
+    const job = message.job;
+    if (activeJobId && job.id && job.id !== activeJobId) return;
+
+    renderJobStatus(job);
+    if (job.status === 'failed' && job.error_message) {
+      setStatus(`Queue failed: ${job.error_message}`, 'err');
+    } else if (job.status === 'succeeded') {
+      setStatus('Completed successfully', 'ok');
     }
-  };
-}
+  }
+});
 
 // Event listeners
-$('#queue').addEventListener('click', onQueue);
+$('queue').addEventListener('click', onQueue);
 
 // Initialize
 init();

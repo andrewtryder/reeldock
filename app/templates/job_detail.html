@@ -102,7 +102,7 @@
       <div class="flex gap-2 shrink-0">
         {% if job.status.value in ['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
         <form method="POST" action="/api/jobs/{{ job.id }}/cancel" onsubmit="handleCancel(event, this)">
-          <button type="submit" class="px-4 py-2 bg-error-container/20 text-error border border-error/30 font-label-md text-label-md rounded-lg hover:bg-error-container/45 transition-colors cursor-pointer flex items-center gap-1.5" id="cancel-btn">
+          <button type="submit" class="job-action-btn px-4 py-2 bg-error-container/20 text-error border border-error/30 font-label-md text-label-md rounded-lg hover:bg-error-container/45 transition-colors cursor-pointer flex items-center gap-1.5" id="cancel-btn">
             <span class="material-symbols-outlined text-[16px]">cancel</span>
             Cancel Job
           </button>
@@ -111,7 +111,7 @@
 
         {% if job.status.value in ['failed', 'cancelled'] %}
         <form method="POST" action="/api/jobs/{{ job.id }}/retry" onsubmit="handleRetry(event, this)">
-          <button type="submit" class="px-4 py-2 bg-primary-container text-on-primary-container font-label-md text-label-md rounded-lg hover:brightness-110 transition-colors cursor-pointer flex items-center gap-1.5" id="retry-btn">
+          <button type="submit" class="job-action-btn px-4 py-2 bg-primary-container text-on-primary-container font-label-md text-label-md rounded-lg hover:brightness-110 transition-colors cursor-pointer flex items-center gap-1.5" id="retry-btn">
             <span class="material-symbols-outlined text-[16px]">replay</span>
             Retry Import
           </button>
@@ -120,8 +120,24 @@
       </div>
     </div>
 
+    <!-- Timeline -->
+    <section class="bg-surface-container border border-outline-variant rounded-xl p-stack-md mb-stack-lg shadow-md section-entrance section-entrance-1">
+      <h3 class="font-headline-sm text-headline-sm text-on-surface mb-4 flex items-center gap-2">
+        <span class="material-symbols-outlined text-primary">lan</span>
+        Processing Timeline
+      </h3>
+      <ol class="job-timeline grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+        <li class="timeline-step timeline-step-{{ step_queued }}"><span class="material-symbols-outlined text-[16px]">schedule</span><span>Queued</span></li>
+        <li class="timeline-step timeline-step-{{ step_downloading }}"><span class="material-symbols-outlined text-[16px]">download</span><span>Download</span></li>
+        <li class="timeline-step timeline-step-{{ step_converting }}"><span class="material-symbols-outlined text-[16px]">library_music</span><span>Convert</span></li>
+        <li class="timeline-step timeline-step-{{ step_verifying }}"><span class="material-symbols-outlined text-[16px]">fact_check</span><span>Verify</span></li>
+        <li class="timeline-step timeline-step-{{ step_scanning }}"><span class="material-symbols-outlined text-[16px]">travel_explore</span><span>Scan</span></li>
+        <li class="timeline-step timeline-step-{{ step_done }}"><span class="material-symbols-outlined text-[16px]">done_all</span><span>Done</span></li>
+      </ol>
+    </section>
+
     <!-- Info Bar -->
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-gutter p-4 bg-surface-container-low rounded-xl border border-outline-variant mb-stack-lg shadow-md">
+    <div class="job-info-bar grid grid-cols-2 md:grid-cols-5 gap-gutter p-4 bg-surface-container-low rounded-xl border border-outline-variant mb-stack-lg shadow-md section-entrance section-entrance-2">
       <div class="flex flex-col gap-1">
         <span class="uppercase font-label-md text-label-md text-on-surface-variant tracking-wider">Job ID</span>
         <span class="font-code text-code text-on-surface">#{{ job.id | truncate(12) }}</span>
@@ -147,7 +163,7 @@
           {% endif %}
         </div>
       </div>
-      <div class="flex flex-col gap-1 md:col-span-1 overflow-hidden">
+      <div class="job-info-source flex flex-col gap-1 md:col-span-1 overflow-hidden">
         <span class="uppercase font-label-md text-label-md text-on-surface-variant tracking-wider">Source</span>
         <a href="{{ job.url | e }}" target="_blank" rel="noopener" class="font-code text-body-md text-primary truncate hover:underline block">{{ job.url | truncate(25) | e }}</a>
       </div>
@@ -163,14 +179,14 @@
 
     <!-- Progress Card -->
     {% set show_progress = job.progress_percent is not none or job.progress is not none or job.progress_label or status in ['running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
-    <div class="bg-surface-container rounded-xl border border-outline-variant p-stack-lg mb-stack-lg relative overflow-hidden shadow-xl" id="progress-row" {% if not show_progress %}style="display: none;"{% endif %}>
+    <div class="progress-card bg-surface-container rounded-xl border border-outline-variant p-stack-lg mb-stack-lg relative overflow-hidden shadow-xl section-entrance section-entrance-3" id="progress-row" {% if not show_progress %}style="display: none;"{% endif %}>
       <div class="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
         <span class="material-symbols-outlined text-[120px]">equalizer</span>
       </div>
-      <div class="flex items-center justify-between mb-stack-md">
-        <div class="flex items-baseline gap-2">
+      <div class="progress-summary-row flex items-center justify-between mb-stack-md">
+        <div class="progress-metric flex items-baseline gap-2">
           {% set display_pct = job.progress_percent or job.progress or 0 %}
-          <span class="font-headline-lg text-[42px] text-primary" id="job-progress-text">{{ display_pct }}%</span>
+          <span class="progress-value font-headline-lg text-[42px] text-primary" id="job-progress-text">{{ display_pct }}%</span>
           <span class="font-label-md text-on-surface-variant" id="processing-label">
             {% if status == 'succeeded' %}COMPLETE
             {% elif status == 'failed' %}FAILED
@@ -178,7 +194,7 @@
             {% else %}PROCESSING{% endif %}
           </span>
         </div>
-        <div class="flex gap-gutter text-right" id="speed-eta-row">
+        <div class="progress-detail-row flex gap-gutter text-right" id="speed-eta-row">
           <div>
             <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wide">Speed</p>
             <p class="font-code text-headline-sm text-tertiary" id="job-progress-speed">
@@ -194,7 +210,7 @@
         </div>
       </div>
       <!-- Progress Bar -->
-      <div class="w-full h-3 bg-surface-container-highest rounded-full overflow-hidden mb-stack-md">
+      <div class="progress-bar-track w-full h-3 bg-surface-container-highest rounded-full overflow-hidden mb-stack-md">
         {% set bar_pct = job.progress_percent or job.progress or 0 %}
         {% if bar_pct > 100 %}{% set bar_pct = 100 %}{% endif %}
         <div class="h-full bg-primary-container rounded-full progress-glow transition-all duration-500 ease-out" id="job-progress-bar" style="width: {{ bar_pct }}%;">
@@ -207,21 +223,19 @@
     </div>
 
     <!-- Error Pre Section -->
-    {% if job.error_message %}
-    <div class="bg-error-container/10 border border-error/30 text-error rounded-xl p-stack-md mb-stack-lg shadow-md">
+    <div id="error-section" class="error-section bg-error-container/10 border border-error/30 text-error rounded-xl p-stack-md mb-stack-lg shadow-md" {% if not job.error_message %}style="display: none;"{% endif %}>
       <div class="flex items-start gap-3">
         <span class="material-symbols-outlined shrink-0 text-error">warning</span>
         <div class="overflow-hidden w-full">
           <h4 class="font-label-md text-label-md uppercase tracking-wider mb-2">Error Message</h4>
-          <pre class="font-code text-code text-on-surface bg-black/45 p-3 rounded-lg border border-outline-variant/30 overflow-x-auto whitespace-pre-wrap">{{ job.error_message | e }}</pre>
+          <pre id="error-message-text" class="font-code text-code text-on-surface bg-black/45 p-3 rounded-lg border border-outline-variant/30 overflow-x-auto whitespace-pre-wrap">{{ job.error_message | default('') | e }}</pre>
         </div>
       </div>
     </div>
-    {% endif %}
 
     <!-- Process Logs Console -->
-    <div class="flex flex-col h-[480px] mb-12 shadow-xl">
-      <div class="flex items-center justify-between mb-3 px-1">
+    <div class="log-viewer-section flex flex-col h-[480px] mb-4 shadow-xl">
+      <div class="log-viewer-header flex items-center justify-between mb-3 px-1">
         <h3 class="font-headline-sm text-headline-sm flex items-center gap-2 text-on-surface font-semibold">
           <span class="material-symbols-outlined text-primary">terminal</span>
           Process Logs
@@ -233,9 +247,20 @@
           </button>
         </div>
       </div>
-      <div class="flex-1 bg-[#08090c] border border-[#2e3452] rounded-[10px] p-stack-md overflow-hidden flex flex-col font-code text-code text-on-surface">
+      <div class="log-viewer flex-1 bg-[#08090c] border border-[#2e3452] rounded-[10px] p-stack-md overflow-hidden flex flex-col font-code text-code text-on-surface">
         <pre class="overflow-y-auto terminal-scroll flex flex-col gap-1 pr-2 h-full text-[#c4c6d5] leading-relaxed whitespace-pre-wrap select-text" id="log-content">{{ log | e }}</pre>
       </div>
+    </div>
+
+    <div id="final-output-section" class="final-output-section mt-stack-md p-3 bg-surface-container rounded border border-outline-variant" {% if not job.final_output_path %}style="display: none;"{% endif %}>
+      <span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Final Output Path</span>
+      <div id="final-output-path" class="font-code text-code text-on-surface break-all">{{ job.final_output_path | default('') | e }}</div>
+      {% if job.status.value == 'succeeded' and job.output_file_size is not none %}
+      <div class="mt-2">
+        <span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">File Size</span>
+        <div id="final-output-size" class="font-code text-code text-on-surface">{{ job.output_file_size | filesizeformat(true) }}</div>
+      </div>
+      {% endif %}
     </div>
   </div>
 </main>
@@ -310,11 +335,11 @@
           const hasProgress = (d.progress_percent !== null && d.progress_percent !== undefined) || (d.progress !== null && d.progress !== undefined);
           const hasLabel = !!d.progress_label;
           const isActive = activeStatuses.has(d.status);
-          const isTerminal = terminalStatuses.has(d.status);
           const showDetail = progressDetailStatuses.has(d.status);
 
           if (hasProgress || hasLabel || isActive) {
             if (progressRow) progressRow.style.display = '';
+            if (progressRow) progressRow.classList.toggle('progress-live', isActive);
 
             const pct = d.progress_percent !== null ? d.progress_percent : (d.progress !== null ? d.progress : 0);
             const clampedPct = Math.max(0, Math.min(100, pct));
@@ -351,7 +376,10 @@
               progressEta.textContent = (showDetail && d.progress_eta) ? d.progress_eta : '—';
             }
           } else {
-            if (progressRow) progressRow.style.display = 'none';
+            if (progressRow) {
+              progressRow.style.display = 'none';
+              progressRow.classList.remove('progress-live');
+            }
           }
 
           if (d.status !== currentStatus) {
@@ -407,10 +435,12 @@
 {% endblock %}
 
 <script>
+  (() => {
   // WebSocket connection for real-time updates
   let ws = null;
   let wsReconnectTimeout = null;
   let currentJobId = '{{ job.id | e }}';
+  const logViewer = document.getElementById('log-content');
 
   function connectWebSocket() {
     // Build WebSocket URL with optional token from current page
@@ -439,7 +469,7 @@
         if (data.type === 'job_update') {
           // Update UI with WebSocket data
           const job = data.job;
-          
+
           // Update status badge
           const badgeContainer = document.getElementById('status-badge-container');
           if (badgeContainer) {
@@ -477,11 +507,11 @@
           const hasProgress = (job.progress_percent !== null && job.progress_percent !== undefined) || (job.progress !== null && job.progress !== undefined);
           const hasLabel = !!job.progress_label;
           const isActive = activeStatuses.has(job.status);
-          const isTerminal = terminalStatuses.has(job.status);
           const showDetail = progressDetailStatuses.has(job.status);
 
           if (hasProgress || hasLabel || isActive) {
             if (progressRow) progressRow.style.display = '';
+            if (progressRow) progressRow.classList.toggle('progress-live', isActive);
 
             const pct = job.progress_percent !== null ? job.progress_percent : (job.progress !== null ? job.progress : 0);
             const clampedPct = Math.max(0, Math.min(100, pct));
@@ -526,49 +556,36 @@
               }
             }
           } else {
-            if (progressRow) progressRow.style.display = 'none';
+            if (progressRow) {
+              progressRow.style.display = 'none';
+              progressRow.classList.remove('progress-live');
+            }
           }
 
           // Update error message if present
+          const errorSection = document.getElementById('error-section');
+          const errorPre = document.getElementById('error-message-text');
           const errorMessage = job.error_message;
-          if (errorMessage) {
-            let errorSection = document.querySelector('.bg-error-container/10');
-            if (!errorSection) {
-              const progressRow = document.getElementById('progress-row');
-              const errorHtml = `<div class="bg-error-container/10 border border-error/30 text-error rounded-xl p-stack-md mb-stack-lg shadow-md">
-                <div class="flex items-start gap-3">
-                  <span class="material-symbols-outlined shrink-0 text-error">warning</span>
-                  <div class="overflow-hidden w-full">
-                    <h4 class="font-label-md text-label-md uppercase tracking-wider mb-2">Error Message</h4>
-                    <pre class="font-code text-code text-on-surface bg-black/45 p-3 rounded-lg border border-outline-variant/30 overflow-x-auto whitespace-pre-wrap">${errorMessage}</pre>
-                  </div>
-                </div>
-              </div>`;
-              if (progressRow && progressRow.parentNode) {
-                progressRow.parentNode.insertBefore(errorSection, progressRow.nextSibling);
-              }
+          if (errorSection && errorPre) {
+            if (errorMessage) {
+              errorSection.style.display = '';
+              errorPre.textContent = errorMessage;
             } else {
-              const errorPre = errorSection.querySelector('pre');
-              if (errorPre) {
-                errorPre.textContent = errorMessage;
-              }
+              errorPre.textContent = '';
+              errorSection.style.display = 'none';
             }
           }
 
           // Update final output path if available
-          if (job.final_output_path) {
-            let outputPathElement = document.getElementById('final-output-path');
-            if (!outputPathElement) {
-              const logsSection = document.querySelector('.flex.flex-col.h-\[480px\]');
-              if (logsSection) {
-                const outputHtml = `<div class="mt-stack-md p-3 bg-surface-container rounded border border-outline-variant">
-                  <span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Final Output Path</span>
-                  <div class="font-code text-code text-on-surface break-all">${job.final_output_path}</div>
-                </div>`;
-                logsSection.appendChild(outputPathElement);
-              }
-            } else {
+          const outputPathSection = document.getElementById('final-output-section');
+          const outputPathElement = document.getElementById('final-output-path');
+          if (outputPathSection && outputPathElement) {
+            if (job.final_output_path) {
+              outputPathSection.style.display = '';
               outputPathElement.textContent = job.final_output_path;
+            } else {
+              outputPathElement.textContent = '';
+              outputPathSection.style.display = 'none';
             }
           }
         }
@@ -600,7 +617,6 @@
 
   // Initialize WebSocket connection
   const activeStatuses = new Set(['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning']);
-  const terminalStatuses = new Set(['succeeded', 'failed', 'cancelled']);
   const progressDetailStatuses = new Set(['downloading', 'converting']);
   let currentStatus = '{{ job.status.value | e }}';
 
@@ -652,4 +668,5 @@
       }
     }, 2000);
   }
+  })();
 </script>

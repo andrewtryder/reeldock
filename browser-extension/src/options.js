@@ -10,6 +10,7 @@ function populate(settings) {
   $('embedThumbnail').checked = settings.embedThumbnail;
   $('embedChapters').checked = settings.embedChapters;
   $('triggerAbsScan').checked = settings.triggerAbsScan;
+  $('allowReimport').checked = settings.allowReimport;
 }
 
 function collect() {
@@ -21,6 +22,7 @@ function collect() {
     embedThumbnail: $('embedThumbnail').checked,
     embedChapters: $('embedChapters').checked,
     triggerAbsScan: $('triggerAbsScan').checked,
+    allowReimport: $('allowReimport').checked,
   };
 }
 
@@ -144,15 +146,19 @@ async function onTest() {
   }
 
   setStatus('Testing connection…', true);
-
-  // Show initial status panel loading state
-  document.getElementById('status-panel').style.display = 'block';
+  // Keep the detailed status panel hidden by default.
+  document.getElementById('status-panel').style.display = 'none';
 
   try {
     const statusData = await loadStatusFromServer(serverUrl, apiToken);
-
-    // Update status panel with server response
-    updateStatusPanel(statusData, collect());
+    const showDetailedStatus = !statusData.ok;
+    if (showDetailedStatus) {
+      // Only show detailed status when there is a problem.
+      updateStatusPanel(statusData, collect());
+      document.getElementById('status-panel').style.display = 'block';
+    } else {
+      document.getElementById('status-panel').style.display = 'none';
+    }
 
     // Update local settings with server data if needed
     const localSettings = await loadSettings();
@@ -167,6 +173,7 @@ async function onTest() {
         embedThumbnail: localSettings.embedThumbnail,
         embedChapters: localSettings.embedChapters,
         triggerAbsScan: localSettings.triggerAbsScan,
+        allowReimport: localSettings.allowReimport,
       });
     }
 
@@ -182,30 +189,6 @@ async function onTest() {
   }
 }
 
-// Toggle password visibility for API token
-$('apiToken').type = 'password';
-const togglePassword = document.createElement('button');
-togglePassword.type = 'button';
-togglePassword.textContent = '👁';
-togglePassword.style.position = 'absolute';
-togglePassword.style.right = '8px';
-togglePassword.style.top = '8px';
-togglePassword.style.background = 'none';
-togglePassword.style.border = 'none';
-togglePassword.style.cursor = 'pointer';
-togglePassword.style.fontSize = '1rem';
-
-let passwordVisible = false;
-togglePassword.onclick = function(e) {
-  e.preventDefault();
-  passwordVisible = !passwordVisible;
-  $('apiToken').type = passwordVisible ? 'text' : 'password';
-  this.textContent = passwordVisible ? '🙈' : '👁';
-};
-
-$('apiToken').parentElement.style.position = 'relative';
-$('apiToken').parentElement.appendChild(togglePassword);
-
 (async () => {
   populate(await loadSettings());
   $('save').addEventListener('click', onSave);
@@ -218,8 +201,12 @@ $('apiToken').parentElement.appendChild(togglePassword);
     setTimeout(async () => {
       try {
         const statusData = await loadStatusFromServer(initialSettings.serverUrl, initialSettings.apiToken);
-        updateStatusPanel(statusData, initialSettings);
-        document.getElementById('status-panel').style.display = 'block';
+        if (!statusData.ok) {
+          updateStatusPanel(statusData, initialSettings);
+          document.getElementById('status-panel').style.display = 'block';
+        } else {
+          document.getElementById('status-panel').style.display = 'none';
+        }
         setStatus('Connection status loaded', true);
       } catch (err) {
         console.log('Initial status load failed:', err);

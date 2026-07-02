@@ -26,11 +26,21 @@ def test_save_and_load_custom_settings(mock_data_dir: Path):
     # Save custom output root
     custom_path = mock_data_dir / "my_custom_podcasts"
     custom_path.mkdir()
-    save_custom_settings(str(custom_path))
+    save_custom_settings(
+        str(custom_path),
+        dry_run=True,
+        allow_playlists=True,
+        allow_channels=True,
+        abs_scan_after_success=True,
+    )
 
     # Verify settings are reloaded correctly
     s2 = get_settings()
     assert s2.output_root == custom_path
+    assert s2.dry_run is True
+    assert s2.allow_playlists is True
+    assert s2.allow_channels is True
+    assert s2.abs_scan_after_success is True
 
     # Verify settings.json file contents
     settings_file = mock_data_dir / "settings.json"
@@ -38,6 +48,10 @@ def test_save_and_load_custom_settings(mock_data_dir: Path):
     with settings_file.open() as fh:
         data = json.load(fh)
     assert data["output_root"] == str(custom_path)
+    assert data["dry_run"] is True
+    assert data["allow_playlists"] is True
+    assert data["allow_channels"] is True
+    assert data["abs_scan_after_success"] is True
 
 
 def test_get_settings_page(mock_data_dir: Path):
@@ -53,13 +67,27 @@ def test_post_settings_valid(mock_data_dir: Path, tmp_path: Path):
     client = TestClient(app)
     valid_path = tmp_path / "new_output"
     # POST to /settings with a valid writable path
-    response = client.post("/settings", data={"output_root": str(valid_path)})
+    response = client.post(
+        "/settings",
+        data={
+            "output_root": str(valid_path),
+            "dry_run": "on",
+            "allow_playlists": "on",
+            "allow_channels": "on",
+            "abs_scan_after_success": "on",
+        },
+    )
     assert response.status_code == 200
     assert "Settings saved successfully" in response.text
     assert str(valid_path) in response.text
 
     # Verify it was updated in config
-    assert get_settings().output_root == valid_path
+    settings = get_settings()
+    assert settings.output_root == valid_path
+    assert settings.dry_run is True
+    assert settings.allow_playlists is True
+    assert settings.allow_channels is True
+    assert settings.abs_scan_after_success is True
 
 
 def test_post_settings_relative(mock_data_dir: Path):

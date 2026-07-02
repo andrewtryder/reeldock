@@ -307,11 +307,26 @@ def _load_custom_settings(settings: Settings) -> None:
                 data = json.load(fh)
             if "output_root" in data:
                 settings.output_root = Path(data["output_root"])
+            if "dry_run" in data:
+                settings.dry_run = bool(data["dry_run"])
+            if "allow_playlists" in data:
+                settings.allow_playlists = bool(data["allow_playlists"])
+            if "allow_channels" in data:
+                settings.allow_channels = bool(data["allow_channels"])
+            if "abs_scan_after_success" in data:
+                settings.abs_scan_after_success = bool(data["abs_scan_after_success"])
         except Exception:  # noqa: S110
             pass
 
 
-def save_custom_settings(output_root: str) -> None:
+def save_custom_settings(
+    output_root: str,
+    *,
+    dry_run: bool | None = None,
+    allow_playlists: bool | None = None,
+    allow_channels: bool | None = None,
+    abs_scan_after_success: bool | None = None,
+) -> None:
     """Write custom settings to settings.json and clear settings cache."""
     import json
 
@@ -325,6 +340,14 @@ def save_custom_settings(output_root: str) -> None:
             pass
 
     data["output_root"] = output_root.strip()
+    if dry_run is not None:
+        data["dry_run"] = bool(dry_run)
+    if allow_playlists is not None:
+        data["allow_playlists"] = bool(allow_playlists)
+    if allow_channels is not None:
+        data["allow_channels"] = bool(allow_channels)
+    if abs_scan_after_success is not None:
+        data["abs_scan_after_success"] = bool(abs_scan_after_success)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as fh:
@@ -332,6 +355,13 @@ def save_custom_settings(output_root: str) -> None:
 
     global _settings
     _settings = None
+
+
+def reload_settings() -> Settings:
+    """Force settings reload and return a fresh settings instance."""
+    global _settings
+    _settings = None
+    return get_settings()
 
 
 def get_settings() -> Settings:

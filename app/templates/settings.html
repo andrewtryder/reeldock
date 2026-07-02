@@ -12,7 +12,7 @@
 
   <div class="pt-8 pb-32 px-container-padding max-w-5xl mx-auto w-full">
     <!-- Page Header -->
-    <header class="mb-stack-lg">
+    <header class="mb-stack-lg section-entrance section-entrance-1">
       <h1 class="font-headline-md text-headline-md text-on-background">Settings</h1>
       <p class="font-body-md text-body-md text-on-surface-variant mt-1">Configure global application behavior and media locations.</p>
     </header>
@@ -31,12 +31,12 @@
     </div>
     {% endif %}
 
-    <form method="POST" action="/settings" class="settings-form grid grid-cols-1 md:grid-cols-12 gap-gutter">
+    <form method="POST" action="/settings" class="settings-form settings-layout grid grid-cols-1 md:grid-cols-12 gap-gutter">
       <!-- Left Column: Config Forms -->
       <div class="md:col-span-8 flex flex-col gap-stack-md">
-        
+
         <!-- General Settings Section -->
-        <section class="bg-surface-container border border-outline rounded-xl p-stack-md shadow-lg">
+        <section class="settings-card section-entrance section-entrance-2 bg-surface-container border border-outline rounded-xl p-stack-md shadow-lg">
           <div class="flex items-center gap-2 mb-stack-md">
             <span class="material-symbols-outlined text-primary">settings</span>
             <h2 class="font-headline-sm text-headline-sm font-semibold">General Settings</h2>
@@ -50,7 +50,7 @@
                   id="output_root"
                   name="output_root"
                   type="text"
-                  class="w-full pl-10 pr-4 py-2 bg-surface-container-low border border-outline rounded-lg font-code text-code text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none"
+                  class="w-full pl-10 pr-4 py-2 bg-surface-container-low border border-outline rounded-lg font-code text-code text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none input-focus-glow"
                   placeholder="/media/audiobooks"
                   value="{{ output_root if error else settings.output_root | e }}"
                   required
@@ -59,11 +59,11 @@
               <p class="font-label-md text-label-md text-on-surface-variant opacity-75 leading-relaxed">
                 The base folder inside the container where audiobook files will be written.
               </p>
-              
+
               <div class="bg-surface-container-low border border-outline-variant/30 rounded-lg p-3 mt-2 font-label-md text-label-md text-on-surface-variant flex gap-3">
                 <span class="material-symbols-outlined text-primary shrink-0">info</span>
                 <div>
-                  <strong>Docker Host Path Notice:</strong> This must be the <em>container-side</em> path (e.g. <code>/media/audiobooks</code>). 
+                  <strong>Docker Host Path Notice:</strong> This must be the <em>container-side</em> path (e.g. <code>/media/audiobooks</code>).
                   Host machine volumes should be mapped in your <code>docker-compose.yml</code> / <code>.env</code> file.
                 </div>
               </div>
@@ -96,11 +96,86 @@
                 <p class="font-label-md text-label-md text-on-surface-variant opacity-60">Read-only. Place cookies file at that path.</p>
               </div>
             </div>
+
+            <div class="border-t border-outline-variant/30 pt-4 space-y-4">
+              <h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">
+                Runtime Behavior
+              </h3>
+              <div class="space-y-3">
+                <label class="flex items-center justify-between gap-3 rounded-lg border border-outline-variant/40 bg-surface-container-low px-4 py-3 cursor-pointer">
+                  <div class="flex flex-col">
+                    <span class="font-body-md text-body-md text-on-surface">Dry run mode</span>
+                    <span class="font-label-md text-label-md text-on-surface-variant">Build commands and write a fake output file only.</span>
+                  </div>
+                  <span class="relative inline-flex h-6 w-11 items-center">
+                    <input
+                      type="checkbox"
+                      name="dry_run"
+                      class="peer sr-only"
+                      {% if (form_values.dry_run if form_values is defined else settings.dry_run) %}checked{% endif %}
+                    />
+                    <span class="absolute inset-0 rounded-full bg-surface-variant peer-checked:bg-tertiary transition-colors"></span>
+                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></span>
+                  </span>
+                </label>
+
+                <label class="flex items-center justify-between gap-3 rounded-lg border border-outline-variant/40 bg-surface-container-low px-4 py-3 cursor-pointer">
+                  <div class="flex flex-col">
+                    <span class="font-body-md text-body-md text-on-surface">Allow playlist imports</span>
+                    <span class="font-label-md text-label-md text-on-surface-variant">Enable importing playlist URLs in addition to single videos.</span>
+                  </div>
+                  <span class="relative inline-flex h-6 w-11 items-center">
+                    <input
+                      type="checkbox"
+                      name="allow_playlists"
+                      class="peer sr-only"
+                      {% if (form_values.allow_playlists if form_values is defined else settings.allow_playlists) %}checked{% endif %}
+                    />
+                    <span class="absolute inset-0 rounded-full bg-surface-variant peer-checked:bg-primary transition-colors"></span>
+                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></span>
+                  </span>
+                </label>
+
+                <label class="flex items-center justify-between gap-3 rounded-lg border border-outline-variant/40 bg-surface-container-low px-4 py-3 cursor-pointer">
+                  <div class="flex flex-col">
+                    <span class="font-body-md text-body-md text-on-surface">Allow channel imports</span>
+                    <span class="font-label-md text-label-md text-on-surface-variant">Enable importing channel URLs.</span>
+                  </div>
+                  <span class="relative inline-flex h-6 w-11 items-center">
+                    <input
+                      type="checkbox"
+                      name="allow_channels"
+                      class="peer sr-only"
+                      {% if (form_values.allow_channels if form_values is defined else settings.allow_channels) %}checked{% endif %}
+                    />
+                    <span class="absolute inset-0 rounded-full bg-surface-variant peer-checked:bg-primary transition-colors"></span>
+                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></span>
+                  </span>
+                </label>
+
+                <label class="flex items-center justify-between gap-3 rounded-lg border border-outline-variant/40 bg-surface-container-low px-4 py-3 cursor-pointer">
+                  <div class="flex flex-col">
+                    <span class="font-body-md text-body-md text-on-surface">Trigger ABS scan after success</span>
+                    <span class="font-label-md text-label-md text-on-surface-variant">If enabled, successful imports trigger an Audiobookshelf scan.</span>
+                  </div>
+                  <span class="relative inline-flex h-6 w-11 items-center">
+                    <input
+                      type="checkbox"
+                      name="abs_scan_after_success"
+                      class="peer sr-only"
+                      {% if (form_values.abs_scan_after_success if form_values is defined else settings.abs_scan_after_success) %}checked{% endif %}
+                    />
+                    <span class="absolute inset-0 rounded-full bg-surface-variant peer-checked:bg-primary transition-colors"></span>
+                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></span>
+                  </span>
+                </label>
+              </div>
+            </div>
           </div>
         </section>
 
         <!-- Audiobookshelf Integration Section -->
-        <section class="bg-surface-container border border-outline rounded-xl p-stack-md shadow-lg">
+        <section class="settings-card section-entrance section-entrance-3 bg-surface-container border border-outline rounded-xl p-stack-md shadow-lg">
           <div class="flex items-center gap-2 mb-stack-md">
             <span class="material-symbols-outlined text-primary">sync_alt</span>
             <h2 class="font-headline-sm text-headline-sm font-semibold">Audiobookshelf Integration</h2>
@@ -130,17 +205,9 @@
                 />
               </div>
             </div>
-            <div class="flex items-center gap-3 pt-2">
-              <input
-                type="checkbox"
-                id="scan-trigger"
-                class="custom-checkbox opacity-60 cursor-not-allowed"
-                {% if settings.abs_scan_after_success %}checked{% endif %}
-                disabled
-                readonly
-              />
-              <label class="font-body-md text-body-md opacity-60 select-none cursor-not-allowed" for="scan-trigger">Trigger library scan after success</label>
-            </div>
+            <p class="font-label-md text-label-md text-on-surface-variant opacity-75">
+              Runtime scan behavior is controlled in the <strong>Runtime Behavior</strong> section above.
+            </p>
             {% else %}
             <div class="bg-surface-container-low border border-outline border-dashed rounded-lg p-4 text-center">
               <span class="material-symbols-outlined text-[32px] text-on-surface-variant opacity-50 mb-2">sync_disabled</span>
@@ -154,7 +221,7 @@
 
       <!-- Right Column: Environment Summary -->
       <div class="md:col-span-4 space-y-stack-md">
-        <div class="bg-surface-container border border-outline rounded-xl overflow-hidden shadow-lg">
+        <div class="settings-card section-entrance section-entrance-2 bg-surface-container border border-outline rounded-xl overflow-hidden shadow-lg">
           <div class="p-stack-md">
             <h3 class="font-headline-sm text-headline-sm font-semibold mb-3">System Status</h3>
             <div class="space-y-3">
@@ -202,7 +269,7 @@
           </div>
         </div>
 
-        <div class="bg-surface-container-lowest border border-outline-variant border-dashed rounded-xl p-stack-md">
+        <div class="section-entrance section-entrance-3 bg-surface-container-lowest border border-outline-variant border-dashed rounded-xl p-stack-md">
           <h4 class="font-label-md text-label-md text-on-surface-variant mb-2">QUICK HELP</h4>
           <p class="font-body-md text-body-md text-on-surface-variant leading-relaxed">
             Changing the output directory applies to all future downloads. Unsaved configurations are highlighted at the bottom of the page.
@@ -211,7 +278,7 @@
       </div>
 
       <!-- Save settings floating actions footer -->
-      <footer class="fixed bottom-0 right-0 w-[calc(100%-16rem)] bg-surface-container-low border-t border-outline py-4 px-container-padding z-40">
+      <footer class="settings-save-footer fixed bottom-0 left-0 md:left-64 w-full md:w-[calc(100%-16rem)] bg-surface-container-low/95 backdrop-blur border-t border-outline py-4 px-container-padding z-30">
         <div class="max-w-5xl mx-auto flex justify-end items-center gap-4">
           <a href="/settings" class="px-6 py-2.5 rounded-lg border border-outline font-label-md text-label-md text-on-surface-variant hover:bg-surface-container-high transition-colors">DISCARD</a>
           <button type="submit" class="flex items-center justify-center gap-2 px-8 py-2.5 bg-primary-container text-on-primary-container rounded-lg font-headline-sm text-headline-sm font-bold shadow-lg hover:shadow-primary/20 transition-all active:scale-95 cursor-pointer">

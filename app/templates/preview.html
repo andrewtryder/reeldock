@@ -13,7 +13,7 @@
     </div>
 
     <!-- Page Header -->
-    <header class="mb-stack-lg">
+    <header class="mb-stack-lg section-entrance section-entrance-1">
       <h1 class="font-headline-md text-headline-md text-on-background">Preview &amp; Configure</h1>
       <p class="font-body-md text-body-md text-on-surface-variant mt-1">Review fetched metadata and customize audiobook options.</p>
     </header>
@@ -21,7 +21,7 @@
     <div class="grid grid-cols-1 md:grid-cols-12 gap-gutter">
       <!-- Left Column: Video Metadata Card -->
       <div class="md:col-span-5 flex flex-col gap-stack-md">
-        <div class="bg-surface-container border border-outline rounded-xl p-stack-md shadow-xl flex flex-col gap-4">
+        <div class="preview-card section-entrance section-entrance-2 bg-surface-container border border-outline rounded-xl p-stack-md shadow-xl flex flex-col gap-4 feature-card-lift">
           {% if meta.thumbnail %}
           <div class="relative w-full aspect-video rounded-lg overflow-hidden border border-outline-variant bg-surface-container-low">
             <img src="{{ meta.thumbnail | e }}" alt="Video thumbnail" class="object-cover w-full h-full" loading="lazy" />
@@ -33,7 +33,7 @@
               <span class="uppercase font-label-md text-label-md text-on-surface-variant tracking-wider">Title</span>
               <span class="font-body-md text-body-md text-on-surface font-semibold leading-snug">{{ meta.title | e }}</span>
             </div>
-            
+
             <div class="grid grid-cols-2 gap-3">
               <div class="flex flex-col gap-0.5">
                 <span class="uppercase font-label-md text-label-md text-on-surface-variant tracking-wider">Channel</span>
@@ -86,7 +86,7 @@
 
       <!-- Right Column: Configure Form Card -->
       <div class="md:col-span-7">
-        <div class="bg-surface-container border border-outline rounded-xl p-stack-md shadow-xl">
+        <div class="preview-card section-entrance section-entrance-3 bg-surface-container border border-outline rounded-xl p-stack-md shadow-xl feature-card-lift">
           <h2 class="font-headline-sm text-headline-sm text-on-surface mb-6 flex items-center gap-2">
             <span class="material-symbols-outlined text-primary">tune</span>
             Configure Import
@@ -113,7 +113,7 @@
                 id="output_title"
                 name="output_title"
                 type="text"
-                class="w-full bg-surface-container-low border border-outline rounded-lg px-4 py-2.5 font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none"
+                class="w-full bg-surface-container-low border border-outline rounded-lg px-4 py-2.5 font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none input-focus-glow"
                 value="{{ meta.title | e }}"
                 required
               />
@@ -126,7 +126,7 @@
               <select
                 id="destination_folder"
                 name="destination_folder"
-                class="w-full bg-surface-container-low border border-outline rounded-lg px-4 py-2.5 font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none"
+                class="w-full bg-surface-container-low border border-outline rounded-lg px-4 py-2.5 font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none input-focus-glow"
               >
                 <option value="">— Select folder —</option>
                 {% for folder in folders %}
@@ -152,7 +152,7 @@
                   id="new_folder"
                   name="new_folder"
                   type="text"
-                  class="w-full pl-10 pr-4 py-2.5 bg-surface-container-low border border-outline rounded-lg font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none"
+                  class="w-full pl-10 pr-4 py-2.5 bg-surface-container-low border border-outline rounded-lg font-body-md text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none input-focus-glow"
                   placeholder="e.g. @mychannelname"
                 />
               </div>
@@ -182,6 +182,10 @@
                   <label class="font-body-md text-body-md cursor-pointer select-none" for="trigger_abs_scan">Trigger Audiobookshelf library scan after success</label>
                 </div>
                 {% endif %}
+                <div class="flex items-center gap-3 border-t border-outline-variant/30 pt-3 mt-2">
+                  <input type="checkbox" name="allow_reimport" value="true" id="allow_reimport" class="custom-checkbox" />
+                  <label class="font-body-md text-body-md cursor-pointer select-none" for="allow_reimport">Allow re-import (overwrite duplicate guard)</label>
+                </div>
               </div>
             </fieldset>
 

@@ -48,6 +48,8 @@ services:
       - OUTPUT_ROOT=${OUTPUT_ROOT:-/media/podcasts}
       - WORK_DIR=/data/work
       - ARCHIVE_FILE=/data/config/youtube-archive.txt
+      - EXTENSION_API_ENABLED=${EXTENSION_API_ENABLED:-false}
+      - EXTENSION_API_TOKEN=${EXTENSION_API_TOKEN:-}
       # Optional: set PUID/PGID to match your NFS share user
       # - PUID=1000
       # - PGID=1000

@@ -5,16 +5,21 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import Job, JobAttempt, JobStatus
+from app.models import ImportedVideo, Job, JobAttempt, JobStatus
 
 
 def _utcnow() -> datetime:
     return datetime.now(tz=UTC)
+
+
+class DuplicateVideoError(ValueError):
+    """Raised when a video has already been imported previously."""
 
 
 # ---------------------------------------------------------------------------
@@ -43,12 +48,22 @@ async def create_job(
     embed_thumbnail: bool = True,
     embed_chapters: bool = True,
     trigger_abs_scan: bool = False,
+    allow_reimport: bool = False,
 ) -> Job:
     """Persist a new Job record and return it."""
+    normalized_video_id = (video_id or "").strip() or None
+    if normalized_video_id and not allow_reimport:
+        existing_import = await get_imported_video(session, normalized_video_id)
+        if existing_import is not None:
+            raise DuplicateVideoError(
+                f"Video '{normalized_video_id}' has already been imported "
+                f"(job {existing_import.job_id or 'unknown'})."
+            )
+
     job = Job(
         id=str(uuid.uuid4()),
         url=url,
-        video_id=video_id,
+        video_id=normalized_video_id,
         source_title=source_title,
         uploader=uploader,
         uploader_id=uploader_id,
@@ -64,6 +79,7 @@ async def create_job(
         embed_thumbnail=embed_thumbnail,
         embed_chapters=embed_chapters,
         trigger_abs_scan=trigger_abs_scan,
+        allow_reimport=allow_reimport,
         collision_mode=settings.collision_mode,
         status=JobStatus.queued,
         attempts=0,
@@ -76,6 +92,17 @@ async def create_job(
     return job
 
 
+async def get_imported_video(session: AsyncSession, video_id: str) -> ImportedVideo | None:
+    """Fetch an ImportedVideo row by video id."""
+    normalized = video_id.strip()
+    if not normalized:
+        return None
+    result = await session.execute(
+        select(ImportedVideo).where(ImportedVideo.video_id == normalized)
+    )
+    return result.scalar_one_or_none()
+
+
 async def get_job(session: AsyncSession, job_id: str) -> Job | None:
     result = await session.execute(select(Job).where(Job.id == job_id))
     return result.scalar_one_or_none()
@@ -86,6 +113,41 @@ async def get_recent_jobs(session: AsyncSession, limit: int = 50) -> list[Job]:
     return list(result.scalars().all())
 
 
+async def delete_jobs(session: AsyncSession, job_ids: list[str]) -> dict[str, list[str]]:
+    """Delete jobs by id and return deleted/missing/blocked ids."""
+    normalized_ids = []
+    seen_ids: set[str] = set()
+    for job_id in job_ids:
+        value = (job_id or "").strip()
+        if not value or value in seen_ids:
+            continue
+        normalized_ids.append(value)
+        seen_ids.add(value)
+
+    if not normalized_ids:
+        return {"deleted_ids": [], "missing_ids": [], "blocked_ids": []}
+
+    result = await session.execute(select(Job).where(Job.id.in_(normalized_ids)))
+    jobs = list(result.scalars().all())
+    found_by_id = {job.id: job for job in jobs}
+    missing_ids = [job_id for job_id in normalized_ids if job_id not in found_by_id]
+
+    deletable_ids = [job.id for job in jobs]
+    if not deletable_ids:
+        return {"deleted_ids": [], "missing_ids": missing_ids, "blocked_ids": []}
+
+    # Keep the dedup ledger rows while severing references to deleted jobs.
+    await session.execute(
+        update(ImportedVideo).where(ImportedVideo.job_id.in_(deletable_ids)).values(job_id=None)
+    )
+
+    for job in jobs:
+        await session.delete(job)
+    await session.commit()
+
+    return {"deleted_ids": deletable_ids, "missing_ids": missing_ids, "blocked_ids": []}
+
+
 async def update_job_status(
     session: AsyncSession,
     job_id: str,
@@ -93,6 +155,7 @@ async def update_job_status(
     phase: str | None = None,
     error_message: str | None = None,
     final_output_path: str | None = None,
+    output_file_size: int | None = None,
     rq_job_id: str | None = None,
     progress: int | None = None,
     progress_percent: float | None = None,
@@ -111,6 +174,8 @@ async def update_job_status(
         job.error_message = error_message
     if final_output_path is not None:
         job.final_output_path = final_output_path
+    if output_file_size is not None:
+        job.output_file_size = output_file_size
     if rq_job_id is not None:
         job.rq_job_id = rq_job_id
     if progress is not None:
@@ -157,6 +222,7 @@ def sync_update_job(
     phase: str | None = None,
     error_message: str | None = None,
     final_output_path: str | None = None,
+    output_file_size: int | None = None,
     log_file_path: str | None = None,
     work_dir: str | None = None,
     rq_job_id: str | None = None,
@@ -189,6 +255,8 @@ def sync_update_job(
         job.error_message = error_message
     if final_output_path is not None:
         job.final_output_path = final_output_path
+    if output_file_size is not None:
+        job.output_file_size = output_file_size
     if log_file_path is not None:
         job.log_file_path = log_file_path
     if work_dir is not None:
@@ -237,3 +305,50 @@ def sync_record_attempt(
     session.add(attempt)
     session.flush()
     return attempt
+
+
+def sync_mark_video_imported(session: Session, job: Job, *, overwrite: bool = False) -> bool:
+    """Record a successful import in imported_videos.
+
+    Returns True when a new row is stored or no video_id is present.
+    Returns False when the video_id is already recorded.
+    """
+    video_id = (job.video_id or "").strip()
+    if not video_id:
+        return True
+
+    existing = session.get(ImportedVideo, video_id)
+    if existing is not None:
+        if not overwrite:
+            return False
+        existing.job_id = job.id
+        existing.source_url = job.url
+        existing.source_title = job.source_title
+        existing.imported_at = _utcnow()
+        session.flush()
+        return True
+
+    record = ImportedVideo(
+        video_id=video_id,
+        job_id=job.id,
+        source_url=job.url,
+        source_title=job.source_title,
+        imported_at=_utcnow(),
+    )
+    session.add(record)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        session.add(job)
+        if overwrite:
+            existing = session.get(ImportedVideo, video_id)
+            if existing is not None:
+                existing.job_id = job.id
+                existing.source_url = job.url
+                existing.source_title = job.source_title
+                existing.imported_at = _utcnow()
+                session.flush()
+                return True
+        return False
+    return True

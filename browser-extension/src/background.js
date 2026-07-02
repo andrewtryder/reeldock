@@ -3,7 +3,6 @@
 // and WebSocket connections for real-time job status updates.
 
 import { DEFAULT_SETTINGS, STORAGE_KEYS, isYouTubeWatchUrl, loadSettings } from './settings.js';
-import { setStatusMessage, renderProgress, formatError, normalizeServerUrl, isYouTubeVideoUrl } from './ui.js';
 
 const CONTEXT_MENU_ID = 'ytabs-queue-video';
 
@@ -14,7 +13,11 @@ let settings = { ...DEFAULT_SETTINGS };
 const activeWebSockets = new Map();
 
 // Build the request body for the queue endpoint from the current settings + a URL.
-function buildRequestBody(url) {
+function buildRequestBody(url, options = {}) {
+  const allowReimport =
+    typeof options.allowReimport === 'boolean'
+      ? options.allowReimport
+      : settings.allowReimport;
   return {
     url,
     destination_folder: settings.defaultDestinationFolder || '',
@@ -23,6 +26,7 @@ function buildRequestBody(url) {
     embed_thumbnail: settings.embedThumbnail,
     embed_chapters: settings.embedChapters,
     trigger_abs_scan: settings.triggerAbsScan,
+    allow_reimport: allowReimport,
   };
 }
 
@@ -32,7 +36,7 @@ function authHeaders() {
   return headers;
 }
 
-async function queueVideo(url) {
+async function queueVideo(url, options = {}) {
   if (!settings.serverUrl) {
     throw new Error('Server URL not configured. Open the extension options to set it.');
   }
@@ -40,7 +44,7 @@ async function queueVideo(url) {
   const response = await fetch(`${base}/api/extension/queue`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify(buildRequestBody(url)),
+    body: JSON.stringify(buildRequestBody(url, options)),
   });
   if (!response.ok) {
     let detail;
@@ -54,11 +58,11 @@ async function queueVideo(url) {
   return response.json();
 }
 
-function notify(message, title = 'yt-abs-importer') {
+function notify(message, title = 'YouTube ABS Importer') {
   try {
     chrome.notifications?.create({
       type: 'basic',
-      iconUrl: chrome.runtime.getURL('icons/icon.svg'),
+      iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
       title,
       message: String(message),
     });
@@ -73,14 +77,15 @@ async function openJobPage(jobUrl) {
   await chrome.tabs.create({ url: `${base}${jobUrl}` });
 }
 
-async function handleQueue(url) {
+async function handleQueue(url, options = {}) {
   if (!isYouTubeWatchUrl(url)) {
-    notify('Not a YouTube video URL.');
-    return;
+    const err = new Error('Not a YouTube video URL.');
+    notify(err.message);
+    throw err;
   }
   try {
-    const data = await queueVideo(url);
-    notify(`Queued: ${data.title || data.job_id}`);
+    const data = await queueVideo(url, options);
+    notify(`Queued successfully: ${data.title || data.job_id}`);
     await openJobPage(data.job_url);
 
     // Start WebSocket connection for real-time updates
@@ -100,7 +105,11 @@ async function handleQueue(url) {
     }).catch(err => {
       console.error('Failed to send queue success message to popup:', err);
     });
-
+    return {
+      ok: true,
+      ...data,
+      serverUrl: settings.serverUrl,
+    };
   } catch (err) {
     console.error('Queue failed:', err);
     notify(err.message || 'Failed to queue video');
@@ -112,6 +121,7 @@ async function handleQueue(url) {
     }).catch(err => {
       console.error('Failed to send queue error message to popup:', err);
     });
+    throw err;
   }
 }
 
@@ -126,7 +136,7 @@ function createContextMenus() {
 
     chrome.contextMenus.create({
       id: CONTEXT_MENU_ID,
-      title: 'Send to yt-abs-importer',
+      title: 'Send to YouTube ABS Importer',
       contexts: ['page', 'link'],
       documentUrlPatterns: [
         'https://www.youtube.com/*',
@@ -141,6 +151,10 @@ function createContextMenus() {
       }
     });
   });
+}
+
+function urlFromContextMenu(info, tab) {
+  return info.linkUrl || info.pageUrl || tab?.url || '';
 }
 
 async function refreshSettings() {
@@ -161,16 +175,14 @@ function startJobWebSocket(jobId) {
   }
 
   const baseUrl = settings.serverUrl.replace(/\/+$/, '');
-  const wsUrl = `${baseUrl.startsWith('http://') ? 'ws://' : 'wss://'}${baseUrl.replace(/^https?:\/\//, '')}/api/ws/jobs/${jobId}`;
-
-  const ws = new WebSocket(wsUrl);
+  let wsUrl = `${baseUrl.startsWith('http://') ? 'ws://' : 'wss://'}${baseUrl.replace(/^https?:\/\//, '')}/api/ws/jobs/${jobId}`;
 
   // Add auth token if configured
   if (settings.apiToken) {
     // WebSocket auth via query parameter
     wsUrl += `?token=${settings.apiToken}`;
-    ws = new WebSocket(wsUrl);
   }
+  const ws = new WebSocket(wsUrl);
 
   ws.onopen = function() {
     console.log(`WebSocket connected for job ${jobId}`);
@@ -271,8 +283,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.action === 'queue') {
-    handleQueue(message.url).then(
-      () => sendResponse({ ok: true }),
+    handleQueue(message.url, { allowReimport: Boolean(message.allowReimport) }).then(
+      (data) => sendResponse(data),
       (err) => sendResponse({ ok: false, error: err.message || String(err) })
     );
     return true; // keep channel open for async response
@@ -307,6 +319,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   sendResponse({ ok: false, error: `Unknown action: ${message.action}` });
   return false;
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== CONTEXT_MENU_ID) return;
+  const url = urlFromContextMenu(info, tab);
+  handleQueue(url).catch((err) => {
+    console.error('Context menu queue failed:', err);
+  });
 });
 
 // Keep cache fresh when options page writes to storage.

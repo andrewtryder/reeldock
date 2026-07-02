@@ -69,11 +69,16 @@ async def init_db() -> None:
                 ("progress_eta", "VARCHAR(32)"),
                 ("progress_speed", "VARCHAR(32)"),
                 ("progress_label", "VARCHAR(64)"),
+                ("output_file_size", "INTEGER"),
             ]
 
             for col_name, col_type in new_cols:
                 if col_name not in cols:
                     connection.execute(text(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_type}"))
+            if "allow_reimport" not in cols:
+                connection.execute(
+                    text("ALTER TABLE jobs ADD COLUMN allow_reimport BOOLEAN DEFAULT 0")
+                )
 
             # Check job_attempts columns
             cursor_attempts = connection.execute(text("PRAGMA table_info(job_attempts)"))
@@ -83,6 +88,31 @@ async def init_db() -> None:
                 connection.execute(
                     text("ALTER TABLE job_attempts ADD COLUMN artifact_metadata TEXT")
                 )
+
+            # Backfill canonical import ledger from historical successful jobs.
+            connection.execute(
+                text(
+                    """
+                    INSERT OR IGNORE INTO imported_videos (
+                        video_id,
+                        job_id,
+                        source_url,
+                        source_title,
+                        imported_at
+                    )
+                    SELECT
+                        video_id,
+                        id,
+                        url,
+                        source_title,
+                        COALESCE(finished_at, created_at, CURRENT_TIMESTAMP)
+                    FROM jobs
+                    WHERE status = 'succeeded'
+                      AND video_id IS NOT NULL
+                      AND TRIM(video_id) != ''
+                    """
+                )
+            )
 
         await conn.run_sync(run_migrations)
 

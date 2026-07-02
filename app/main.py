@@ -6,12 +6,16 @@ import asyncio
 import base64
 import contextlib
 import html
+import json
 import logging
+import os
 import secrets
+import shutil
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
+from urllib import request as urllib_request
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -27,7 +31,9 @@ from app.queue import enqueue_job_task
 from app.services.audiobookshelf import AudiobookshelfClient
 from app.services.filesystem import FilesystemService
 from app.services.jobs import (
+    DuplicateVideoError,
     create_job,
+    delete_jobs,
     get_job,
     get_recent_jobs,
     update_job_status,
@@ -66,9 +72,62 @@ def _escape_html(text: str | None) -> str:
     return html.escape(text or "")
 
 
+def _format_free_space(path: str | Path | None) -> str:
+    """Return free space label in MB/GB for the given path."""
+    if path is None:
+        return "N/A"
+
+    probe = Path(path)
+    candidates = [probe, probe.parent, Path("/")]
+    for candidate in candidates:
+        try:
+            usage = shutil.disk_usage(candidate)
+            free_bytes = usage.free
+            gib = 1024**3
+            mib = 1024**2
+            if free_bytes >= gib:
+                return f"{free_bytes / gib:.1f} GB free"
+            return f"{free_bytes / mib:.0f} MB free"
+        except OSError:
+            logger.debug("Could not determine free disk space for %s", candidate, exc_info=True)
+    return "N/A"
+
+
 templates.env.filters["duration"] = _format_duration
 templates.env.filters["format_date"] = _format_date
 templates.env.filters["escape_html"] = _escape_html
+templates.env.globals["format_free_space"] = _format_free_space
+
+
+def _resolve_ui_version(default_version: str) -> str:
+    """Resolve UI version from env override or latest GitHub release."""
+    env_version = os.getenv("YTABS_UI_VERSION", "").strip()
+    if env_version:
+        return env_version
+
+    fallback = default_version if default_version.startswith("v") else f"v{default_version}"
+    repo = os.getenv("YTABS_GITHUB_REPO", "andrewtryder/yt-abs-importer").strip()
+    if "/" not in repo:
+        return fallback
+
+    api_url = f"https://api.github.com/repos/{repo}/releases/latest"
+    req = urllib_request.Request(  # noqa: S310
+        api_url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "yt-abs-importer",
+        },
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=2.5) as response:  # noqa: S310
+            payload = json.loads(response.read().decode("utf-8"))
+        tag = payload.get("tag_name") or payload.get("name")
+        if isinstance(tag, str) and tag.strip():
+            return tag.strip()
+    except Exception:
+        logger.debug("Could not resolve latest GitHub release version", exc_info=True)
+
+    return fallback
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +156,9 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+    ui_version = _resolve_ui_version(app.version)
+    app.state.ui_version = ui_version
+    templates.env.globals["app_ui_version"] = ui_version
 
     # Static files
     if STATIC_DIR.exists():
@@ -184,17 +246,19 @@ def _extension_api_auth(request: Request, cfg: SettingsDep) -> Settings:
 ExtensionAuthDep = Annotated[Settings, Depends(_extension_api_auth)]
 
 
-async def _validate_websocket_token(job_id: str, request: Request, settings: SettingsDep) -> None:
+async def _validate_websocket_token(
+    job_id: str, websocket: WebSocket, settings: SettingsDep
+) -> None:
     """Validate extension API token for WebSocket authentication."""
     if not settings.extension_api_enabled:
         raise HTTPException(status_code=404, detail="Extension API not enabled")
 
     if settings.extension_api_token:
         token = None
-        auth_header = request.headers.get("Authorization", "")
+        auth_header = websocket.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
-        x_token = request.headers.get("X-YTABS-Token")
+        x_token = websocket.headers.get("X-YTABS-Token")
         if x_token:
             token = x_token
 
@@ -205,7 +269,6 @@ async def _validate_websocket_token(job_id: str, request: Request, settings: Set
 async def _websocket_endpoint(
     websocket: WebSocket,
     job_id: str,
-    request: Request,
     cfg: SettingsDep,
     db: AsyncSession,
 ) -> None:
@@ -214,7 +277,7 @@ async def _websocket_endpoint(
 
     # Validate token authentication
     try:
-        await _validate_websocket_token(job_id, request, cfg)
+        await _validate_websocket_token(job_id, websocket, cfg)
     except HTTPException as e:
         if e.status_code == 404:
             await websocket.close(code=1008)
@@ -365,6 +428,7 @@ def _register_routes(app: FastAPI, settings: Settings) -> None:
         embed_thumbnail: bool = Form(True),
         embed_chapters: bool = Form(True),
         trigger_abs_scan: bool = Form(False),
+        allow_reimport: bool = Form(False),
     ) -> JSONResponse:
         svc = YtDlpService(cfg)
         validation = svc.validate_url(url)
@@ -380,27 +444,31 @@ def _register_routes(app: FastAPI, settings: Settings) -> None:
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        job = await create_job(
-            db,
-            url,
-            cfg,
-            video_id=video_id or None,
-            source_title=source_title or None,
-            uploader=uploader or None,
-            uploader_id=uploader_id or None,
-            channel=channel or None,
-            channel_id=channel_id or None,
-            duration=duration or None,
-            upload_date=upload_date or None,
-            thumbnail_url=thumbnail_url or None,
-            chapter_count=chapter_count or None,
-            output_title=output_title or source_title or None,
-            destination_folder=destination_folder or None,
-            embed_metadata=embed_metadata,
-            embed_thumbnail=embed_thumbnail,
-            embed_chapters=embed_chapters,
-            trigger_abs_scan=trigger_abs_scan,
-        )
+        try:
+            job = await create_job(
+                db,
+                url,
+                cfg,
+                video_id=video_id or None,
+                source_title=source_title or None,
+                uploader=uploader or None,
+                uploader_id=uploader_id or None,
+                channel=channel or None,
+                channel_id=channel_id or None,
+                duration=duration or None,
+                upload_date=upload_date or None,
+                thumbnail_url=thumbnail_url or None,
+                chapter_count=chapter_count or None,
+                output_title=output_title or source_title or None,
+                destination_folder=destination_folder or None,
+                embed_metadata=embed_metadata,
+                embed_thumbnail=embed_thumbnail,
+                embed_chapters=embed_chapters,
+                trigger_abs_scan=trigger_abs_scan,
+                allow_reimport=allow_reimport,
+            )
+        except DuplicateVideoError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
         rq_id = enqueue_job_task(job.id)
         await update_job_status(db, job.id, JobStatus.queued, rq_job_id=rq_id)
@@ -456,6 +524,25 @@ def _register_routes(app: FastAPI, settings: Settings) -> None:
                 rq_job.cancel()
         await update_job_status(db, job_id, JobStatus.cancelled)
         return {"job_id": job_id, "status": "cancelled"}
+
+    @app.post("/api/jobs/delete")
+    async def api_delete_jobs(request: Request, db: DbDep) -> dict[str, Any]:
+        try:
+            data = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+
+        job_ids = data.get("job_ids")
+        if not isinstance(job_ids, list):
+            raise HTTPException(status_code=400, detail="'job_ids' must be an array")
+
+        result = await delete_jobs(db, job_ids)
+
+        return {
+            "deleted_ids": result["deleted_ids"],
+            "missing_ids": result["missing_ids"],
+            "deleted_count": len(result["deleted_ids"]),
+        }
 
     @app.post("/api/audiobookshelf/scan")
     async def api_abs_scan(cfg: SettingsDep) -> dict[str, Any]:
@@ -547,6 +634,7 @@ def _register_routes(app: FastAPI, settings: Settings) -> None:
         embed_thumbnail: bool = Form(True),
         embed_chapters: bool = Form(True),
         trigger_abs_scan: bool = Form(False),
+        allow_reimport: bool = Form(False),
     ) -> HTMLResponse | RedirectResponse:
         svc = YtDlpService(cfg)
         validation = svc.validate_url(url)
@@ -569,27 +657,35 @@ def _register_routes(app: FastAPI, settings: Settings) -> None:
                     status_code=400,
                 )
 
-        job = await create_job(
-            db,
-            url,
-            cfg,
-            video_id=video_id or None,
-            source_title=source_title or None,
-            uploader=uploader or None,
-            uploader_id=uploader_id or None,
-            channel=channel or None,
-            channel_id=channel_id or None,
-            duration=duration or None,
-            upload_date=upload_date or None,
-            thumbnail_url=thumbnail_url or None,
-            chapter_count=chapter_count or None,
-            output_title=output_title or source_title or None,
-            destination_folder=destination_folder or None,
-            embed_metadata=embed_metadata,
-            embed_thumbnail=embed_thumbnail,
-            embed_chapters=embed_chapters,
-            trigger_abs_scan=trigger_abs_scan,
-        )
+        try:
+            job = await create_job(
+                db,
+                url,
+                cfg,
+                video_id=video_id or None,
+                source_title=source_title or None,
+                uploader=uploader or None,
+                uploader_id=uploader_id or None,
+                channel=channel or None,
+                channel_id=channel_id or None,
+                duration=duration or None,
+                upload_date=upload_date or None,
+                thumbnail_url=thumbnail_url or None,
+                chapter_count=chapter_count or None,
+                output_title=output_title or source_title or None,
+                destination_folder=destination_folder or None,
+                embed_metadata=embed_metadata,
+                embed_thumbnail=embed_thumbnail,
+                embed_chapters=embed_chapters,
+                trigger_abs_scan=trigger_abs_scan,
+                allow_reimport=allow_reimport,
+            )
+        except DuplicateVideoError as exc:
+            return templates.TemplateResponse(
+                "index.html",
+                {"request": request, "settings": cfg, "error": str(exc)},
+                status_code=409,
+            )
 
         rq_id = enqueue_job_task(job.id)
         await update_job_status(db, job.id, JobStatus.queued, rq_job_id=rq_id)
@@ -643,6 +739,10 @@ def _register_routes(app: FastAPI, settings: Settings) -> None:
         request: Request,
         cfg: SettingsDep,
         output_root: str = Form(...),
+        dry_run: bool = Form(False),
+        allow_playlists: bool = Form(False),
+        allow_channels: bool = Form(False),
+        abs_scan_after_success: bool = Form(False),
     ) -> HTMLResponse:
         import uuid
 
@@ -667,11 +767,23 @@ def _register_routes(app: FastAPI, settings: Settings) -> None:
                     "settings": cfg,
                     "error": error,
                     "output_root": output_root,
+                    "form_values": {
+                        "dry_run": dry_run,
+                        "allow_playlists": allow_playlists,
+                        "allow_channels": allow_channels,
+                        "abs_scan_after_success": abs_scan_after_success,
+                    },
                 },
                 status_code=400,
             )
 
-        save_custom_settings(output_root)
+        save_custom_settings(
+            output_root,
+            dry_run=dry_run,
+            allow_playlists=allow_playlists,
+            allow_channels=allow_channels,
+            abs_scan_after_success=abs_scan_after_success,
+        )
         new_cfg = get_settings()
 
         return templates.TemplateResponse(
@@ -689,12 +801,11 @@ def _register_routes(app: FastAPI, settings: Settings) -> None:
     async def api_websocket_job_status(
         websocket: WebSocket,
         job_id: str,
-        request: Request,
         cfg: SettingsDep,
         db: DbDep,
     ) -> None:
         """WebSocket endpoint for real-time job status updates."""
-        await _websocket_endpoint(websocket, job_id, request, cfg, db)
+        await _websocket_endpoint(websocket, job_id, cfg, db)
 
     @app.get("/api/extension/status")
     async def api_extension_status(cfg: ExtensionAuthDep) -> dict[str, Any]:
@@ -744,29 +855,38 @@ def _register_routes(app: FastAPI, settings: Settings) -> None:
         embed_thumbnail = data.get("embed_thumbnail", True)
         embed_chapters = data.get("embed_chapters", True)
         trigger_abs_scan = data.get("trigger_abs_scan", False)
+        allow_reimport = data.get("allow_reimport", False)
+        if isinstance(allow_reimport, str):
+            allow_reimport = allow_reimport.strip().lower() in {"1", "true", "yes", "on"}
+        else:
+            allow_reimport = bool(allow_reimport)
 
         # Create job
-        job = await create_job(
-            db,
-            url,
-            cfg,
-            video_id=meta.id,
-            source_title=meta.title,
-            uploader=meta.uploader,
-            uploader_id=meta.uploader_id,
-            channel=meta.channel,
-            channel_id=meta.channel_id,
-            duration=meta.duration,
-            upload_date=meta.upload_date,
-            thumbnail_url=meta.thumbnail,
-            chapter_count=meta.chapter_count,
-            output_title=output_title or meta.title,
-            destination_folder=destination_folder or cfg.default_destination_folder,
-            embed_metadata=embed_metadata,
-            embed_thumbnail=embed_thumbnail,
-            embed_chapters=embed_chapters,
-            trigger_abs_scan=trigger_abs_scan,
-        )
+        try:
+            job = await create_job(
+                db,
+                url,
+                cfg,
+                video_id=meta.id,
+                source_title=meta.title,
+                uploader=meta.uploader,
+                uploader_id=meta.uploader_id,
+                channel=meta.channel,
+                channel_id=meta.channel_id,
+                duration=meta.duration,
+                upload_date=meta.upload_date,
+                thumbnail_url=meta.thumbnail,
+                chapter_count=meta.chapter_count,
+                output_title=output_title or meta.title,
+                destination_folder=destination_folder or cfg.default_destination_folder,
+                embed_metadata=embed_metadata,
+                embed_thumbnail=embed_thumbnail,
+                embed_chapters=embed_chapters,
+                trigger_abs_scan=trigger_abs_scan,
+                allow_reimport=allow_reimport,
+            )
+        except DuplicateVideoError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
         # Enqueue task
         rq_id = enqueue_job_task(job.id)
@@ -800,6 +920,7 @@ def _job_dict(job: Job) -> dict[str, Any]:
         "output_title": job.output_title,
         "destination_folder": job.destination_folder,
         "final_output_path": job.final_output_path,
+        "output_file_size": job.output_file_size,
         "status": job.status,
         "phase": job.phase,
         "progress": job.progress,
@@ -810,6 +931,7 @@ def _job_dict(job: Job) -> dict[str, Any]:
         "error_message": job.error_message,
         "attempts": job.attempts,
         "chapter_count": job.chapter_count,
+        "allow_reimport": job.allow_reimport,
         "duration": job.duration,
         "uploader": job.uploader,
         "uploader_id": job.uploader_id,

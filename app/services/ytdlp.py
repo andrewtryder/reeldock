@@ -210,6 +210,8 @@ class YtDlpService:
             cmd += ["--download-archive", str(archive)]
 
         # Extra args from config
+        if s.cookies_file:
+            cmd += ["--cookies", str(s.cookies_file)]
         cmd.extend(s.ytdlp_extra_args)
 
         # Extra args from caller

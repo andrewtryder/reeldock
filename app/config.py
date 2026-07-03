@@ -1,9 +1,10 @@
 """Application configuration.
 
 Priority (highest to lowest):
-  1. Environment variables
-  2. /config/config.yaml (if present)
-  3. Defaults defined here
+  1. Environment variables (including .env)
+  2. YAML config file (/config/config.yaml)
+  3. Database overrides (Web UI)
+  4. Defaults defined here
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from typing import Any
 import yaml
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.path_checks import check_writable_directory
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -73,6 +76,8 @@ def _load_yaml() -> dict[str, Any]:
             "FOLDER_NAME_FIELD": dl.get("folder_name_field", None),
             "FOLDER_NAME_FALLBACKS": dl.get("folder_name_fallbacks", None),
             "COLLISION_MODE": dl.get("collision_mode", None),
+            "COOKIES_FILE": dl.get("cookies_file", None),
+            "ALLOWED_DOMAINS": dl.get("allowed_domains", None),
         }
     )
 
@@ -120,17 +125,11 @@ ALLOWED_DOMAINS_DEFAULT = [
 def _get_default_data_dir() -> Path:
     """Return /data if writable/creatable, otherwise fallback to local ./data."""
     p = Path("/data")
-    try:
-        p.mkdir(parents=True, exist_ok=True)
-        # Test write permission
-        test_file = p / ".write_test"
-        test_file.touch()
-        test_file.unlink()
+    if check_writable_directory(p, create=True) is None:
         return p
-    except Exception:
-        fallback = Path("./data")
-        fallback.mkdir(parents=True, exist_ok=True)
-        return fallback
+    fallback = Path("./data")
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
 
 
 class Settings(BaseSettings):
@@ -183,6 +182,7 @@ class Settings(BaseSettings):
         alias="ARCHIVE_FILE",
     )
     output_root: Path = Field(Path("/media/podcasts"), alias="OUTPUT_ROOT")
+    cookies_file: Path | None = Field(None, alias="COOKIES_FILE")
 
     # ── Download ─────────────────────────────────────────────────────────────
     allow_playlists: bool = Field(False, alias="ALLOW_PLAYLISTS")
@@ -277,6 +277,13 @@ class Settings(BaseSettings):
         # Optionally validate length if you want
         return v
 
+    @field_validator("cookies_file", mode="before")
+    @classmethod
+    def parse_optional_path(cls, v: Any) -> Any:  # noqa: ANN401
+        if v is None or v == "":
+            return None
+        return v
+
     # ── Computed helpers ──────────────────────────────────────────────────────
 
     @property
@@ -294,64 +301,125 @@ class Settings(BaseSettings):
 # ---------------------------------------------------------------------------
 
 _settings: Settings | None = None
+_pinned_sources: dict[str, str] = {}
+_db_overrides: dict[str, str] = {}
 
 
-def _load_custom_settings(settings: Settings) -> None:
-    """Load user custom settings from json file on disk if exists."""
-    import json
-
-    path = _get_default_data_dir() / "settings.json"
-    if path.exists():
-        try:
-            with path.open() as fh:
-                data = json.load(fh)
-            if "output_root" in data:
-                settings.output_root = Path(data["output_root"])
-            if "dry_run" in data:
-                settings.dry_run = bool(data["dry_run"])
-            if "allow_playlists" in data:
-                settings.allow_playlists = bool(data["allow_playlists"])
-            if "allow_channels" in data:
-                settings.allow_channels = bool(data["allow_channels"])
-            if "abs_scan_after_success" in data:
-                settings.abs_scan_after_success = bool(data["abs_scan_after_success"])
-        except Exception:  # noqa: S110
-            pass
+def _parse_dotenv_keys() -> set[str]:
+    """Return env var names declared in the project .env file."""
+    env_path = Path(".env")
+    if not env_path.exists():
+        return set()
+    keys: set[str] = set()
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            continue
+        key, _ = stripped.split("=", 1)
+        keys.add(key.strip())
+    return keys
 
 
-def save_custom_settings(
-    output_root: str,
-    *,
-    dry_run: bool | None = None,
-    allow_playlists: bool | None = None,
-    allow_channels: bool | None = None,
-    abs_scan_after_success: bool | None = None,
-) -> None:
-    """Write custom settings to settings.json and clear settings cache."""
-    import json
+def _collect_pinned_sources() -> dict[str, str]:
+    """Return env aliases pinned by environment or YAML (highest precedence layers)."""
+    from app.settings_registry import SETTINGS_REGISTRY
 
-    path = _get_default_data_dir() / "settings.json"
-    data = {}
-    if path.exists():
-        try:
-            with path.open() as fh:
-                data = json.load(fh)
-        except Exception:  # noqa: S110
-            pass
+    env_at_start = set(os.environ.keys())
+    dotenv_keys = _parse_dotenv_keys()
+    yaml_flat = _load_yaml()
+    pinned: dict[str, str] = {}
+    for env_alias in {spec.env_alias for spec in SETTINGS_REGISTRY}:
+        if env_alias in env_at_start or env_alias in dotenv_keys:
+            pinned[env_alias] = "env"
+        elif env_alias in yaml_flat:
+            pinned[env_alias] = "yaml"
+    return pinned
 
-    data["output_root"] = output_root.strip()
-    if dry_run is not None:
-        data["dry_run"] = bool(dry_run)
-    if allow_playlists is not None:
-        data["allow_playlists"] = bool(allow_playlists)
-    if allow_channels is not None:
-        data["allow_channels"] = bool(allow_channels)
-    if abs_scan_after_success is not None:
-        data["abs_scan_after_success"] = bool(abs_scan_after_success)
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w") as fh:
-        json.dump(data, fh, indent=2)
+def _load_db_overrides(settings: Settings, pinned: dict[str, str]) -> dict[str, str]:
+    """Apply database overrides for mutable, non-pinned settings."""
+    from app.models import AppSetting
+    from app.settings_registry import SETTINGS_BY_KEY, coerce_storage_value
+
+    overrides: dict[str, str] = {}
+    try:
+        from sqlalchemy import select
+
+        from app.db import get_sync_session_factory
+
+        factory = get_sync_session_factory()
+        with factory() as session:
+            rows = session.scalars(select(AppSetting)).all()
+            for row in rows:
+                spec = SETTINGS_BY_KEY.get(row.key)
+                if spec is None or not spec.mutable or spec.secret:
+                    continue
+                if spec.env_alias in pinned:
+                    continue
+                if row.value is None:
+                    continue
+                overrides[row.key] = row.value
+                setattr(settings, row.key, coerce_storage_value(row.value, spec))
+    except Exception:
+        return overrides
+    return overrides
+
+
+def get_setting_sources() -> dict[str, dict[str, Any]]:
+    """Return effective value, source, and lock state for registry settings."""
+    from app.settings_registry import SETTINGS_REGISTRY, format_setting_value
+
+    settings = get_settings()
+    sources: dict[str, dict[str, Any]] = {}
+    for spec in SETTINGS_REGISTRY:
+        pinned_source = _pinned_sources.get(spec.env_alias)
+        if pinned_source:
+            source = pinned_source
+            locked = True
+        elif spec.key in _db_overrides:
+            source = "db"
+            locked = False
+        else:
+            source = "default"
+            locked = False
+        value = getattr(settings, spec.key)
+        sources[spec.key] = {
+            "value": format_setting_value(value, spec),
+            "source": source,
+            "locked": locked or not spec.mutable,
+            "restart_required": spec.restart_required,
+        }
+    return sources
+
+
+def save_settings(overrides: dict[str, str]) -> None:
+    """Persist UI overrides to app_settings, skipping pinned/immutable keys."""
+    from app.models import AppSetting
+    from app.settings_registry import SETTINGS_BY_KEY
+
+    pinned = _collect_pinned_sources()
+    try:
+        from app.db import get_sync_session_factory
+
+        factory = get_sync_session_factory()
+        with factory() as session:
+            for key, value in overrides.items():
+                spec = SETTINGS_BY_KEY.get(key)
+                if spec is None or not spec.mutable or spec.secret:
+                    continue
+                if spec.env_alias in pinned:
+                    continue
+                row = session.get(AppSetting, key)
+                if row is None:
+                    row = AppSetting(key=key, value=value)
+                    session.add(row)
+                else:
+                    row.value = value
+            session.commit()
+    except Exception as exc:
+        raise RuntimeError(f"Failed to save settings: {exc}") from exc
 
     global _settings
     _settings = None
@@ -359,15 +427,18 @@ def save_custom_settings(
 
 def reload_settings() -> Settings:
     """Force settings reload and return a fresh settings instance."""
-    global _settings
+    global _settings, _pinned_sources, _db_overrides
     _settings = None
+    _pinned_sources = {}
+    _db_overrides = {}
     return get_settings()
 
 
 def get_settings() -> Settings:
     """Return cached settings instance, merging YAML values under env vars."""
-    global _settings
+    global _settings, _pinned_sources, _db_overrides
     if _settings is None:
+        _pinned_sources = _collect_pinned_sources()
         yaml_values = _load_yaml()
         # Set missing env vars from YAML so pydantic picks them up
         for key, val in yaml_values.items():
@@ -377,5 +448,5 @@ def get_settings() -> Settings:
                 else:
                     os.environ[key] = str(val)
         _settings = Settings()
-        _load_custom_settings(_settings)
+        _db_overrides = _load_db_overrides(_settings, _pinned_sources)
     return _settings

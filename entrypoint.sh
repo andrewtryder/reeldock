@@ -18,10 +18,20 @@ if ! getent passwd appuser &>/dev/null; then
     useradd -u "$PUID" -g "$PGID" -M -s /bin/bash appuser 2>/dev/null || true
 fi
 
+# Ensure data subdirectories exist (host bind mount may replace /data without them)
+mkdir -p /data/work /data/logs /data/config
+
 # Fix ownership of data directories
 chown -R "$PUID:$PGID" /data /config 2>/dev/null || true
 
 MODE=${1:-app}
+
+case "$MODE" in
+  app|worker)
+    echo "Running startup preflight checks..."
+    gosu "$PUID:$PGID" python -m app.preflight || exit 1
+    ;;
+esac
 
 case "$MODE" in
   app)

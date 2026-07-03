@@ -5,14 +5,13 @@ from __future__ import annotations
 import html
 import logging
 import shutil
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app.config import get_settings, save_custom_settings
+from app.config import Settings, get_setting_sources, reload_settings, save_settings
 from app.routes import DbDep, SettingsDep
 from app.services.filesystem import FilesystemService
 from app.services.jobs import (
@@ -24,6 +23,10 @@ from app.services.jobs import (
     submit_job,
 )
 from app.services.ytdlp import YtDlpService
+from app.settings_registry import (
+    parse_form_value,
+    registry_groups,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -247,72 +250,123 @@ async def page_job_detail(
     )
 
 
+def _build_settings_context(
+    request: Request,
+    cfg: Settings,
+    *,
+    form_values: dict[str, str] | None = None,
+    field_errors: dict[str, str] | None = None,
+    field_warnings: dict[str, str] | None = None,
+    error: str | None = None,
+    success: str | None = None,
+    warnings: list[str] | None = None,
+) -> dict[str, object]:
+    sources = get_setting_sources()
+    groups: list[dict[str, object]] = []
+    for group_id, group_label, specs in registry_groups():
+        fields: list[dict[str, object]] = []
+        for spec in specs:
+            meta = sources[spec.key]
+            value = form_values.get(spec.key, meta["value"]) if form_values else meta["value"]
+            fields.append(
+                {
+                    "spec": spec,
+                    "value": value,
+                    "source": meta["source"],
+                    "locked": meta["locked"],
+                    "restart_required": meta["restart_required"],
+                    "error": (field_errors or {}).get(spec.key),
+                    "warning": (field_warnings or {}).get(spec.key),
+                }
+            )
+        groups.append({"id": group_id, "label": group_label, "fields": fields})
+    return {
+        "request": request,
+        "settings": cfg,
+        "setting_groups": groups,
+        "error": error,
+        "success": success,
+        "warnings": warnings or [],
+    }
+
+
+def _process_settings_form(
+    form: dict[str, str],
+) -> tuple[dict[str, str], dict[str, str], dict[str, str], list[str]]:
+    """Validate submitted settings form; return overrides, errors, warnings, global warnings."""
+    from app.settings_registry import SETTINGS_REGISTRY
+
+    sources = get_setting_sources()
+    overrides: dict[str, str] = {}
+    errors: dict[str, str] = {}
+    warnings: dict[str, str] = {}
+    global_warnings: list[str] = []
+
+    for spec in SETTINGS_REGISTRY:
+        if not spec.mutable or sources[spec.key]["locked"]:
+            continue
+        raw = form.get(spec.key)
+        value = parse_form_value(raw, spec)
+        if spec.validate:
+            error, warning = spec.validate(value)
+            if error:
+                errors[spec.key] = error
+                continue
+            if warning:
+                warnings[spec.key] = warning
+        overrides[spec.key] = value
+        if spec.restart_required:
+            global_warnings.append(
+                f"{spec.label} may require a process restart to take full effect."
+            )
+
+    return overrides, errors, warnings, global_warnings
+
+
 @router.get("/settings", response_class=HTMLResponse)
 async def page_settings(request: Request, cfg: SettingsDep) -> HTMLResponse:
     return templates.TemplateResponse(
         "settings.html",
-        {
-            "request": request,
-            "settings": cfg,
-        },
+        _build_settings_context(request, cfg),
     )
 
 
 @router.post("/settings", response_class=HTMLResponse)
-async def page_update_settings(
-    request: Request,
-    cfg: SettingsDep,
-    output_root: str = Form(...),
-    dry_run: bool = Form(False),
-    allow_playlists: bool = Form(False),
-    allow_channels: bool = Form(False),
-    abs_scan_after_success: bool = Form(False),
-) -> HTMLResponse:
-    p = Path(output_root.strip())
-    error = None
-    if not p.is_absolute():
-        error = "Output root directory must be an absolute path."
-    else:
-        try:
-            p.mkdir(parents=True, exist_ok=True)
-            test_file = p / f".write_test_{uuid.uuid4()}"
-            test_file.touch()
-            test_file.unlink()
-        except Exception as exc:
-            error = f"Output root is not writable: {exc}"
+async def page_update_settings(request: Request, cfg: SettingsDep) -> HTMLResponse:
+    form = {
+        key: value for key, value in (await request.form()).multi_items() if isinstance(value, str)
+    }
+    overrides, field_errors, field_warnings, global_warnings = _process_settings_form(form)
 
-    if error:
+    if field_errors:
+        from app.settings_registry import SETTINGS_REGISTRY
+
+        form_values = {
+            spec.key: parse_form_value(form.get(spec.key), spec) for spec in SETTINGS_REGISTRY
+        }
         return templates.TemplateResponse(
             "settings.html",
-            {
-                "request": request,
-                "settings": cfg,
-                "error": error,
-                "output_root": output_root,
-                "form_values": {
-                    "dry_run": dry_run,
-                    "allow_playlists": allow_playlists,
-                    "allow_channels": allow_channels,
-                    "abs_scan_after_success": abs_scan_after_success,
-                },
-            },
+            _build_settings_context(
+                request,
+                cfg,
+                form_values=form_values,
+                field_errors=field_errors,
+                field_warnings=field_warnings,
+                error="Please fix the highlighted settings before saving.",
+            ),
             status_code=400,
         )
 
-    save_custom_settings(
-        output_root,
-        dry_run=dry_run,
-        allow_playlists=allow_playlists,
-        allow_channels=allow_channels,
-        abs_scan_after_success=abs_scan_after_success,
-    )
-    new_cfg = get_settings()
+    save_settings(overrides)
+    new_cfg = reload_settings()
 
     return templates.TemplateResponse(
         "settings.html",
-        {
-            "request": request,
-            "settings": new_cfg,
-            "success": "Settings saved successfully and reloaded.",
-        },
+        _build_settings_context(
+            request,
+            new_cfg,
+            field_warnings=field_warnings,
+            success="Settings saved successfully and reloaded.",
+            warnings=global_warnings,
+        ),
     )

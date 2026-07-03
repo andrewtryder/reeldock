@@ -108,3 +108,35 @@ uv run ruff format .
 ```
 
 Pre-commit hooks use the same Ruff version from `uv.lock` via `uv run --frozen`.
+
+---
+
+## 6. Database migrations
+
+Schema changes are managed with [Alembic](https://alembic.sqlalchemy.org/). Migrations run automatically when the FastAPI app starts (`init_db()` in the application lifespan).
+
+### Applying migrations manually
+
+```bash
+export DATABASE_URL=sqlite+aiosqlite:///./app.db
+uv run alembic upgrade head
+```
+
+### Creating a new migration
+
+After editing models in `app/models.py`:
+
+```bash
+export DATABASE_URL=sqlite+aiosqlite:///./app.db
+uv run alembic revision --autogenerate -m "describe your change"
+```
+
+Review the generated file under `alembic/versions/` before committing. Autogenerate can miss SQLite-specific nuances, so always inspect the diff.
+
+### Existing databases
+
+SQLite files created before Alembic was introduced are bootstrapped automatically on first startup: legacy column additions are applied, then the database is stamped at the current head revision.
+
+### Worker-only startup
+
+The RQ worker does not run migrations. In Docker Compose the `app` service starts first and shares the same `./data` volume. For worker-only local setups, run the app once or execute `uv run alembic upgrade head` before starting the worker.

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import create_engine as _sync_create_engine
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -16,7 +19,6 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
-from app.models import Base
 
 # ---------------------------------------------------------------------------
 # Async engine (FastAPI app)
@@ -52,69 +54,61 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
+def _alembic_config() -> Config:
+    """Return Alembic config pointing at the project alembic.ini."""
+    project_root = Path(__file__).resolve().parent.parent
+    return Config(str(project_root / "alembic.ini"))
+
+
+def _run_legacy_migrations(connection: Connection) -> None:
+    """Apply pre-Alembic column additions for very old databases."""
+    cursor = connection.execute(text("PRAGMA table_info(jobs)"))
+    cols = [row[1] for row in cursor.fetchall()]
+
+    new_cols = [
+        ("progress", "INTEGER"),
+        ("progress_percent", "FLOAT"),
+        ("progress_eta", "VARCHAR(32)"),
+        ("progress_speed", "VARCHAR(32)"),
+        ("progress_label", "VARCHAR(64)"),
+        ("output_file_size", "INTEGER"),
+    ]
+
+    for col_name, col_type in new_cols:
+        if col_name not in cols:
+            connection.execute(text(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_type}"))
+    if "allow_reimport" not in cols:
+        connection.execute(text("ALTER TABLE jobs ADD COLUMN allow_reimport BOOLEAN DEFAULT 0"))
+
+    cursor_attempts = connection.execute(text("PRAGMA table_info(job_attempts)"))
+    attempts_cols = [row[1] for row in cursor_attempts.fetchall()]
+
+    if "artifact_metadata" not in attempts_cols:
+        connection.execute(text("ALTER TABLE job_attempts ADD COLUMN artifact_metadata TEXT"))
+
+
+def _run_migrations(connection: Connection, cfg: Config) -> None:
+    """Run Alembic migrations, bootstrapping legacy databases when needed."""
+    inspector = inspect(connection)
+    has_alembic_version = inspector.has_table("alembic_version")
+    has_jobs = inspector.has_table("jobs")
+
+    if has_jobs and not has_alembic_version:
+        _run_legacy_migrations(connection)
+        command.stamp(cfg, "head")
+        return
+
+    cfg.attributes["connection"] = connection
+    command.upgrade(cfg, "head")
+
+
 async def init_db() -> None:
-    """Create all tables on startup and apply lightweight migrations."""
+    """Apply Alembic migrations on startup."""
     engine = get_async_engine()
+    cfg = _alembic_config()
+
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-        def run_migrations(connection: Connection) -> None:
-            # Check jobs columns
-            cursor = connection.execute(text("PRAGMA table_info(jobs)"))
-            cols = [row[1] for row in cursor.fetchall()]
-
-            new_cols = [
-                ("progress", "INTEGER"),
-                ("progress_percent", "FLOAT"),
-                ("progress_eta", "VARCHAR(32)"),
-                ("progress_speed", "VARCHAR(32)"),
-                ("progress_label", "VARCHAR(64)"),
-                ("output_file_size", "INTEGER"),
-            ]
-
-            for col_name, col_type in new_cols:
-                if col_name not in cols:
-                    connection.execute(text(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_type}"))
-            if "allow_reimport" not in cols:
-                connection.execute(
-                    text("ALTER TABLE jobs ADD COLUMN allow_reimport BOOLEAN DEFAULT 0")
-                )
-
-            # Check job_attempts columns
-            cursor_attempts = connection.execute(text("PRAGMA table_info(job_attempts)"))
-            attempts_cols = [row[1] for row in cursor_attempts.fetchall()]
-
-            if "artifact_metadata" not in attempts_cols:
-                connection.execute(
-                    text("ALTER TABLE job_attempts ADD COLUMN artifact_metadata TEXT")
-                )
-
-            # Backfill canonical import ledger from historical successful jobs.
-            connection.execute(
-                text(
-                    """
-                    INSERT OR IGNORE INTO imported_videos (
-                        video_id,
-                        job_id,
-                        source_url,
-                        source_title,
-                        imported_at
-                    )
-                    SELECT
-                        video_id,
-                        id,
-                        url,
-                        source_title,
-                        COALESCE(finished_at, created_at, CURRENT_TIMESTAMP)
-                    FROM jobs
-                    WHERE status = 'succeeded'
-                      AND video_id IS NOT NULL
-                      AND TRIM(video_id) != ''
-                    """
-                )
-            )
-
-        await conn.run_sync(run_migrations)
+        await conn.run_sync(_run_migrations, cfg)
 
 
 # ---------------------------------------------------------------------------

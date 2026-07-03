@@ -3,18 +3,18 @@
 
 {% block content %}
 <main class="flex-grow w-full">
-  <!-- Top App Bar -->
   <header class="flex justify-end items-center px-container-padding h-16 w-full border-b border-outline-variant bg-surface shrink-0">
     <div class="flex items-center gap-stack-md">
-      <span class="font-code text-code text-on-surface-variant opacity-75">Config Overrides Active</span>
+      <span class="font-code text-code text-on-surface-variant opacity-75">Configuration Registry</span>
     </div>
   </header>
 
   <div class="pt-8 pb-32 px-container-padding max-w-5xl mx-auto w-full">
-    <!-- Page Header -->
     <header class="mb-stack-lg section-entrance section-entrance-1">
       <h1 class="font-headline-md text-headline-md text-on-background">Settings</h1>
-      <p class="font-body-md text-body-md text-on-surface-variant mt-1">Configure global application behavior and media locations.</p>
+      <p class="font-body-md text-body-md text-on-surface-variant mt-1">
+        Configure global application behavior. Environment and YAML values take precedence and lock their fields.
+      </p>
     </header>
 
     {% if error %}
@@ -31,202 +31,169 @@
     </div>
     {% endif %}
 
-    <form method="POST" action="/settings" class="settings-form settings-layout grid grid-cols-1 md:grid-cols-12 gap-gutter">
-      <!-- Left Column: Config Forms -->
-      <div class="md:col-span-8 flex flex-col gap-stack-md">
+    {% if warnings %}
+    <div class="bg-yellow-500/10 border border-yellow-500/25 text-yellow-300 rounded-xl p-4 mb-6 shadow-md">
+      <div class="flex items-start gap-3">
+        <span class="material-symbols-outlined shrink-0 text-yellow-400">warning</span>
+        <ul class="list-disc pl-5 space-y-1 text-body-md">
+          {% for warning in warnings %}
+          <li>{{ warning | e }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
 
-        <!-- General Settings Section -->
+    <form method="POST" action="/settings" class="settings-form settings-layout grid grid-cols-1 md:grid-cols-12 gap-gutter">
+      <div class="md:col-span-8 flex flex-col gap-stack-md">
+        {% for group in setting_groups %}
         <section class="settings-card section-entrance section-entrance-2 bg-surface-container border border-outline rounded-xl p-stack-md shadow-lg">
           <div class="flex items-center gap-2 mb-stack-md">
-            <span class="material-symbols-outlined text-primary">settings</span>
-            <h2 class="font-headline-sm text-headline-sm font-semibold">General Settings</h2>
+            <span class="material-symbols-outlined text-primary">tune</span>
+            <h2 class="font-headline-sm text-headline-sm font-semibold">{{ group.label | e }}</h2>
           </div>
           <div class="space-y-stack-md">
-            <div class="flex flex-col gap-2">
-              <label for="output_root" class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Output Root Directory</label>
-              <div class="relative flex items-center">
-                <span class="material-symbols-outlined absolute left-3 text-on-surface-variant text-[18px]">folder</span>
-                <input
-                  id="output_root"
-                  name="output_root"
-                  type="text"
-                  class="w-full pl-10 pr-4 py-2 bg-surface-container-low border border-outline rounded-lg font-code text-code text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none input-focus-glow"
-                  placeholder="/media/audiobooks"
-                  value="{{ output_root if error else settings.output_root | e }}"
-                  required
-                />
-              </div>
-              <p class="font-label-md text-label-md text-on-surface-variant opacity-75 leading-relaxed">
-                The base folder inside the container where audiobook files will be written.
-              </p>
-
-              <div class="bg-surface-container-low border border-outline-variant/30 rounded-lg p-3 mt-2 font-label-md text-label-md text-on-surface-variant flex gap-3">
-                <span class="material-symbols-outlined text-primary shrink-0">info</span>
-                <div>
-                  <strong>Docker Host Path Notice:</strong> This must be the <em>container-side</em> path (e.g. <code>/media/audiobooks</code>).
-                  Host machine volumes should be mapped in your <code>docker-compose.yml</code> / <code>.env</code> file.
+            {% for field in group.fields %}
+            {% set spec = field.spec %}
+            <div class="{% if not loop.first and spec.type.value != 'bool' %}border-t border-outline-variant/30 pt-4{% elif loop.first %}{% else %}pt-1{% endif %}">
+              {% if spec.type.value == 'bool' %}
+              <label class="flex items-center justify-between gap-3 rounded-lg border border-outline-variant/40 bg-surface-container-low px-4 py-3 {% if field.locked %}opacity-60 cursor-not-allowed{% else %}cursor-pointer{% endif %}">
+                <div class="flex flex-col gap-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-body-md text-body-md text-on-surface">{{ spec.label | e }}</span>
+                    {% if field.locked %}
+                    <span class="inline-flex px-2 py-0.5 rounded bg-surface-variant text-on-surface-variant font-label-md text-label-md uppercase tracking-wide">
+                      {{ field.source | e }}
+                    </span>
+                    {% endif %}
+                    {% if field.restart_required %}
+                    <span class="inline-flex px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/25 font-label-md text-label-md">Restart</span>
+                    {% endif %}
+                  </div>
+                  <span class="font-label-md text-label-md text-on-surface-variant">{{ spec.help_text | e }}</span>
+                  {% if field.error %}
+                  <span class="font-label-md text-label-md text-error">{{ field.error | e }}</span>
+                  {% endif %}
+                  {% if field.warning %}
+                  <span class="font-label-md text-label-md text-yellow-400">{{ field.warning | e }}</span>
+                  {% endif %}
                 </div>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-outline-variant/30 pt-4">
-              <div class="flex flex-col gap-2">
-                <label class="font-label-md text-label-md text-on-surface-variant opacity-60 uppercase tracking-wider">Max Concurrent Jobs</label>
-                <input
-                  class="w-full px-4 py-2 bg-surface-container-low/40 border border-outline rounded-lg font-code text-code text-on-surface opacity-60 cursor-not-allowed"
-                  type="number"
-                  value="{{ settings.max_concurrent_jobs }}"
-                  disabled
-                  readonly
-                />
-                <p class="font-label-md text-label-md text-on-surface-variant opacity-60">Read-only (configured via environment/configs).</p>
-              </div>
-              <div class="flex flex-col gap-2">
-                <label class="font-label-md text-label-md text-on-surface-variant opacity-60 uppercase tracking-wider">YouTube Cookies File</label>
-                <div class="relative flex items-center opacity-60">
-                  <span class="material-symbols-outlined absolute left-3 text-on-surface-variant text-[18px]">cookie</span>
+                <span class="relative inline-flex h-6 w-11 items-center shrink-0">
                   <input
-                    class="w-full pl-10 pr-4 py-2 bg-surface-container-low/40 border border-outline rounded-lg font-code text-code text-on-surface cursor-not-allowed"
-                    type="text"
-                    value="config/cookies.txt"
-                    disabled
-                    readonly
+                    type="checkbox"
+                    name="{{ spec.key | e }}"
+                    class="peer sr-only"
+                    {% if field.value in ['true', 'True', '1', 'on', 'yes'] %}checked{% endif %}
+                    {% if field.locked %}disabled{% endif %}
                   />
+                  <span class="absolute inset-0 rounded-full bg-surface-variant peer-checked:bg-primary transition-colors"></span>
+                  <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></span>
+                </span>
+              </label>
+              {% else %}
+              <div class="flex flex-col gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <label for="{{ spec.key | e }}" class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">{{ spec.label | e }}</label>
+                  {% if field.locked %}
+                  <span class="inline-flex px-2 py-0.5 rounded bg-surface-variant text-on-surface-variant font-label-md text-label-md uppercase tracking-wide">
+                    {{ field.source | e }}
+                  </span>
+                  {% elif field.source == 'db' %}
+                  <span class="inline-flex px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/25 font-label-md text-label-md">UI override</span>
+                  {% endif %}
+                  {% if field.restart_required %}
+                  <span class="inline-flex px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/25 font-label-md text-label-md">Restart</span>
+                  {% endif %}
                 </div>
-                <p class="font-label-md text-label-md text-on-surface-variant opacity-60">Read-only. Place cookies file at that path.</p>
+
+                {% if spec.type.value == 'enum' %}
+                <select
+                  id="{{ spec.key | e }}"
+                  name="{{ spec.key | e }}"
+                  class="w-full px-4 py-2 bg-surface-container-low border border-outline rounded-lg font-code text-code text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none {% if field.locked %}opacity-60 cursor-not-allowed{% endif %}"
+                  {% if field.locked %}disabled{% endif %}
+                >
+                  {% for choice in spec.choices %}
+                  <option value="{{ choice | e }}" {% if field.value == choice %}selected{% endif %}>{{ choice | e }}</option>
+                  {% endfor %}
+                </select>
+                {% elif spec.type.value == 'int' %}
+                <input
+                  id="{{ spec.key | e }}"
+                  name="{{ spec.key | e }}"
+                  type="number"
+                  class="w-full px-4 py-2 bg-surface-container-low border border-outline rounded-lg font-code text-code text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none {% if field.locked %}opacity-60 cursor-not-allowed{% endif %}"
+                  value="{{ field.value | e }}"
+                  {% if field.locked %}disabled readonly{% endif %}
+                />
+                {% elif spec.type.value in ['csv_list', 'space_list', 'int_list'] %}
+                <textarea
+                  id="{{ spec.key | e }}"
+                  name="{{ spec.key | e }}"
+                  rows="2"
+                  class="w-full px-4 py-2 bg-surface-container-low border border-outline rounded-lg font-code text-code text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none {% if field.locked %}opacity-60 cursor-not-allowed{% endif %}"
+                  {% if field.locked %}disabled readonly{% endif %}
+                >{{ field.value | e }}</textarea>
+                {% else %}
+                <input
+                  id="{{ spec.key | e }}"
+                  name="{{ spec.key | e }}"
+                  type="text"
+                  class="w-full px-4 py-2 bg-surface-container-low border border-outline rounded-lg font-code text-code text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none {% if field.locked %}opacity-60 cursor-not-allowed{% endif %}"
+                  value="{{ field.value | e }}"
+                  {% if field.locked %}disabled readonly{% endif %}
+                />
+                {% endif %}
+
+                <p class="font-label-md text-label-md text-on-surface-variant opacity-75 leading-relaxed">{{ spec.help_text | e }}</p>
+                {% if field.error %}
+                <p class="font-label-md text-label-md text-error">{{ field.error | e }}</p>
+                {% endif %}
+                {% if field.warning %}
+                <p class="font-label-md text-label-md text-yellow-400">{{ field.warning | e }}</p>
+                {% endif %}
               </div>
+              {% endif %}
             </div>
-
-            <div class="border-t border-outline-variant/30 pt-4 space-y-4">
-              <h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">
-                Runtime Behavior
-              </h3>
-              <div class="space-y-3">
-                <label class="flex items-center justify-between gap-3 rounded-lg border border-outline-variant/40 bg-surface-container-low px-4 py-3 cursor-pointer">
-                  <div class="flex flex-col">
-                    <span class="font-body-md text-body-md text-on-surface">Dry run mode</span>
-                    <span class="font-label-md text-label-md text-on-surface-variant">Build commands and write a fake output file only.</span>
-                  </div>
-                  <span class="relative inline-flex h-6 w-11 items-center">
-                    <input
-                      type="checkbox"
-                      name="dry_run"
-                      class="peer sr-only"
-                      {% if (form_values.dry_run if form_values is defined else settings.dry_run) %}checked{% endif %}
-                    />
-                    <span class="absolute inset-0 rounded-full bg-surface-variant peer-checked:bg-tertiary transition-colors"></span>
-                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></span>
-                  </span>
-                </label>
-
-                <label class="flex items-center justify-between gap-3 rounded-lg border border-outline-variant/40 bg-surface-container-low px-4 py-3 cursor-pointer">
-                  <div class="flex flex-col">
-                    <span class="font-body-md text-body-md text-on-surface">Allow playlist imports</span>
-                    <span class="font-label-md text-label-md text-on-surface-variant">Enable importing playlist URLs in addition to single videos.</span>
-                  </div>
-                  <span class="relative inline-flex h-6 w-11 items-center">
-                    <input
-                      type="checkbox"
-                      name="allow_playlists"
-                      class="peer sr-only"
-                      {% if (form_values.allow_playlists if form_values is defined else settings.allow_playlists) %}checked{% endif %}
-                    />
-                    <span class="absolute inset-0 rounded-full bg-surface-variant peer-checked:bg-primary transition-colors"></span>
-                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></span>
-                  </span>
-                </label>
-
-                <label class="flex items-center justify-between gap-3 rounded-lg border border-outline-variant/40 bg-surface-container-low px-4 py-3 cursor-pointer">
-                  <div class="flex flex-col">
-                    <span class="font-body-md text-body-md text-on-surface">Allow channel imports</span>
-                    <span class="font-label-md text-label-md text-on-surface-variant">Enable importing channel URLs.</span>
-                  </div>
-                  <span class="relative inline-flex h-6 w-11 items-center">
-                    <input
-                      type="checkbox"
-                      name="allow_channels"
-                      class="peer sr-only"
-                      {% if (form_values.allow_channels if form_values is defined else settings.allow_channels) %}checked{% endif %}
-                    />
-                    <span class="absolute inset-0 rounded-full bg-surface-variant peer-checked:bg-primary transition-colors"></span>
-                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></span>
-                  </span>
-                </label>
-
-                <label class="flex items-center justify-between gap-3 rounded-lg border border-outline-variant/40 bg-surface-container-low px-4 py-3 cursor-pointer">
-                  <div class="flex flex-col">
-                    <span class="font-body-md text-body-md text-on-surface">Trigger ABS scan after success</span>
-                    <span class="font-label-md text-label-md text-on-surface-variant">If enabled, successful imports trigger an Audiobookshelf scan.</span>
-                  </div>
-                  <span class="relative inline-flex h-6 w-11 items-center">
-                    <input
-                      type="checkbox"
-                      name="abs_scan_after_success"
-                      class="peer sr-only"
-                      {% if (form_values.abs_scan_after_success if form_values is defined else settings.abs_scan_after_success) %}checked{% endif %}
-                    />
-                    <span class="absolute inset-0 rounded-full bg-surface-variant peer-checked:bg-primary transition-colors"></span>
-                    <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></span>
-                  </span>
-                </label>
-              </div>
-            </div>
+            {% endfor %}
           </div>
         </section>
+        {% endfor %}
 
-        <!-- Audiobookshelf Integration Section -->
         <section class="settings-card section-entrance section-entrance-3 bg-surface-container border border-outline rounded-xl p-stack-md shadow-lg">
           <div class="flex items-center gap-2 mb-stack-md">
             <span class="material-symbols-outlined text-primary">sync_alt</span>
             <h2 class="font-headline-sm text-headline-sm font-semibold">Audiobookshelf Integration</h2>
           </div>
-          <div class="space-y-stack-md">
-            {% if settings.abs_configured %}
+          {% if settings.abs_configured %}
+          <div class="space-y-stack-md opacity-60">
             <div class="flex flex-col gap-2">
-              <label class="font-label-md text-label-md text-on-surface-variant opacity-60 uppercase tracking-wider">ABS SERVER URL</label>
-              <input
-                class="w-full px-4 py-2 bg-surface-container-low/40 border border-outline rounded-lg font-code text-code text-on-surface opacity-60 cursor-not-allowed"
-                type="text"
-                value="{{ settings.abs_base_url }}"
-                disabled
-                readonly
-              />
+              <label class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">ABS Server URL</label>
+              <input class="w-full px-4 py-2 bg-surface-container-low/40 border border-outline rounded-lg font-code text-code cursor-not-allowed" type="text" value="{{ settings.abs_base_url | e }}" disabled readonly />
             </div>
             <div class="flex flex-col gap-2 border-t border-outline-variant/30 pt-4">
-              <label class="font-label-md text-label-md text-on-surface-variant opacity-60 uppercase tracking-wider">API Connection</label>
-              <div class="relative flex items-center opacity-60">
-                <span class="material-symbols-outlined absolute left-3 text-on-surface-variant text-[18px]">key</span>
-                <input
-                  class="w-full pl-10 pr-4 py-2 bg-surface-container-low/40 border border-outline rounded-lg font-code text-code text-on-surface cursor-not-allowed"
-                  type="password"
-                  value="••••••••••••••••••••••••"
-                  disabled
-                  readonly
-                />
-              </div>
+              <label class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">API Connection</label>
+              <input class="w-full px-4 py-2 bg-surface-container-low/40 border border-outline rounded-lg font-code text-code cursor-not-allowed" type="password" value="••••••••••••••••" disabled readonly />
             </div>
-            <p class="font-label-md text-label-md text-on-surface-variant opacity-75">
-              Runtime scan behavior is controlled in the <strong>Runtime Behavior</strong> section above.
-            </p>
-            {% else %}
-            <div class="bg-surface-container-low border border-outline border-dashed rounded-lg p-4 text-center">
-              <span class="material-symbols-outlined text-[32px] text-on-surface-variant opacity-50 mb-2">sync_disabled</span>
-              <p class="font-body-md text-on-surface-variant">Audiobookshelf integration is not configured.</p>
-              <p class="font-label-md text-label-md text-on-surface-variant opacity-75 mt-1">Provide <code>ABS_BASE_URL</code>, <code>ABS_API_TOKEN</code>, and <code>ABS_LIBRARY_ID</code> in environment or configs to enable scans.</p>
-            </div>
-            {% endif %}
+            <p class="font-label-md text-label-md text-on-surface-variant">Secrets remain environment-only. Scan behavior is controlled in Runtime Behavior.</p>
           </div>
+          {% else %}
+          <div class="bg-surface-container-low border border-outline border-dashed rounded-lg p-4 text-center">
+            <span class="material-symbols-outlined text-[32px] text-on-surface-variant opacity-50 mb-2">sync_disabled</span>
+            <p class="font-body-md text-on-surface-variant">Audiobookshelf integration is not configured.</p>
+            <p class="font-label-md text-label-md text-on-surface-variant opacity-75 mt-1">Set <code>ABS_BASE_URL</code>, <code>ABS_API_TOKEN</code>, and <code>ABS_LIBRARY_ID</code> via environment or YAML.</p>
+          </div>
+          {% endif %}
         </section>
       </div>
 
-      <!-- Right Column: Environment Summary -->
       <div class="md:col-span-4 space-y-stack-md">
         <div class="settings-card section-entrance section-entrance-2 bg-surface-container border border-outline rounded-xl overflow-hidden shadow-lg">
           <div class="p-stack-md">
             <h3 class="font-headline-sm text-headline-sm font-semibold mb-3">System Status</h3>
             <div class="space-y-3">
               <div class="flex justify-between items-center py-1.5">
-                <span class="font-body-md text-on-surface-variant">Dry run mode</span>
+                <span class="font-body-md text-on-surface-variant">Dry run</span>
                 <span>
                   {% if settings.dry_run %}
                   <span class="inline-flex px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/25 font-label-md text-label-md">ENABLED</span>
@@ -256,7 +223,11 @@
                 </span>
               </div>
               <div class="flex justify-between items-center py-1.5 border-t border-outline-variant/30">
-                <span class="font-body-md text-on-surface-variant">ABS scan after import</span>
+                <span class="font-body-md text-on-surface-variant">Collision mode</span>
+                <span class="font-code text-code text-on-surface-variant">{{ settings.collision_mode | e }}</span>
+              </div>
+              <div class="flex justify-between items-center py-1.5 border-t border-outline-variant/30">
+                <span class="font-body-md text-on-surface-variant">ABS scan</span>
                 <span>
                   {% if settings.abs_configured and settings.abs_scan_after_success %}
                   <span class="inline-flex px-2 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/25 font-label-md text-label-md">ACTIVE</span>
@@ -270,14 +241,16 @@
         </div>
 
         <div class="section-entrance section-entrance-3 bg-surface-container-lowest border border-outline-variant border-dashed rounded-xl p-stack-md">
-          <h4 class="font-label-md text-label-md text-on-surface-variant mb-2">QUICK HELP</h4>
-          <p class="font-body-md text-body-md text-on-surface-variant leading-relaxed">
-            Changing the output directory applies to all future downloads. Unsaved configurations are highlighted at the bottom of the page.
-          </p>
+          <h4 class="font-label-md text-label-md text-on-surface-variant mb-2">PRECEDENCE</h4>
+          <ol class="list-decimal pl-5 space-y-1 font-body-md text-body-md text-on-surface-variant">
+            <li>Environment / Docker</li>
+            <li>YAML config file</li>
+            <li>Web UI overrides</li>
+            <li>Application defaults</li>
+          </ol>
         </div>
       </div>
 
-      <!-- Save settings floating actions footer -->
       <footer class="settings-save-footer fixed bottom-0 left-0 md:left-64 w-full md:w-[calc(100%-16rem)] bg-surface-container-low/95 backdrop-blur border-t border-outline py-4 px-container-padding z-30">
         <div class="max-w-5xl mx-auto flex justify-end items-center gap-4">
           <a href="/settings" class="px-6 py-2.5 rounded-lg border border-outline font-label-md text-label-md text-on-surface-variant hover:bg-surface-container-high transition-colors">DISCARD</a>

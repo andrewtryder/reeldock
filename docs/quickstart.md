@@ -38,9 +38,17 @@ Ensure the local storage directories for database files and configuration exist 
 mkdir -p data config
 ```
 
+Ensure `HOST_PODCASTS_DIR` exists on the host and is writable. On macOS with a Synology or other network share, mount the share in Finder first so the path under `/Volumes/...` exists before starting Docker.
+
 ## 5. Start the Application
 
-Start the Docker Compose stack in detached mode:
+Optionally validate host paths before starting (recommended when using NAS mounts):
+
+```bash
+./scripts/check-docker-paths.sh && docker compose up -d
+```
+
+Or start the Docker Compose stack directly in detached mode:
 
 ```bash
 docker compose up -d

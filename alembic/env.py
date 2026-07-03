@@ -8,7 +8,7 @@ from alembic import context
 from app.config import get_settings
 
 # Import models so autogenerate sees all tables.
-from app.models import Base, ImportedVideo, Job, JobAttempt  # noqa: F401
+from app.models import AppSetting, Base, ImportedVideo, Job, JobAttempt  # noqa: F401
 from sqlalchemy import engine_from_config, pool
 
 config = context.config

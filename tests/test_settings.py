@@ -1,60 +1,86 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import app.config as config_module
+import app.db as db_module
 import pytest
-from app.config import get_settings, save_custom_settings
+from app.config import get_setting_sources, reload_settings, save_settings
 from app.main import app
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+
+def _reset_runtime_state() -> None:
+    config_module._settings = None
+    config_module._pinned_sources = {}
+    config_module._db_overrides = {}
+    db_module._async_engine = None
+    db_module._async_session_factory = None
+    db_module._sync_engine = None
+    db_module._sync_session_factory = None
 
 
 @pytest.fixture
-def mock_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def settings_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Isolated data directory and SQLite database for settings tests."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
+    db_path = data_dir / "app.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
+    monkeypatch.delenv("OUTPUT_ROOT", raising=False)
+    monkeypatch.delenv("DRY_RUN", raising=False)
+    monkeypatch.delenv("ALLOW_PLAYLISTS", raising=False)
+    monkeypatch.delenv("ALLOW_CHANNELS", raising=False)
+    monkeypatch.delenv("ABS_SCAN_AFTER_SUCCESS", raising=False)
     monkeypatch.setattr(config_module, "_get_default_data_dir", lambda: data_dir)
-    return data_dir
+    monkeypatch.setattr(config_module, "_parse_dotenv_keys", lambda: set())
+    _reset_runtime_state()
+
+    import asyncio
+
+    from app.db import init_db
+
+    asyncio.run(init_db())
+    reload_settings()
+    yield data_dir
+    _reset_runtime_state()
 
 
-def test_save_and_load_custom_settings(mock_data_dir: Path):
-    # Verify default path
-    s1 = get_settings()
+def test_save_and_load_custom_settings(settings_env: Path):
+    s1 = reload_settings()
     assert s1.output_root == Path("/media/podcasts")
 
-    # Save custom output root
-    custom_path = mock_data_dir / "my_custom_podcasts"
+    custom_path = settings_env / "my_custom_podcasts"
     custom_path.mkdir()
-    save_custom_settings(
-        str(custom_path),
-        dry_run=True,
-        allow_playlists=True,
-        allow_channels=True,
-        abs_scan_after_success=True,
+    save_settings(
+        {
+            "output_root": str(custom_path),
+            "dry_run": "true",
+            "allow_playlists": "true",
+            "allow_channels": "true",
+            "abs_scan_after_success": "true",
+        }
     )
 
-    # Verify settings are reloaded correctly
-    s2 = get_settings()
+    s2 = reload_settings()
     assert s2.output_root == custom_path
     assert s2.dry_run is True
     assert s2.allow_playlists is True
     assert s2.allow_channels is True
     assert s2.abs_scan_after_success is True
 
-    # Verify settings.json file contents
-    settings_file = mock_data_dir / "settings.json"
-    assert settings_file.exists()
-    with settings_file.open() as fh:
-        data = json.load(fh)
-    assert data["output_root"] == str(custom_path)
-    assert data["dry_run"] is True
-    assert data["allow_playlists"] is True
-    assert data["allow_channels"] is True
-    assert data["abs_scan_after_success"] is True
+    from app.db import get_sync_session_factory
+    from app.models import AppSetting
+
+    with get_sync_session_factory()() as session:
+        rows = {row.key: row.value for row in session.scalars(select(AppSetting)).all()}
+    assert rows["output_root"] == str(custom_path)
+    assert rows["dry_run"] == "true"
 
 
-def test_get_settings_page(mock_data_dir: Path):
+def test_get_settings_page(settings_env: Path):
     client = TestClient(app)
     response = client.get("/settings")
     assert response.status_code == 200
@@ -63,10 +89,9 @@ def test_get_settings_page(mock_data_dir: Path):
     assert "/media/podcasts" in response.text
 
 
-def test_post_settings_valid(mock_data_dir: Path, tmp_path: Path):
+def test_post_settings_valid(settings_env: Path, tmp_path: Path):
     client = TestClient(app)
     valid_path = tmp_path / "new_output"
-    # POST to /settings with a valid writable path
     response = client.post(
         "/settings",
         data={
@@ -75,34 +100,105 @@ def test_post_settings_valid(mock_data_dir: Path, tmp_path: Path):
             "allow_playlists": "on",
             "allow_channels": "on",
             "abs_scan_after_success": "on",
+            "collision_mode": "skip",
+            "cleanup_temp_on_success": "on",
+            "cleanup_temp_on_failure": "on",
+            "job_timeout_seconds": "7200",
+            "retry_max": "2",
+            "retry_interval_seconds": "30,120",
+            "output_extension": "m4b",
+            "filename_template": "{title}.m4b",
+            "folder_name_field": "uploader_id",
+            "folder_name_fallbacks": "uploader_id,channel",
+            "allowed_domains": "youtube.com,youtu.be",
+            "ytdlp_extra_args": "--verbose",
+            "ffmpeg_extra_args": "",
+            "cookies_file": "",
+            "default_destination_folder": "",
         },
     )
     assert response.status_code == 200
     assert "Settings saved successfully" in response.text
     assert str(valid_path) in response.text
 
-    # Verify it was updated in config
-    settings = get_settings()
+    settings = reload_settings()
     assert settings.output_root == valid_path
     assert settings.dry_run is True
-    assert settings.allow_playlists is True
-    assert settings.allow_channels is True
-    assert settings.abs_scan_after_success is True
+    assert settings.collision_mode == "skip"
+    assert settings.retry_max == 2
 
 
-def test_post_settings_relative(mock_data_dir: Path):
+def test_post_settings_relative(settings_env: Path):
     client = TestClient(app)
-    # Relative path is invalid
-    response = client.post("/settings", data={"output_root": "some/relative/path"})
+    response = client.post(
+        "/settings",
+        data={
+            "output_root": "some/relative/path",
+            "collision_mode": "append_id",
+            "job_timeout_seconds": "10800",
+            "retry_max": "3",
+            "retry_interval_seconds": "60,300,900",
+            "output_extension": "m4b",
+            "filename_template": "{title}.m4b",
+            "folder_name_field": "uploader_id",
+            "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
+            "allowed_domains": "youtube.com",
+        },
+    )
     assert response.status_code == 400
-    assert "must be an absolute path" in response.text
+    assert "absolute path" in response.text.lower()
 
 
-def test_post_settings_non_writable(mock_data_dir: Path):
+def test_post_settings_non_writable(settings_env: Path):
     client = TestClient(app)
-    # A path that exists but is not writable (e.g. a file instead of a directory)
-    fake_file = mock_data_dir / "not_a_dir"
+    fake_file = settings_env / "not_a_dir"
     fake_file.touch()
-    response = client.post("/settings", data={"output_root": str(fake_file)})
+    response = client.post(
+        "/settings",
+        data={
+            "output_root": str(fake_file),
+            "collision_mode": "append_id",
+            "job_timeout_seconds": "10800",
+            "retry_max": "3",
+            "retry_interval_seconds": "60,300,900",
+            "output_extension": "m4b",
+            "filename_template": "{title}.m4b",
+            "folder_name_field": "uploader_id",
+            "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
+            "allowed_domains": "youtube.com",
+        },
+    )
     assert response.status_code == 400
-    assert "not writable" in response.text
+    assert "not writable" in response.text.lower()
+
+
+def test_env_locks_setting_in_ui(settings_env: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("DRY_RUN", "true")
+    _reset_runtime_state()
+    sources = get_setting_sources()
+    assert sources["dry_run"]["locked"] is True
+    assert sources["dry_run"]["source"] == "env"
+
+
+def test_extra_args_reject_shell_injection(settings_env: Path):
+    client = TestClient(app)
+    valid_path = settings_env / "output"
+    valid_path.mkdir()
+    response = client.post(
+        "/settings",
+        data={
+            "output_root": str(valid_path),
+            "ytdlp_extra_args": "--verbose; rm -rf /",
+            "collision_mode": "append_id",
+            "job_timeout_seconds": "10800",
+            "retry_max": "3",
+            "retry_interval_seconds": "60,300,900",
+            "output_extension": "m4b",
+            "filename_template": "{title}.m4b",
+            "folder_name_field": "uploader_id",
+            "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
+            "allowed_domains": "youtube.com",
+        },
+    )
+    assert response.status_code == 400
+    assert "shell metacharacters" in response.text.lower()

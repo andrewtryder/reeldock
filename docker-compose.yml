@@ -40,7 +40,11 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./data:/data
-      - ${HOST_PODCASTS_DIR:-/mnt/podcasts}:${CONTAINER_PODCASTS_DIR:-/media/podcasts}
+      - type: bind
+        source: ${HOST_PODCASTS_DIR:-/mnt/podcasts}
+        target: ${CONTAINER_PODCASTS_DIR:-/media/podcasts}
+        bind:
+          create_host_path: false
       - ./config:/config
     environment:
       - REDIS_URL=redis://redis:6379/0
@@ -66,7 +70,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "curl", "-fs", "http://localhost:8080/health" ]
+      test: [ "CMD", "curl", "-fs", "http://localhost:8080/ready" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -82,7 +86,11 @@ services:
     restart: unless-stopped
     volumes:
       - ./data:/data
-      - ${HOST_PODCASTS_DIR:-/mnt/podcasts}:${CONTAINER_PODCASTS_DIR:-/media/podcasts}
+      - type: bind
+        source: ${HOST_PODCASTS_DIR:-/mnt/podcasts}
+        target: ${CONTAINER_PODCASTS_DIR:-/media/podcasts}
+        bind:
+          create_host_path: false
       - ./config:/config
     environment:
       - REDIS_URL=redis://redis:6379/0

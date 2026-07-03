@@ -38,11 +38,17 @@ async def test_init_db_creates_schema_on_fresh_database(migration_db: Path):
             row[0]
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
-        assert {"jobs", "imported_videos", "job_attempts", "alembic_version"} <= tables
+        assert {
+            "jobs",
+            "imported_videos",
+            "job_attempts",
+            "app_settings",
+            "alembic_version",
+        } <= tables
 
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
         assert version is not None
-        assert version[0] == "b4e8f1a92d10"
+        assert version[0] == "c7a3e9f12b40"
 
         jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
         assert "progress" in jobs_cols
@@ -96,7 +102,7 @@ async def test_init_db_bootstraps_legacy_database_without_alembic_version(migrat
 
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
         assert version is not None
-        assert version[0] == "b4e8f1a92d10"
+        assert version[0] == "c7a3e9f12b40"
 
 
 @pytest.mark.asyncio
@@ -124,3 +130,13 @@ def test_alembic_cli_upgrade_head(migration_db: Path, monkeypatch: pytest.Monkey
         }
         assert "jobs" in tables
         assert "alembic_version" in tables
+
+
+def test_alembic_config_has_script_location():
+    """Guard against Docker images missing alembic.ini (script_location required)."""
+    from app.db import _alembic_config
+
+    cfg = _alembic_config()
+    script_location = cfg.get_main_option("script_location")
+    assert script_location
+    assert Path(script_location).is_dir()

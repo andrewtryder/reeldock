@@ -14,10 +14,12 @@ from urllib import request as urllib_request
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import JSONResponse
 
 from app.auth import attach_basic_auth
-from app.config import get_settings
+from app.config import get_settings, reload_settings
 from app.db import init_db
+from app.preflight import check_required_paths
 from app.routes import register_routers
 from app.routes.pages import STATIC_DIR, configure_templates
 
@@ -68,6 +70,7 @@ def _resolve_ui_version(default_version: str) -> str:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize DB on startup."""
     await init_db()
+    reload_settings()
     logger.info("Database initialized")
     yield
 
@@ -93,6 +96,23 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/ready")
+    async def ready() -> JSONResponse:
+        results = check_required_paths()
+        checks = {
+            result.name.lower(): {
+                "path": str(result.path),
+                "ok": result.error is None,
+                **({"error": result.error} if result.error else {}),
+            }
+            for result in results
+        }
+        all_ok = all(result.error is None for result in results)
+        return JSONResponse(
+            content={"status": "ready" if all_ok else "not_ready", "checks": checks},
+            status_code=200 if all_ok else 503,
+        )
 
     register_routers(app)
     return app

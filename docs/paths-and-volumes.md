@@ -13,6 +13,15 @@ When running under Docker, three paths must be configured:
 > [!IMPORTANT]
 > **Docker volume mounts must exist before the application can write to the share.**
 > Ensure the directory specified in `HOST_PODCASTS_DIR` exists on your host machine and has the correct permissions (writable by the configured `PUID`/`PGID`, default 1000:1000).
+> Run `./scripts/check-docker-paths.sh` on the host before `docker compose up` to catch mount problems early.
+
+## Two Failure Layers
+
+Volume problems can appear at two different stages:
+
+1. **Host bind-mount failure (before containers start):** Docker cannot mount `HOST_PODCASTS_DIR` because the path is missing or not shared with Docker Desktop (common on macOS with `/Volumes/...` NAS paths). Compose fails with errors like `permission denied` on `/host_mnt/Volumes/...`. Fix by mounting the share on the host and adding `/Volumes` to Docker Desktop File Sharing. See [Docker Deployment Guide](deployment-docker.md#4-startup-mount-failures).
+
+2. **In-container writability failure (after mount succeeds):** The path is mounted at `/media/podcasts`, but the container user (`PUID`/`PGID`) cannot write. The entrypoint preflight check exits with an error about `OUTPUT_ROOT`. Fix by aligning `PUID`/`PGID` with the share owner.
 
 ---
 
@@ -30,5 +39,5 @@ When running under Docker, three paths must be configured:
 
 The application allows you to configure the `OUTPUT_ROOT` dynamically from the **Settings** page in the web interface.
 
-* **How it works**: Saving a path on the Settings page writes to the configuration file `/data/settings.json`, which overrides the environment variables or YAML configuration.
+* **How it works**: Saving settings on the **Settings** page writes overrides to the `app_settings` database table. Environment variables and YAML configuration take precedence and lock their fields in the UI.
 * **Important Note for Docker Users**: The settings path must be a valid, writable path **inside the running container** (normally `/media/podcasts`), **NOT the host path**. Configuring a path outside the mounted volumes (such as using your host path `/Volumes/...` or `/mnt/...` in the Settings page) will cause the application to write to the container's ephemeral filesystem, meaning your downloads will be deleted when the container restarts.

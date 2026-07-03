@@ -1,15 +1,50 @@
 # Configuration Reference
 
-`abs-media-importer` supports flexible configuration using environment variables, a YAML configuration file, or dynamically through the Web UI.
+`abs-media-importer` supports flexible configuration using environment variables, a YAML configuration file, and the Web UI.
 
 ## Configuration Precedence
 
 When the application loads its settings, it resolves them in the following order of precedence (highest priority first):
 
-1. **Environment Variables**: Defined in your `.env` file or host shell environment.
-2. **Runtime Settings File**: Dynamic settings saved via the Web UI to `/data/settings.json`.
-3. **YAML Config File**: Configuration loaded from `/config/config.yaml`.
+1. **Environment Variables**: Defined in your `.env` file, Docker, or host shell environment. These **lock** the corresponding field in the Web UI.
+2. **YAML Config File**: Configuration loaded from `/config/config.yaml`. These also **lock** their fields when present.
+3. **Database Overrides**: Settings saved via the Web UI to the `app_settings` table.
 4. **Application Defaults**: Built-in defaults.
+
+If a setting is provided via environment or YAML, the Web UI shows it as read-only with a badge indicating the source.
+
+---
+
+## Web UI Editable Settings
+
+The Settings page is driven by a configuration registry. The following settings can be edited in the UI when not locked by environment or YAML:
+
+| Setting | Env Variable | Description |
+| :--- | :--- | :--- |
+| Output root | `OUTPUT_ROOT` | Base folder for finished audiobooks |
+| Default destination folder | `DEFAULT_DESTINATION_FOLDER` | Default subdirectory under output root |
+| Cookies file | `COOKIES_FILE` | Absolute path to a Netscape cookies file for yt-dlp |
+| Collision mode | `COLLISION_MODE` | `skip`, `overwrite`, `append_id`, or `append_counter` |
+| Output extension | `OUTPUT_EXTENSION` | Final file extension (usually `m4b`) |
+| Allowed domains | `ALLOWED_DOMAINS` | Comma-separated permitted hostnames |
+| yt-dlp extra args | `YTDLP_EXTRA_ARGS` | Space-separated extra yt-dlp arguments |
+| ffmpeg extra args | `FFMPEG_EXTRA_ARGS` | Space-separated extra ffmpeg arguments |
+| Filename template | `FILENAME_TEMPLATE` | Output filename template |
+| Folder name field | `FOLDER_NAME_FIELD` | Primary metadata field for folder naming |
+| Folder name fallbacks | `FOLDER_NAME_FALLBACKS` | Comma-separated fallback fields |
+| Job timeout | `JOB_TIMEOUT_SECONDS` | Maximum job runtime in seconds |
+| Retry count | `RETRY_MAX` | Maximum retry attempts |
+| Retry intervals | `RETRY_INTERVAL_SECONDS` | Comma-separated wait times between retries |
+| Cleanup temp on success | `CLEANUP_TEMP_ON_SUCCESS` | Remove temp files after success |
+| Cleanup temp on failure | `CLEANUP_TEMP_ON_FAILURE` | Remove temp files after failure |
+| Dry run | `DRY_RUN` | Simulate imports without downloading |
+| Allow playlists | `ALLOW_PLAYLISTS` | Permit playlist URLs |
+| Allow channels | `ALLOW_CHANNELS` | Permit channel URLs |
+| ABS scan after success | `ABS_SCAN_AFTER_SUCCESS` | Trigger Audiobookshelf scan after import |
+
+**Read-only in UI (for now):** `MAX_CONCURRENT_JOBS` until runtime concurrency is fully supported.
+
+**Not editable in UI (secrets / infrastructure):** `AUTH_PASSWORD`, `APP_SECRET_KEY`, `ABS_API_TOKEN`, `EXTENSION_API_TOKEN`, `REDIS_URL`, `DATABASE_URL`, and binary paths.
 
 ---
 
@@ -34,10 +69,10 @@ When the application loads its settings, it resolves them in the following order
 | `OUTPUT_ROOT` | `/media/podcasts` | Path where finished podcasts are written. (Must match Container Path in Docker). |
 | `WORK_DIR` | `/data/work` | Workspace for downloading and processing audio. |
 | `ARCHIVE_FILE` | `/data/config/youtube-archive.txt` | `yt-dlp` archive file used as a secondary duplicate guard at download time. |
+| `COOKIES_FILE` | — | Absolute path to a Netscape cookies file passed to yt-dlp via `--cookies`. |
 | **Download & Processing** | | |
 | `ALLOW_PLAYLISTS` | `false` | Allow importing full playlists. |
 | `ALLOW_CHANNELS` | `false` | Allow importing full channels. |
-| `ALLOW_ARCHIVE_BYPASS` | `false` | Allow re-downloading videos already present in the archive file. |
 | `DEFAULT_DESTINATION_FOLDER` | — | Default selected subdirectory under `OUTPUT_ROOT`. |
 | `YTDLP_BIN` | `yt-dlp` | Command path to `yt-dlp`. |
 | `FFMPEG_BIN` | `ffmpeg` | Command path to `ffmpeg`. |
@@ -50,6 +85,7 @@ When the application loads its settings, it resolves them in the following order
 | `FILENAME_TEMPLATE` | `{title}.m4b` | Output filename template. |
 | `FOLDER_NAME_FIELD` | `uploader_id` | Field used for the folder name (e.g., `uploader_id`, `uploader`, `channel`). |
 | `FOLDER_NAME_FALLBACKS` | `uploader_id,channel_id,channel,uploader` | Fallback fields for folder naming. |
+| `ALLOWED_DOMAINS` | YouTube hostnames | Comma-separated permitted import domains. |
 | **Job Management** | | |
 | `MAX_CONCURRENT_JOBS` | `1` | Maximum number of downloads processed simultaneously. |
 | `JOB_TIMEOUT_SECONDS` | `10800` | Job timeout duration in seconds (3 hours). |
@@ -89,6 +125,10 @@ download:
   audio_format: "m4a"
   filename_template: "{title}.m4b"
   folder_name_field: "uploader_id"
+  cookies_file: "/data/config/cookies.txt"
+  allowed_domains:
+    - youtube.com
+    - youtu.be
 
 jobs:
   max_concurrent_jobs: 1

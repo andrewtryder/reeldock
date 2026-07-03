@@ -127,3 +127,116 @@ def test_sync_database_url(monkeypatch: pytest.MonkeyPatch):
     s = Settings()
     assert "aiosqlite" not in s.sync_database_url
     assert s.sync_database_url == "sqlite:////data/app.db"
+
+
+def test_collect_pinned_sources_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("OUTPUT_ROOT", "/env/output")
+    import app.config as cfg_module
+
+    cfg_module._settings = None
+    pinned = cfg_module._collect_pinned_sources()
+    assert pinned["OUTPUT_ROOT"] == "env"
+
+
+def test_db_override_applies_when_not_pinned(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import asyncio
+
+    import app.config as cfg_module
+    import app.db as db_module
+    from app.config import reload_settings, save_settings
+    from app.db import init_db
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    db_path = data_dir / "app.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
+    monkeypatch.delenv("OUTPUT_ROOT", raising=False)
+    monkeypatch.setattr(cfg_module, "_get_default_data_dir", lambda: data_dir)
+    monkeypatch.setattr(cfg_module, "_parse_dotenv_keys", lambda: set())
+
+    cfg_module._settings = None
+    cfg_module._pinned_sources = {}
+    cfg_module._db_overrides = {}
+    db_module._async_engine = None
+    db_module._async_session_factory = None
+    db_module._sync_engine = None
+    db_module._sync_session_factory = None
+
+    asyncio.run(init_db())
+
+    custom = data_dir / "db_output"
+    custom.mkdir()
+    save_settings({"output_root": str(custom)})
+    settings = reload_settings()
+    assert settings.output_root == custom
+
+
+def test_env_blocks_db_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import asyncio
+
+    import app.config as cfg_module
+    import app.db as db_module
+    from app.config import reload_settings, save_settings
+    from app.db import init_db
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    db_path = data_dir / "app.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
+    monkeypatch.setenv("OUTPUT_ROOT", "/env/output")
+    monkeypatch.setattr(cfg_module, "_get_default_data_dir", lambda: data_dir)
+    monkeypatch.setattr(cfg_module, "_parse_dotenv_keys", lambda: set())
+
+    cfg_module._settings = None
+    db_module._sync_engine = None
+    db_module._sync_session_factory = None
+
+    asyncio.run(init_db())
+
+    save_settings({"output_root": "/db/output"})
+    settings = reload_settings()
+    assert settings.output_root == Path("/env/output")
+
+
+def test_yaml_blocks_db_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import asyncio
+
+    import app.config as cfg_module
+    import app.db as db_module
+    from app.config import reload_settings, save_settings
+    from app.db import init_db
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    db_path = data_dir / "app.db"
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(yaml.dump({"paths": {"output_root": "/yaml/output"}}))
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
+    monkeypatch.delenv("OUTPUT_ROOT", raising=False)
+    monkeypatch.setattr(cfg_module, "_get_default_data_dir", lambda: data_dir)
+    monkeypatch.setattr(cfg_module, "_parse_dotenv_keys", lambda: set())
+    monkeypatch.setattr(cfg_module, "_CONFIG_YAML_PATH", cfg_file)
+
+    cfg_module._settings = None
+    cfg_module._pinned_sources = {}
+    cfg_module._db_overrides = {}
+    db_module._async_engine = None
+    db_module._async_session_factory = None
+    db_module._sync_engine = None
+    db_module._sync_session_factory = None
+
+    pinned = cfg_module._collect_pinned_sources()
+    assert pinned["OUTPUT_ROOT"] == "yaml"
+
+    asyncio.run(init_db())
+
+    save_settings({"output_root": "/db/output"})
+    settings = reload_settings()
+    assert settings.output_root == Path("/yaml/output")

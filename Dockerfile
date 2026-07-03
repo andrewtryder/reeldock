@@ -46,6 +46,8 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Copy application code
 COPY app/ app/
 COPY worker/ worker/
+COPY alembic.ini .
+COPY alembic/ alembic/
 COPY pyproject.toml .
 
 # Register package metadata so importlib.metadata.version() works at runtime
@@ -73,7 +75,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -fs http://localhost:8080/health || exit 1
+    CMD curl -fs http://localhost:8080/ready || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["app"]

@@ -9,9 +9,13 @@ from app.config import Settings
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache():
+def clear_settings_cache(monkeypatch: pytest.MonkeyPatch):
     """Reset the settings singleton between tests."""
     import app.config as cfg_module
+
+    # Avoid background GitHub release lookups during app lifespan in tests.
+    # Individual tests may override or clear this when they need the fetch path.
+    monkeypatch.setenv("ABS_MEDIA_IMPORTER_UI_VERSION", "v0.0.0-test")
 
     cfg_module._settings = None
     yield

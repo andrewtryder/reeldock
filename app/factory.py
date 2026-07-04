@@ -109,8 +109,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     task = getattr(app.state, "ui_version_task", None)
     if task is not None and not task.done():
         task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
+        with suppress(asyncio.CancelledError, TimeoutError):
+            await asyncio.wait_for(task, timeout=1.0)
 
 
 def create_app() -> FastAPI:

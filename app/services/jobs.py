@@ -364,7 +364,9 @@ async def get_imported_video(session: AsyncSession, video_id: str) -> ImportedVi
 
 
 async def get_job(session: AsyncSession, job_id: str) -> Job | None:
-    result = await session.execute(select(Job).where(Job.id == job_id))
+    result = await session.execute(
+        select(Job).options(selectinload(Job.batch)).where(Job.id == job_id)
+    )
     return result.scalar_one_or_none()
 
 

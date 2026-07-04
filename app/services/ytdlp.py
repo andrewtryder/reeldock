@@ -273,14 +273,25 @@ class YtDlpService:
         Raises subprocess.CalledProcessError on failure.
         Raises ValueError if JSON cannot be parsed.
         """
-        cmd = self.build_preview_command(url)
-        logger.debug("Preview command: %s", cmd)
+        # Pass a list literal so the executable is a fixed first element; the
+        # user-controlled URL is only an argument (shell=False).
+        safe_url = self._sanitize_command_url(url)
+        ytdlp = self.settings.ytdlp_bin
+        logger.debug("Preview command: %s %s", ytdlp, safe_url)
 
         result = subprocess.run(
-            cmd,
+            [
+                ytdlp,
+                "--skip-download",
+                "--dump-json",
+                "--no-playlist",
+                "--",
+                safe_url,
+            ],
             capture_output=True,
             text=True,
             check=True,
+            shell=False,
         )
         try:
             data = json.loads(result.stdout)
@@ -321,14 +332,30 @@ class YtDlpService:
             raise ValueError("Playlist entry limit must be greater than zero")
 
         source_type = "channel" if is_channel_url(url) else "playlist"
-        cmd = self.build_flat_playlist_command(url, limit)
-        logger.debug("Playlist preview command: %s", cmd)
+        # Pass a list literal so the executable is a fixed first element; the
+        # user-controlled URL is only an argument (shell=False). Building a
+        # pre-tainted ``cmd`` list makes CodeQL treat the whole argv as
+        # attacker-controlled (py/command-line-injection).
+        safe_url = self._sanitize_command_url(url)
+        playlist_end = str(max(limit, 0) + 1)
+        ytdlp = self.settings.ytdlp_bin
+        logger.debug("Playlist preview command: %s %s", ytdlp, safe_url)
 
         result = subprocess.run(
-            cmd,
+            [
+                ytdlp,
+                "--skip-download",
+                "--flat-playlist",
+                "--dump-single-json",
+                "--playlist-end",
+                playlist_end,
+                "--",
+                safe_url,
+            ],
             capture_output=True,
             text=True,
             check=True,
+            shell=False,
         )
         try:
             data = json.loads(result.stdout)
@@ -342,7 +369,7 @@ class YtDlpService:
         if not meta.entries:
             raise ValueError("No videos found in playlist or channel")
         if not meta.webpage_url:
-            meta.webpage_url = url
+            meta.webpage_url = safe_url
         return meta
 
     # ── Download ──────────────────────────────────────────────────────────────

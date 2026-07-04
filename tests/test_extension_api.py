@@ -132,9 +132,14 @@ def _seed_imported_video(video_id: str) -> None:
 
 def _mark_job_succeeded(job_id: str) -> None:
     """Mark a job terminal so the WebSocket handler exits without polling."""
-    with sqlite3.connect(_db_path()) as conn:
-        conn.execute("UPDATE jobs SET status = ? WHERE id = ?", ("succeeded", job_id))
-        conn.commit()
+    from app.db import get_sync_session_factory
+    from app.models import Job, JobStatus
+
+    with get_sync_session_factory()() as session:
+        job = session.get(Job, job_id)
+        assert job is not None
+        job.status = JobStatus.succeeded
+        session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -446,8 +451,8 @@ def test_extension_websocket_accepts_query_token(
     )
     assert queue_response.status_code == 201
     job_id = queue_response.json()["job_id"]
-    # Terminal status lets the handler return after the initial snapshot instead of
-    # polling until disconnect (Starlette TestClient can race on receive/disconnect).
+    # End the poll loop immediately so TestClient teardown cannot hang on a
+    # non-terminal job (the handler only exits on terminal status or cancel).
     _mark_job_succeeded(job_id)
 
     with extension_enabled_client.websocket_connect(

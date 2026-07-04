@@ -84,13 +84,11 @@ async def _websocket_endpoint(
                 await websocket.send_json({"type": "job_update", "job": current_data})
                 break
 
-            # Wait for the next poll interval, but exit promptly if the client
-            # disconnects. A bare asyncio.sleep() never observes disconnect, so
-            # TestClient (and real clients) would hang until the job terminates.
-            try:
-                await asyncio.wait_for(websocket.receive(), timeout=_POLL_INTERVAL_SECONDS)
-            except TimeoutError:
-                continue
+            # Sleep is interruptible by task cancellation when the TestClient
+            # portal tears down. Avoid websocket.receive() here: Starlette's
+            # TestClient has a race between disconnect enqueue and receive wait
+            # that can hang CI indefinitely.
+            await asyncio.sleep(_POLL_INTERVAL_SECONDS)
 
     except WebSocketDisconnect:
         logger.debug("WebSocket disconnected for job %s", job_id)

@@ -105,7 +105,7 @@
 
       {% if job.status.value in ['failed', 'cancelled'] %}
       <form method="POST" action="/api/jobs/{{ job.id }}/retry" onsubmit="handleRetry(event, this)">
-        <button type="submit" class="job-action-btn px-4 py-2 bg-primary-container text-on-primary-container font-label-md text-label-md rounded-lg hover:brightness-110 transition-colors cursor-pointer flex items-center gap-1.5" id="retry-btn">
+        <button type="submit" class="job-action-btn px-4 py-2 bg-amber-container text-on-amber-container font-label-md text-label-md rounded-lg hover:brightness-110 transition-colors cursor-pointer flex items-center gap-1.5" id="retry-btn">
           <span class="material-symbols-outlined text-[16px]">replay</span>
           Retry Import
         </button>
@@ -115,7 +115,7 @@
   </header>
 
   <div class="p-container-padding max-w-5xl mx-auto">
-    <p class="font-body-md text-body-md text-on-surface-variant mb-stack-lg">Detailed processing report and real-time logs.</p>
+    <p class="font-body-md text-body-md text-paper-muted mb-stack-lg">Detailed processing report and real-time logs.</p>
 
     <!-- Timeline -->
     <section class="bg-panel border border-panel-line rounded-xl p-stack-md mb-stack-lg panel-edge section-entrance section-entrance-1">
@@ -134,13 +134,13 @@
     </section>
 
     <!-- Info Bar -->
-    <div class="job-info-bar grid grid-cols-2 md:grid-cols-5 gap-gutter p-4 bg-surface-container-low rounded-xl border border-outline-variant mb-stack-lg shadow-md section-entrance section-entrance-2">
+    <div class="job-info-bar grid grid-cols-2 md:grid-cols-5 gap-gutter p-4 bg-panel-raised rounded-xl border border-panel-line mb-stack-lg shadow-md section-entrance section-entrance-2">
       <div class="flex flex-col gap-1">
-        <span class="uppercase font-label-md text-label-md text-on-surface-variant tracking-wider">Job ID</span>
-        <span class="font-code text-code text-on-surface">#{{ job.id | truncate(12) }}</span>
+        <span class="uppercase font-label-md text-label-md text-paper-muted tracking-wider">Job ID</span>
+        <span class="font-code text-code text-paper">#{{ job.id | truncate(12) }}</span>
       </div>
       <div class="flex flex-col gap-1">
-        <span class="uppercase font-label-md text-label-md text-on-surface-variant tracking-wider">Status</span>
+        <span class="uppercase font-label-md text-label-md text-paper-muted tracking-wider">Status</span>
         <div id="status-badge-container">
           {% if job.status.value in ['running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
           {{ badge(job.status.value, variant='info', reel=true) }}
@@ -152,18 +152,81 @@
         </div>
       </div>
       <div class="job-info-source flex flex-col gap-1 md:col-span-1 overflow-hidden">
-        <span class="uppercase font-label-md text-label-md text-on-surface-variant tracking-wider">Source</span>
-        <a href="{{ job.url | e }}" target="_blank" rel="noopener" class="font-code text-body-md text-primary truncate hover:underline block">{{ job.url | truncate(25) | e }}</a>
+        <span class="uppercase font-label-md text-label-md text-paper-muted tracking-wider">Source</span>
+        <a href="{{ job.url | e }}" target="_blank" rel="noopener" class="font-code text-body-md text-amber truncate hover:underline block">{{ job.url | truncate(25) | e }}</a>
       </div>
       <div class="flex flex-col gap-1">
-        <span class="uppercase font-label-md text-label-md text-on-surface-variant tracking-wider">Started</span>
-        <span class="font-code text-code text-on-surface" id="started-time-label">{{ job.started_at.strftime('%m-%d %H:%M') if job.started_at else '—' }}</span>
+        <span class="uppercase font-label-md text-label-md text-paper-muted tracking-wider">Started</span>
+        <span class="font-code text-code text-paper" id="started-time-label">{{ job.started_at.strftime('%m-%d %H:%M') if job.started_at else '—' }}</span>
       </div>
       <div class="flex flex-col gap-1">
-        <span class="uppercase font-label-md text-label-md text-on-surface-variant tracking-wider">Duration</span>
-        <span class="font-code text-code text-on-surface" id="duration-label">{{ job.duration | duration if job.duration else '—' }}</span>
+        <span class="uppercase font-label-md text-label-md text-paper-muted tracking-wider">Duration</span>
+        <span class="font-code text-code text-paper" id="duration-label">{{ job.duration | duration if job.duration else '—' }}</span>
       </div>
     </div>
+
+    {% set has_import_overrides = job.audio_format or job.audio_quality or job.output_extension or job.filename_template or job.ytdlp_extra_args or job.ffmpeg_extra_args or job.cookies_file or job.dry_run %}
+    {% if has_import_overrides %}
+    <details class="bg-panel border border-panel-line rounded-xl p-stack-md mb-stack-lg panel-edge section-entrance section-entrance-2">
+      <summary class="font-headline-sm text-headline-sm text-paper uppercase tracking-wide cursor-pointer select-none">
+        Import Overrides Used
+      </summary>
+      <dl class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 font-body-md text-body-md">
+        {% if job.audio_format %}
+        <div class="flex flex-col gap-0.5">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Audio format</dt>
+          <dd class="font-code text-code text-paper">{{ job.audio_format | e }}</dd>
+        </div>
+        {% endif %}
+        {% if job.audio_quality %}
+        <div class="flex flex-col gap-0.5">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Audio quality</dt>
+          <dd class="font-code text-code text-paper">{{ job.audio_quality | e }}</dd>
+        </div>
+        {% endif %}
+        {% if job.output_extension %}
+        <div class="flex flex-col gap-0.5">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Output extension</dt>
+          <dd class="font-code text-code text-paper">{{ job.output_extension | e }}</dd>
+        </div>
+        {% endif %}
+        {% if job.filename_template %}
+        <div class="flex flex-col gap-0.5 sm:col-span-2">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Filename template</dt>
+          <dd class="font-code text-code text-paper break-all">{{ job.filename_template | e }}</dd>
+        </div>
+        {% endif %}
+        {% if job.ytdlp_extra_args %}
+        <div class="flex flex-col gap-0.5 sm:col-span-2">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">yt-dlp extra args</dt>
+          <dd class="font-code text-code text-paper break-all">{{ job.ytdlp_extra_args | e }}</dd>
+        </div>
+        {% endif %}
+        {% if job.ffmpeg_extra_args %}
+        <div class="flex flex-col gap-0.5 sm:col-span-2">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">ffmpeg extra args</dt>
+          <dd class="font-code text-code text-paper break-all">{{ job.ffmpeg_extra_args | e }}</dd>
+        </div>
+        {% endif %}
+        {% if job.cookies_file %}
+        <div class="flex flex-col gap-0.5 sm:col-span-2">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Cookies file</dt>
+          <dd class="font-code text-code text-paper break-all">{{ job.cookies_file | e }}</dd>
+        </div>
+        {% endif %}
+        {% if job.dry_run %}
+        <div class="flex flex-col gap-0.5">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Dry run</dt>
+          <dd class="text-paper">Enabled for this job</dd>
+        </div>
+        {% endif %}
+        <div class="flex flex-col gap-0.5">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Collision mode</dt>
+          <dd class="font-code text-code text-paper">{{ job.collision_mode | e }}</dd>
+        </div>
+      </dl>
+    </details>
+    {% endif %}
 
     <!-- Progress Card -->
     {% set show_progress = job.progress_percent is not none or job.progress is not none or job.progress_label or status in ['running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
@@ -212,7 +275,7 @@
         <span class="material-symbols-outlined shrink-0 text-error">warning</span>
         <div class="overflow-hidden w-full">
           <h4 class="font-label-md text-label-md uppercase tracking-wider mb-2">Error Message</h4>
-          <pre id="error-message-text" class="font-code text-code text-on-surface bg-black/45 p-3 rounded-lg border border-outline-variant/30 overflow-x-auto whitespace-pre-wrap">{{ job.error_message | default('') | e }}</pre>
+          <pre id="error-message-text" class="font-code text-code text-paper bg-black/45 p-3 rounded-lg border border-panel-line/30 overflow-x-auto whitespace-pre-wrap">{{ job.error_message | default('') | e }}</pre>
         </div>
       </div>
     </div>
@@ -220,29 +283,29 @@
     <!-- Process Logs Console -->
     <div class="log-viewer-section flex flex-col h-[480px] mb-4 shadow-xl">
       <div class="log-viewer-header flex items-center justify-between mb-3 px-1">
-        <h3 class="font-headline-sm text-headline-sm flex items-center gap-2 text-on-surface font-semibold">
-          <span class="material-symbols-outlined text-primary">terminal</span>
+        <h3 class="font-headline-sm text-headline-sm flex items-center gap-2 text-paper font-semibold">
+          <span class="material-symbols-outlined text-amber">terminal</span>
           Process Logs
         </h3>
         <div class="flex items-center gap-2">
-          <button class="flex items-center gap-2 px-3 py-1.5 text-label-md font-label-md border border-outline rounded-lg hover:bg-surface-container-high transition-colors text-on-surface-variant hover:text-on-surface cursor-pointer bg-surface-container-low" onclick="copyLog()" id="copy-log-btn">
+          <button class="flex items-center gap-2 px-3 py-1.5 text-label-md font-label-md border border-panel-line rounded-lg hover:bg-panel-raised transition-colors text-paper-muted hover:text-paper cursor-pointer bg-panel-raised" onclick="copyLog()" id="copy-log-btn">
             <span class="material-symbols-outlined text-[16px]">content_copy</span>
             Copy Logs
           </button>
         </div>
       </div>
-      <div class="log-viewer flex-1 bg-[#08090c] border border-outline rounded-[10px] p-stack-md overflow-hidden flex flex-col font-code text-code text-on-surface">
+      <div class="log-viewer flex-1 bg-[#08090c] border border-panel-line rounded-[10px] p-stack-md overflow-hidden flex flex-col font-code text-code text-paper">
         <pre class="overflow-y-auto terminal-scroll flex flex-col gap-1 pr-2 h-full text-[#c4c6d5] leading-relaxed whitespace-pre-wrap select-text" id="log-content">{{ log | e }}</pre>
       </div>
     </div>
 
-    <div id="final-output-section" class="final-output-section mt-stack-md p-3 bg-surface-container rounded border border-outline-variant" {% if not job.final_output_path %}style="display: none;"{% endif %}>
-      <span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Final Output Path</span>
-      <div id="final-output-path" class="font-code text-code text-on-surface break-all">{{ job.final_output_path | default('') | e }}</div>
+    <div id="final-output-section" class="final-output-section mt-stack-md p-3 bg-panel rounded border border-panel-line" {% if not job.final_output_path %}style="display: none;"{% endif %}>
+      <span class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Final Output Path</span>
+      <div id="final-output-path" class="font-code text-code text-paper break-all">{{ job.final_output_path | default('') | e }}</div>
       {% if job.status.value == 'succeeded' and job.output_file_size is not none %}
       <div class="mt-2">
-        <span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">File Size</span>
-        <div id="final-output-size" class="font-code text-code text-on-surface">{{ job.output_file_size | filesizeformat(true) }}</div>
+        <span class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">File Size</span>
+        <div id="final-output-size" class="font-code text-code text-paper">{{ job.output_file_size | filesizeformat(true) }}</div>
       </div>
       {% endif %}
     </div>

@@ -139,6 +139,7 @@ class FfmpegService:
         output_path: Path,
         *,
         progress: bool = False,
+        extra_args: list[str] | None = None,
     ) -> list[str]:
         """
         Primary remux command.
@@ -174,7 +175,8 @@ class FfmpegService:
             "-f",
             "ipod",
         ]
-        cmd.extend(s.ffmpeg_extra_args)
+        resolved_extra = extra_args if extra_args is not None else list(s.ffmpeg_extra_args)
+        cmd.extend(resolved_extra)
         cmd.append(str(output_path))
         return cmd
 
@@ -184,6 +186,7 @@ class FfmpegService:
         output_path: Path,
         *,
         progress: bool = False,
+        extra_args: list[str] | None = None,
     ) -> list[str]:
         """
         Fallback remux command: audio-only, no cover art.
@@ -212,7 +215,8 @@ class FfmpegService:
             "-f",
             "ipod",
         ]
-        cmd.extend(s.ffmpeg_extra_args)
+        resolved_extra = extra_args if extra_args is not None else list(s.ffmpeg_extra_args)
+        cmd.extend(resolved_extra)
         cmd.append(str(output_path))
         return cmd
 
@@ -239,6 +243,7 @@ class FfmpegService:
         log_fh: object | None = None,
         check_cancelled: Callable[[], bool] | None = None,
         on_progress: Callable[[FfmpegProgress], None] | None = None,
+        extra_args: list[str] | None = None,
     ) -> RemuxResult:
         """
         Attempt primary remux; fall back to audio-only on failure.
@@ -256,7 +261,9 @@ class FfmpegService:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Primary attempt
-        cmd = self.build_remux_command(input_path, output_path, progress=on_progress is not None)
+        cmd = self.build_remux_command(
+            input_path, output_path, progress=on_progress is not None, extra_args=extra_args
+        )
         logger.debug("ffmpeg primary: %s", cmd)
         success, err = self._run_cmd(
             cmd, log_fh, check_cancelled=check_cancelled, on_progress=on_progress
@@ -279,7 +286,7 @@ class FfmpegService:
 
         # Fallback attempt
         cmd_fallback = self.build_remux_command_fallback(
-            input_path, output_path, progress=on_progress is not None
+            input_path, output_path, progress=on_progress is not None, extra_args=extra_args
         )
         logger.debug("ffmpeg fallback: %s", cmd_fallback)
         success_fb, err_fb = self._run_cmd(

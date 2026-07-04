@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import re
-import shlex
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -12,10 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from app.path_checks import check_writable_directory
-
-ValidationResult = tuple[str | None, str | None]  # (error, warning)
-
-_SHELL_INJECTION_RE = re.compile(r"[;|&`><]|&&|\|\||\$\(")
+from app.validators import (
+    ValidationResult,
+    validate_extra_args,
+    validate_filename_template,
+    validate_optional_path,
+)
 
 
 class SettingType(StrEnum):
@@ -55,38 +54,9 @@ def _validate_absolute_writable_path(value: str) -> ValidationResult:
     return None, None
 
 
-def _validate_optional_path(value: str) -> ValidationResult:
-    stripped = value.strip()
-    if not stripped:
-        return None, None
-    p = Path(stripped)
-    if not p.is_absolute():
-        return "Path must be absolute.", None
-    if not p.exists():
-        return None, "File does not exist yet; yt-dlp will fail until it is created."
-    if not p.is_file():
-        return "Path must point to a file.", None
-    if not os.access(p, os.R_OK):
-        return "File is not readable.", None
-    return None, None
-
-
-def _validate_extra_args(value: str) -> ValidationResult:
-    stripped = value.strip()
-    if not stripped:
-        return None, None
-    if _SHELL_INJECTION_RE.search(stripped):
-        return "Arguments must not contain shell metacharacters (; | & ` > < && || $( ).", None
-    warnings: list[str] = []
-    try:
-        tokens = shlex.split(stripped)
-    except ValueError as exc:
-        return f"Could not parse arguments: {exc}", None
-    for token in tokens:
-        if not token.startswith("-"):
-            warnings.append(f'Unusual token "{token}" does not look like a flag.')
-    warning = " ".join(warnings) if warnings else None
-    return None, warning
+_validate_optional_path = validate_optional_path
+_validate_extra_args = validate_extra_args
+_validate_filename_template = validate_filename_template
 
 
 def _validate_positive_int(value: str) -> ValidationResult:
@@ -121,15 +91,6 @@ def _validate_int_list(value: str) -> ValidationResult:
         return "At least one interval is required.", None
     if any(v <= 0 for v in values):
         return "All intervals must be greater than zero.", None
-    return None, None
-
-
-def _validate_filename_template(value: str) -> ValidationResult:
-    stripped = value.strip()
-    if not stripped:
-        return "Filename template cannot be empty.", None
-    if ".." in stripped or "/" in stripped or "\\" in stripped:
-        return "Template must not contain path separators.", None
     return None, None
 
 

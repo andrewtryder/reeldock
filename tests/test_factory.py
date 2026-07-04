@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from app.factory import (
+    _background_ui_version_fetch_enabled,
     _fallback_ui_version,
     _fetch_latest_ui_version_async,
+    _refresh_ui_version,
     _resolve_ui_version,
     create_app,
 )
@@ -53,6 +55,18 @@ def test_resolve_ui_version_falls_back_without_network(
 def test_fallback_ui_version_preserves_v_prefix() -> None:
     assert _fallback_ui_version("v1.0.0") == "v1.0.0"
     assert _fallback_ui_version("1.0.0") == "v1.0.0"
+
+
+def test_background_fetch_disabled_by_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ABS_MEDIA_IMPORTER_UI_VERSION", raising=False)
+    monkeypatch.setenv("ABS_MEDIA_IMPORTER_FETCH_UI_VERSION", "0")
+    assert _background_ui_version_fetch_enabled() is False
+
+
+def test_background_fetch_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ABS_MEDIA_IMPORTER_UI_VERSION", raising=False)
+    monkeypatch.delenv("ABS_MEDIA_IMPORTER_FETCH_UI_VERSION", raising=False)
+    assert _background_ui_version_fetch_enabled() is True
 
 
 @pytest.mark.asyncio
@@ -105,32 +119,42 @@ async def test_fetch_latest_ui_version_skips_invalid_repo(
     mock_client.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_refresh_ui_version_updates_app_state_and_templates() -> None:
+    app = SimpleNamespace(state=SimpleNamespace(ui_version="v1.0.0"))
+
+    with patch("app.factory._fetch_latest_ui_version_async", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = "v3.3.3"
+        await _refresh_ui_version(app)  # type: ignore[arg-type]
+
+    assert app.state.ui_version == "v3.3.3"
+    assert templates.env.globals["app_ui_version"] == "v3.3.3"
+
+
 def test_startup_does_not_block_on_slow_github(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """App must become ready even when the GitHub release lookup is slow."""
+    """App must become ready even when a background fetch would be slow."""
     monkeypatch.delenv("ABS_MEDIA_IMPORTER_UI_VERSION", raising=False)
+    # Keep background fetch disabled (conftest default) so TestClient does not
+    # schedule network work; startup still uses the package fallback immediately.
+    monkeypatch.setenv("ABS_MEDIA_IMPORTER_FETCH_UI_VERSION", "0")
 
-    async def _slow_fetch(fallback: str) -> str:
-        await asyncio.sleep(2.0)
-        return "v99.0.0"
-
-    with patch("app.factory._fetch_latest_ui_version_async", side_effect=_slow_fetch):
-        started = time.monotonic()
-        with TestClient(create_app()) as client:
-            elapsed = time.monotonic() - started
-            # Startup must not wait for the 2s background fetch.
-            assert elapsed < 1.0
-            response = client.get("/health")
-            assert response.status_code == 200
-            # Fallback is applied immediately; background task may still be running.
-            assert client.app.state.ui_version.startswith("v")
+    started = time.monotonic()
+    with TestClient(create_app()) as client:
+        elapsed = time.monotonic() - started
+        assert elapsed < 1.0
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert client.app.state.ui_version.startswith("v")
+        assert client.app.state.ui_version_task is None
 
 
 def test_env_override_skips_background_github_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ABS_MEDIA_IMPORTER_UI_VERSION", "v8.8.8")
+    monkeypatch.setenv("ABS_MEDIA_IMPORTER_FETCH_UI_VERSION", "1")
 
     with (
         patch(
@@ -145,24 +169,9 @@ def test_env_override_skips_background_github_fetch(
         mock_fetch.assert_not_called()
 
 
-def test_background_fetch_updates_ui_version(
+def test_env_override_disables_background_fetch_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("ABS_MEDIA_IMPORTER_UI_VERSION", raising=False)
-
-    async def _fast_fetch(fallback: str) -> str:
-        return "v3.3.3"
-
-    with (
-        patch("app.factory._fetch_latest_ui_version_async", side_effect=_fast_fetch),
-        TestClient(create_app()) as client,
-    ):
-        task = client.app.state.ui_version_task
-        assert task is not None
-        # Wait for the background task to finish.
-        deadline = time.monotonic() + 2.0
-        while not task.done() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        assert task.done()
-        assert client.app.state.ui_version == "v3.3.3"
-        assert templates.env.globals["app_ui_version"] == "v3.3.3"
+    monkeypatch.setenv("ABS_MEDIA_IMPORTER_UI_VERSION", "v1.2.3")
+    monkeypatch.setenv("ABS_MEDIA_IMPORTER_FETCH_UI_VERSION", "1")
+    assert _background_ui_version_fetch_enabled() is False

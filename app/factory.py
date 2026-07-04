@@ -7,7 +7,7 @@ import logging
 import os
 import tomllib
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -46,6 +46,15 @@ def _ui_version_env_override() -> str | None:
     """Return ABS_MEDIA_IMPORTER_UI_VERSION when set, else None."""
     env_version = os.getenv("ABS_MEDIA_IMPORTER_UI_VERSION", "").strip()
     return env_version or None
+
+
+def _background_ui_version_fetch_enabled() -> bool:
+    """Return True when the GitHub release lookup should run in the background."""
+    if _ui_version_env_override() is not None:
+        return False
+    # Tests set this to 0 so TestClient lifespan never schedules network work.
+    flag = os.getenv("ABS_MEDIA_IMPORTER_FETCH_UI_VERSION", "1").strip().lower()
+    return flag not in {"0", "false", "no"}
 
 
 def _resolve_ui_version(default_version: str) -> str:
@@ -98,19 +107,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     reload_settings()
     logger.info("Database initialized")
 
-    # Env override is already applied in create_app; only hit GitHub when unset.
-    if _ui_version_env_override() is None:
+    # Env override / test flag is applied in create_app; only hit GitHub when enabled.
+    if _background_ui_version_fetch_enabled():
         app.state.ui_version_task = asyncio.create_task(_refresh_ui_version(app))
     else:
         app.state.ui_version_task = None
 
     yield
 
+    # Cancel only — do not await. Awaiting can deadlock Starlette's TestClient
+    # portal when the task is mid-I/O during lifespan shutdown.
     task = getattr(app.state, "ui_version_task", None)
     if task is not None and not task.done():
         task.cancel()
-        with suppress(asyncio.CancelledError, TimeoutError):
-            await asyncio.wait_for(task, timeout=1.0)
 
 
 def create_app() -> FastAPI:

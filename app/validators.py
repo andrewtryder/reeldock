@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import re
 import shlex
-from pathlib import Path
+
+from app.path_checks import check_readable_file, parse_absolute_file_path
 
 ValidationResult = tuple[str | None, str | None]  # (error, warning)
 
@@ -17,16 +17,10 @@ def validate_optional_path(value: str) -> ValidationResult:
     stripped = value.strip()
     if not stripped:
         return None, None
-    p = Path(stripped)
-    if not p.is_absolute():
+    path = parse_absolute_file_path(stripped)
+    if path is None:
         return "Path must be absolute.", None
-    if not p.exists():
-        return None, "File does not exist yet; yt-dlp will fail until it is created."
-    if not p.is_file():
-        return "Path must point to a file.", None
-    if not os.access(p, os.R_OK):
-        return "File is not readable.", None
-    return None, None
+    return check_readable_file(path)
 
 
 def validate_extra_args(value: str) -> ValidationResult:

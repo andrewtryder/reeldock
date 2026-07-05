@@ -340,20 +340,52 @@
   const activeStatuses = new Set(['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning']);
   const terminalStatuses = new Set(['succeeded', 'failed', 'cancelled']);
   const progressDetailStatuses = new Set(['downloading', 'converting']);
+  const allKnownStatuses = new Set([...activeStatuses, ...terminalStatuses]);
   let currentStatus = '{{ job.status.value | e }}';
 
   const REEL_SVG = `<svg class="reel-spinner inline-block shrink-0 animate-spin-slow" width="14" height="9" viewBox="0 0 36 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="12" r="6"/><circle cx="28" cy="12" r="6"/><line x1="14" y1="12" x2="22" y2="12"/><line x1="8" y1="7" x2="8" y2="10"/><line x1="8" y1="14" x2="8" y2="17"/><line x1="4" y1="12" x2="7" y2="12"/><line x1="9" y1="12" x2="12" y2="12"/><line x1="28" y1="7" x2="28" y2="10"/><line x1="28" y1="14" x2="28" y2="17"/><line x1="24" y1="12" x2="27" y2="12"/><line x1="29" y1="12" x2="32" y2="12"/></svg>`;
 
-  function activeBadgeHtml(status) {
-    return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-container/50 text-on-amber-container font-label-md text-label-md border border-amber/30">${REEL_SVG} ${status}</span>`;
+  function safeJobStatus(status) {
+    return allKnownStatuses.has(status) ? status : 'unknown';
   }
 
-  function successBadgeHtml() {
-    return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-success-container/40 text-on-success-container font-label-md text-label-md border border-success/30"><span class="material-symbols-outlined text-[13px]">check_circle</span> completed</span>`;
+  function appendReelIcon(badge) {
+    const iconHost = document.createElement('span');
+    iconHost.innerHTML = REEL_SVG;
+    while (iconHost.firstChild) {
+      badge.appendChild(iconHost.firstChild);
+    }
   }
 
-  function errorBadgeHtml(status) {
-    return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-error-container/40 text-error font-label-md text-label-md border border-error/30"><span class="material-symbols-outlined text-[13px]">error</span> ${status}</span>`;
+  function setStatusBadge(container, status) {
+    if (!container) return;
+    const safe = safeJobStatus(status);
+    container.replaceChildren();
+
+    const badge = document.createElement('span');
+    badge.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-label-md text-label-md border';
+
+    if (activeStatuses.has(safe)) {
+      badge.classList.add('bg-amber-container/50', 'text-on-amber-container', 'border-amber/30');
+      appendReelIcon(badge);
+      badge.appendChild(document.createTextNode(' ' + safe));
+    } else if (safe === 'succeeded') {
+      badge.classList.add('bg-success-container/40', 'text-on-success-container', 'border-success/30');
+      const icon = document.createElement('span');
+      icon.className = 'material-symbols-outlined text-[13px]';
+      icon.textContent = 'check_circle';
+      badge.appendChild(icon);
+      badge.appendChild(document.createTextNode(' completed'));
+    } else {
+      badge.classList.add('bg-error-container/40', 'text-error', 'border-error/30');
+      const icon = document.createElement('span');
+      icon.className = 'material-symbols-outlined text-[13px]';
+      icon.textContent = 'error';
+      badge.appendChild(icon);
+      badge.appendChild(document.createTextNode(' ' + safe));
+    }
+
+    container.appendChild(badge);
   }
 
   function updateVuMeter(container, pct, failed) {
@@ -396,13 +428,7 @@
           // Update status badge
           const badgeContainer = document.getElementById('status-badge-container');
           if (badgeContainer) {
-            if (activeStatuses.has(d.status)) {
-              badgeContainer.innerHTML = activeBadgeHtml(d.status);
-            } else if (d.status === 'succeeded') {
-              badgeContainer.innerHTML = successBadgeHtml();
-            } else {
-              badgeContainer.innerHTML = errorBadgeHtml(d.status);
-            }
+            setStatusBadge(badgeContainer, d.status);
           }
 
           // Update duration and progress values
@@ -566,13 +592,7 @@
           // Update status badge
           const badgeContainer = document.getElementById('status-badge-container');
           if (badgeContainer) {
-            if (activeStatuses.has(job.status)) {
-              badgeContainer.innerHTML = activeBadgeHtml(job.status);
-            } else if (job.status === 'succeeded') {
-              badgeContainer.innerHTML = successBadgeHtml();
-            } else {
-              badgeContainer.innerHTML = errorBadgeHtml(job.status);
-            }
+            setStatusBadge(badgeContainer, job.status);
           }
 
           // Update duration
@@ -744,13 +764,7 @@
             // Update status badge
             const badgeContainer = document.getElementById('status-badge-container');
             if (badgeContainer) {
-              if (activeStatuses.has(d.status)) {
-                badgeContainer.innerHTML = activeBadgeHtml(d.status);
-              } else if (d.status === 'succeeded') {
-                badgeContainer.innerHTML = successBadgeHtml();
-              } else {
-                badgeContainer.innerHTML = errorBadgeHtml(d.status);
-              }
+              setStatusBadge(badgeContainer, d.status);
             }
           })
           .catch(err => console.error("Error polling job details:", err));

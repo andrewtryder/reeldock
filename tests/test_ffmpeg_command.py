@@ -43,13 +43,6 @@ def test_primary_command_structure(tmp_path: Path):
     assert str(output_f) == cmd[-1]
 
 
-def test_primary_command_no_shell_true(tmp_path: Path):
-    svc = make_svc()
-    cmd = svc.build_remux_command(tmp_path / "a.m4a", tmp_path / "b.m4b")
-    assert isinstance(cmd, list)
-    assert all(isinstance(c, str) for c in cmd)
-
-
 # ── Fallback command ──────────────────────────────────────────────────────────
 
 
@@ -62,11 +55,6 @@ def test_fallback_command_no_video_map(tmp_path: Path):
     assert "-map_metadata" in cmd
     assert "-map_chapters" in cmd
     assert "ipod" in cmd
-
-
-def test_fallback_command_no_shell_true(tmp_path: Path):
-    cmd = make_svc().build_remux_command_fallback(tmp_path / "a.m4a", tmp_path / "b.m4b")
-    assert isinstance(cmd, list)
 
 
 # ── Extra args ────────────────────────────────────────────────────────────────

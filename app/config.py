@@ -273,9 +273,10 @@ class Settings(BaseSettings):
     @field_validator("collision_mode")
     @classmethod
     def validate_collision_mode(cls, v: str) -> str:
-        valid = {"skip", "overwrite", "append_id", "append_counter"}
-        if v not in valid:
-            raise ValueError(f"collision_mode must be one of {valid}")
+        from app.settings_registry import COLLISION_CHOICES
+
+        if v not in COLLISION_CHOICES:
+            raise ValueError(f"collision_mode must be one of {COLLISION_CHOICES}")
         return v
 
     @field_validator("extension_api_token", mode="before")

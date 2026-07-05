@@ -56,11 +56,6 @@ def _validate_absolute_writable_path(value: str) -> ValidationResult:
     return None, None
 
 
-_validate_optional_path = validate_optional_path
-_validate_extra_args = validate_extra_args
-_validate_filename_template = validate_filename_template
-
-
 def _validate_positive_int(value: str) -> ValidationResult:
     try:
         parsed = int(value.strip())
@@ -127,7 +122,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         type=SettingType.PATH,
         default="",
         help_text="Absolute path to a Netscape-format cookies file for yt-dlp.",
-        validate=_validate_optional_path,
+        validate=validate_optional_path,
     ),
     # ── Download behavior ────────────────────────────────────────────────────
     SettingSpec(
@@ -179,7 +174,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         type=SettingType.SPACE_LIST,
         default="",
         help_text="Space-separated extra arguments passed to yt-dlp.",
-        validate=_validate_extra_args,
+        validate=validate_extra_args,
     ),
     SettingSpec(
         key="ffmpeg_extra_args",
@@ -189,7 +184,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         type=SettingType.SPACE_LIST,
         default="",
         help_text="Space-separated extra arguments passed to ffmpeg.",
-        validate=_validate_extra_args,
+        validate=validate_extra_args,
     ),
     SettingSpec(
         key="loudness_normalize",
@@ -232,7 +227,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         type=SettingType.STR,
         default="{title}.m4b",
         help_text="Template for the final output filename.",
-        validate=_validate_filename_template,
+        validate=validate_filename_template,
     ),
     SettingSpec(
         key="folder_name_field",

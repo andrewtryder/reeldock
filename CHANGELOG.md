@@ -8,6 +8,29 @@
 * **ui:** add Diagnostics page with health checks for yt-dlp, ffmpeg, ffprobe, Redis, database, paths, disk space, cookies, and ABS API.
 * **ui:** unify page headers, shared badge tokens, success/warning palette, and layout polish across Import, Jobs, Settings, Preview, Job Detail, and Diagnostics.
 
+## [1.8.0](https://github.com/andrewtryder/reeldock/compare/v1.7.1...v1.8.0) (2026-07-05)
+
+
+### Features
+
+* **import:** add advanced per-job options, loudness normalization, and UI polish ([#80](https://github.com/andrewtryder/reeldock/issues/80)) ([4c38c13](https://github.com/andrewtryder/reeldock/commit/4c38c133a5e66322adcdd01dc85a1da473c35e3c))
+* **import:** support playlist and channel batch imports ([#79](https://github.com/andrewtryder/reeldock/issues/79)) ([9445bc6](https://github.com/andrewtryder/reeldock/commit/9445bc64f05965585573f6637d002426eee00e01))
+* **ui:** apply tape-deck design system ([#78](https://github.com/andrewtryder/reeldock/issues/78)) ([1f3c3ad](https://github.com/andrewtryder/reeldock/commit/1f3c3ad44eaa3dd06cfff86a7b50a5a89e4b415b))
+
+
+### Bug Fixes
+
+* **api:** stop WebSocket poll loop from hanging CI on disconnect ([944e376](https://github.com/andrewtryder/reeldock/commit/944e376a088e12ed1e055edbea5d685fc3e44554))
+* **ci:** prevent TestClient lifespan deadlock on UI version task ([40f0dca](https://github.com/andrewtryder/reeldock/commit/40f0dcaa0fc07e2a4cc519596365bccba5910fa3))
+* **tests:** avoid WebSocket TestClient hang in CI ([3c02820](https://github.com/andrewtryder/reeldock/commit/3c028207323e3c42456ad91e8395fa7db5a5954b))
+* **tests:** end WebSocket tests on terminal job status ([103326f](https://github.com/andrewtryder/reeldock/commit/103326f027b7c2c0e8f24da5d047fdaad23ac6c3))
+
+
+### Performance Improvements
+
+* **api:** resolve UI version without blocking startup ([bd0ac06](https://github.com/andrewtryder/reeldock/commit/bd0ac06d1253e9f2377d9ccee960fee02abf7d5e))
+* **api:** resolve UI version without blocking startup ([eb30738](https://github.com/andrewtryder/reeldock/commit/eb307382dac8dd92f8fbfb1b90747d87b9db0bb3))
+
 ## [1.7.1](https://github.com/andrewtryder/reeldock/compare/v1.7.0...v1.7.1) (2026-07-03)
 
 

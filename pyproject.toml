@@ -43,7 +43,7 @@ dev = [
     "pytest-mock==3.15.1",
     "anyio==4.7.0",
     "coverage==7.6.1",
-    "ruff==0.8.3",
+    "ruff==0.15.20",
     "mypy==2.1.0",
     "types-pyyaml==6.0.12.20260518",
     "pre-commit==4.6.0",

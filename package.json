@@ -4,7 +4,7 @@
     "rulesync": "rulesync generate"
   },
   "devDependencies": {
-    "rulesync": "^9.1.1"
+    "rulesync": "^16.4.0"
   },
   "name": "reeldock"
 }

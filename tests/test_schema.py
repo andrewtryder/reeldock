@@ -122,6 +122,41 @@ async def test_init_db_stamps_legacy_database(schema_db: Path):
 
 
 @pytest.mark.asyncio
+async def test_legacy_reconcile_does_not_use_live_orm_metadata(
+    schema_db: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Legacy stamp must use frozen BASELINE_METADATA, not live Base.metadata."""
+    import app.db as db_module
+    import app.models as models
+    from app.baseline_schema import BASELINE_METADATA
+
+    assert "Base" not in db_module.__dict__
+    assert db_module.BASELINE_METADATA is BASELINE_METADATA
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("live Base.metadata must not be used for legacy reconcile")
+
+    monkeypatch.setattr(models.Base.metadata, "create_all", _boom)
+    monkeypatch.setattr(models.Base.metadata, "drop_all", _boom)
+    # Empty live table registry so accidental iteration cannot add future columns.
+    monkeypatch.setattr(models.Base.metadata, "tables", {})
+
+    with sqlite3.connect(schema_db) as conn:
+        conn.executescript(_MINIMAL_JOBS_DDL)
+        conn.commit()
+
+    await init_db()
+
+    with sqlite3.connect(schema_db) as conn:
+        jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+        assert "batch_id" in jobs_cols
+        assert "sponsorblock_remove" in jobs_cols
+        assert "progress" in jobs_cols
+        version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        assert version[0] == "0001_baseline"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("retired_revision", ["f2b6d4e83a50", "c7a3e9f12b40"])
 async def test_init_db_stamps_retired_alembic_revision(schema_db: Path, retired_revision: str):
     with sqlite3.connect(schema_db) as conn:

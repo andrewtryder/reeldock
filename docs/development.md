@@ -120,13 +120,13 @@ On startup, `init_db()` runs `alembic upgrade head`. Pre-baseline SQLite databas
 - tables present with no `alembic_version` (unversioned legacy)
 - databases carrying a known retired ReelDock revision ID
 
-Those DBs are reconciled to the current model shape, then stamped at `0001_baseline`. Unknown revision IDs fail loudly. The baseline revision itself uses frozen `op.create_table` ops and must not import live ORM models.
+Those DBs are reconciled to the **frozen 0001** schema in `app/baseline_schema.py` (not live ORM models), then stamped at `0001_baseline`. Unknown revision IDs fail loudly. Later schema changes advance only through Alembic revisions (`0002`, …). Do not edit `app/baseline_schema.py` to match future models.
 
 ### Changing the schema
 
 1. Edit models in `app/models.py`
 2. Generate a revision: `uv run alembic revision --autogenerate -m "describe change"`
-3. Review the generated script under `alembic/versions/`
+3. Review the generated script under `alembic/versions/` (do not modify `app/baseline_schema.py`)
 4. Apply locally: `uv run alembic upgrade head` (also runs automatically on app start)
 5. Commit the revision with your model change
 

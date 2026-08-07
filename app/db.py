@@ -21,8 +21,8 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.sql.schema import Column
 
+from app.baseline_schema import BASELINE_METADATA
 from app.config import get_settings
-from app.models import Base
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +103,10 @@ def _default_sql_for_column(column: Column[object]) -> str:
 
 
 def _add_missing_columns(connection: Connection) -> None:
-    """One-time additive sync used only when stamping a pre-Alembic database."""
+    """One-time additive sync to the frozen 0001 schema for legacy databases."""
     inspector = inspect(connection)
     dialect = connection.dialect
-    for table in Base.metadata.sorted_tables:
+    for table in BASELINE_METADATA.sorted_tables:
         if not inspector.has_table(table.name):
             continue
         existing = {col["name"] for col in inspector.get_columns(table.name)}
@@ -148,8 +148,8 @@ def _drop_alembic_version(connection: Connection) -> None:
 
 
 def _reconcile_legacy_schema(connection: Connection) -> None:
-    """Bring a pre-baseline SQLite DB up to the current model shape."""
-    Base.metadata.create_all(bind=connection)
+    """Bring a pre-baseline SQLite DB up to the frozen 0001 schema shape."""
+    BASELINE_METADATA.create_all(bind=connection)
     _add_missing_columns(connection)
 
 

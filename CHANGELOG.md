@@ -4,7 +4,7 @@
 
 ### Features
 
-* **db:** restore Alembic migrations with a frozen `0001_baseline` revision. Unversioned and known retired-revision SQLite databases are reconciled and stamped on first startup after upgrade; unknown revisions fail loudly.
+* **db:** restore Alembic migrations with a frozen `0001_baseline` schema (`app/baseline_schema.py`). Unversioned and known retired-revision SQLite databases are reconciled to that frozen shape and stamped on first startup; unknown revisions fail loudly. Later schema changes advance only via Alembic revisions.
 * **ui:** add Diagnostics page with health checks for yt-dlp, ffmpeg, ffprobe, Redis, database, paths, disk space, cookies, and ABS API.
 * **ui:** unify page headers, shared badge tokens, success/warning palette, and layout polish across Import, Jobs, Settings, Preview, Job Detail, and Diagnostics.
 

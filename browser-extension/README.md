@@ -4,6 +4,13 @@ An unpacked WebExtension (Manifest V3) that lets you queue the YouTube video ope
 your browser into a local `reeldock` instance. Works with Chrome and Firefox
 development builds. Nothing is published to a browser store.
 
+## Privacy
+
+Configuration (server URL, API token, embed defaults) is stored only in
+`chrome.storage.local` / Firefox local extension storage on your device. The
+extension does not upload settings to any third party. The API token is sent
+only to the ReelDock base URL you configure.
+
 ## Features
 
 - **Popup** on YouTube video pages with a one-click "Queue video" button.
@@ -11,9 +18,8 @@ development builds. Nothing is published to a browser store.
 - **Options page** to configure the server URL, API token, default destination
   folder, embed flags, the "trigger Audiobookshelf scan" toggle, and a default
   "allow re-import" toggle.
-- **LAN support**: host permissions for `127.0.0.1`, `localhost`, and the
-  `192.168.*` / `10.*` / `172.16.*` ranges are included so the extension can
-  reach a backend on the same LAN.
+- **Localhost by default**; for a LAN hostname/IP, the options page requests
+  optional host permission when you save.
 
 ## 1. Enable the extension API on the backend
 
@@ -21,18 +27,22 @@ Set these in the backend `.env` (see `.env.example`):
 
 ```ini
 EXTENSION_API_ENABLED=true
-EXTENSION_API_TOKEN=          # optional; generate with: openssl rand -hex 32
+EXTENSION_API_TOKEN=generate-with-openssl-rand-hex-32
 ```
 
-Then restart the backend. Verify with:
+`EXTENSION_API_TOKEN` is **required** when the API is enabled (the app refuses
+to start without it). Recreate containers after changing `.env`:
 
 ```bash
-curl http://127.0.0.1:8080/api/extension/status
-# {"ok": true, "app": "reeldock", "auth_required": false, ...}
+docker compose up -d --force-recreate
 ```
 
-If a token is set, requests must include `Authorization: Bearer <token>` or
-`X-REELDOCK-Token: <token>`. The extension sends the Bearer header.
+Verify with:
+
+```bash
+curl -H "Authorization: Bearer $EXTENSION_API_TOKEN" \
+  http://127.0.0.1:8080/api/extension/status
+```
 
 ## 2. Build and load the extension
 
@@ -63,8 +73,8 @@ npm run build        # builds both Chrome and Firefox into dist/
 
 Click the extension icon → Options (or the gear icon on the popup) and set:
 
-- **Server URL**: e.g. `http://192.168.1.50:8080` (no trailing slash)
-- **API token**: the value of `EXTENSION_API_TOKEN` (leave blank if unset)
+- **Server URL**: e.g. `http://127.0.0.1:8080` or `http://192.168.1.50:8080`
+- **API token**: must match `EXTENSION_API_TOKEN`
 - **Default destination folder**: subfolder under `OUTPUT_ROOT` (optional)
 - **Embed metadata / thumbnail / chapters**: passed through to the job
 - **Trigger Audiobookshelf scan after success**: passed through to the job
@@ -72,7 +82,7 @@ Click the extension icon → Options (or the gear icon on the popup) and set:
   queue requests unless overridden in the popup
 
 Use **Test connection** to verify the server is reachable and the token is
-accepted.
+accepted. Non-localhost URLs prompt for optional host permission once.
 
 ## Endpoints used by the extension
 
@@ -82,8 +92,18 @@ accepted.
 | POST   | `/api/extension/queue`    | Queue a video; returns `job_id` + `job_url` |
 
 Both endpoints return `404` when `EXTENSION_API_ENABLED=false`, and `401` when
-a token is configured but missing/wrong. See
-[docs/configuration.md](configuration.md) for the full env var reference.
+the token is missing/wrong. See [docs/configuration.md](../docs/configuration.md).
+
+## Security notes
+
+- Treat the extension API token like any other secret. It lives in local extension
+  storage and is sent as `Authorization: Bearer …` or `X-REELDOCK-Token`.
+- Default host permissions cover YouTube plus `localhost` / `127.0.0.1`. Other
+  origins use optional host permissions requested when you save a non-localhost
+  server URL.
+- The backend re-validates the YouTube URL with `yt-dlp` server-side.
+- WebSocket job updates use the same token via `?token=` (custom headers are
+  unreliable for WebSockets from extensions).
 
 ## Development
 
@@ -93,29 +113,10 @@ npm run build:chrome  # build only Chrome
 npm run build:firefox # build only Firefox
 ```
 
-Source layout:
-
-```
-browser-extension/
-  icons/icon.svg
-  manifests/{base,chrome,firefox}.json
-  scripts/{build,lint}.mjs
-  src/
-    background.js        # service worker: context menu, queue calls, settings cache
-    browser-api.js       # chrome.* / browser.* shim
-    settings.js          # shared settings + YouTube URL validation
-    popup.html / popup.js
-    options.html / options.js
-```
-
 ## Known limitations
 
-- Only single YouTube video URLs are queued (`/watch?v=…`, `/shorts/…`, and
-  `youtu.be/<id>`). Playlist and channel URLs are rejected by the backend unless
-  `ALLOW_PLAYLISTS` / `ALLOW_CHANNELS` are enabled, and even then only the
-  single resolved video is imported — full playlist/channel batch imports are
-  not yet supported.
+- The extension queues **single** YouTube video URLs (`/watch?v=…`, `/shorts/…`,
+  `youtu.be/<id>`). Playlist/channel batch selection is available in the web UI
+  when `ALLOW_PLAYLISTS` / `ALLOW_CHANNELS` are enabled.
 - Job progress is not surfaced in the extension; open the returned `job_url`
   in the web UI to track it.
-- Notifications require the `notifications` permission, which is declared in
-  the manifest.

@@ -27,7 +27,6 @@
     "activeTab",
     "storage",
     "contextMenus",
-    "tabs",
     "notifications"
   ],
   "host_permissions": [
@@ -37,7 +36,12 @@
     "https://youtu.be/*",
     "http://localhost/*",
     "http://127.0.0.1/*",
-    "http://*/*"
+    "https://localhost/*",
+    "https://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"

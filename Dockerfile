@@ -3,9 +3,14 @@
 # ============================================================
 # Python 3.12-slim base with yt-dlp, ffmpeg, and app deps.
 # Supports PUID/PGID for volume permissions via entrypoint.sh
+#
+# Supply-chain pins (bump intentionally via Dependabot/manual PR):
+#   - python base image digest
+#   - uv image digest
+#   - yt-dlp release tag + SHA256
 # ============================================================
 
-FROM python:3.12-slim AS base
+FROM python:3.12.11-slim@sha256:47ae396f09c1303b8653019811a8498470603d7ffefc29cb07c88f1f8cb3d19f AS base
 
 LABEL org.opencontainers.image.title="reeldock"
 LABEL org.opencontainers.image.description="YouTube to Audiobookshelf importer"
@@ -20,15 +25,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp (latest stable binary)
-RUN curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+# Install pinned yt-dlp binary with checksum verification
+ARG YTDLP_VERSION=2026.07.04
+ARG YTDLP_SHA256=495be29ff4d9d4e9be7eabdfef225221e5d5282e77f2f505abc6dca80349f3fd
+RUN curl -sL "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" \
     -o /usr/local/bin/yt-dlp \
+    && echo "${YTDLP_SHA256}  /usr/local/bin/yt-dlp" | sha256sum -c - \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 # ── Python dependencies ─────────────────────────────────────
 FROM base AS deps
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.8.22@sha256:9874eb7afe5ca16c363fe80b294fe700e460df29a55532bbfea234a0f12eddb1 \
+    /uv /usr/local/bin/uv
 
 WORKDIR /build
 COPY pyproject.toml uv.lock ./
@@ -43,13 +52,15 @@ WORKDIR /app
 COPY --from=deps /build/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Copy application code
+# Copy application code and Alembic migration assets
 COPY app/ app/
 COPY worker/ worker/
-COPY pyproject.toml .
+COPY alembic/ alembic/
+COPY alembic.ini pyproject.toml ./
 
 # Register package metadata so importlib.metadata.version() works at runtime
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.8.22@sha256:9874eb7afe5ca16c363fe80b294fe700e460df29a55532bbfea234a0f12eddb1 \
+    /uv /usr/local/bin/uv
 RUN uv pip install --python /app/.venv/bin/python --no-deps .
 
 # Copy entrypoint

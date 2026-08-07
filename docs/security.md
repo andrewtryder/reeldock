@@ -27,10 +27,16 @@ To enable basic authentication:
    # Generate a 32-byte hex secret key
    openssl rand -hex 32
    ```
-4. Restart the containers.
+4. Recreate the containers so Compose injects the new values (`.env` is loaded via `env_file` and explicit `AUTH_*` mappings in `docker-compose.yml`):
+   ```bash
+   docker compose up -d --force-recreate
+   ```
 
 > [!WARNING]
 > Do not expose the application to the internet or your general LAN without enabling Basic Authentication and setting a strong password and secret key.
+> Setting `AUTH_ENABLED=true` without `AUTH_USERNAME` / `AUTH_PASSWORD` causes the app to refuse to start.
+>
+> If you change the port binding to `"8080:8080"`, enable auth in `.env` first, then recreate.
 
 ---
 

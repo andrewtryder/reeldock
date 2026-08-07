@@ -28,7 +28,20 @@ Open `.env` in a text editor and set `HOST_PODCASTS_DIR` to the directory on you
 HOST_PODCASTS_DIR=/mnt/podcasts
 ```
 
-*(Optional)* If you need to restrict permissions or configure Audiobookshelf scan triggers, configure those variables in `.env` as well. See [Configuration Guide](configuration.md) for details.
+Compose loads `.env` into the app/worker containers. If you enable auth or the browser extension API, set credentials there as well:
+
+```env
+AUTH_ENABLED=true
+AUTH_USERNAME=admin
+AUTH_PASSWORD=use-a-strong-password
+
+EXTENSION_API_ENABLED=true
+EXTENSION_API_TOKEN=generate-with-openssl-rand-hex-32
+```
+
+`AUTH_ENABLED=true` without username/password, or `EXTENSION_API_ENABLED=true` without a token, causes startup to fail. After changing auth settings, recreate containers (`docker compose up -d --force-recreate`). See [Security](security.md).
+
+*(Optional)* Restrict permissions or configure Audiobookshelf scan triggers in `.env` as well. See [Configuration Guide](configuration.md) for details.
 
 ## 4. Create Necessary Directories
 

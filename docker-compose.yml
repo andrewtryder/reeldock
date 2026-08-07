@@ -7,6 +7,12 @@
 #   worker  — RQ background worker
 #   redis   — Task queue
 #
+# Runtime configuration comes from `.env` (env_file) plus explicit
+# environment entries below. Compose interpolates `.env` for ${VAR}
+# substitution AND injects those values into the containers via env_file.
+# Stack wiring (REDIS_URL, DATABASE_URL, paths) is set explicitly so it
+# wins over accidental host/Redis overrides in `.env`.
+#
 # Volume layout is driven by these environment variables:
 #   HOST_PODCASTS_DIR       → Path on the Docker host (e.g. /mnt/podcasts or /Volumes/Synology/Media/Podcasts)
 #   CONTAINER_PODCASTS_DIR  → Path inside the containers (default: /media/podcasts, usually do not change)
@@ -24,6 +30,24 @@
 #     nas.local:/volume1/podcasts  /mnt/podcasts  nfs  defaults,_netdev,nofail  0  0
 # ──────────────────────────────────────────────────────────────────────────────
 
+x-app-environment: &app-environment
+  REDIS_URL: redis://redis:6379/0
+  DATABASE_URL: sqlite+aiosqlite:////data/app.db
+  OUTPUT_ROOT: ${OUTPUT_ROOT:-/media/podcasts}
+  WORK_DIR: /data/work
+  ARCHIVE_FILE: /data/config/youtube-archive.txt
+  AUTH_ENABLED: ${AUTH_ENABLED:-false}
+  AUTH_USERNAME: ${AUTH_USERNAME:-}
+  AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+  EXTENSION_API_ENABLED: ${EXTENSION_API_ENABLED:-false}
+  EXTENSION_API_TOKEN: ${EXTENSION_API_TOKEN:-}
+  ABS_BASE_URL: ${ABS_BASE_URL:-}
+  ABS_API_TOKEN: ${ABS_API_TOKEN:-}
+  ABS_LIBRARY_ID: ${ABS_LIBRARY_ID:-}
+  ABS_SCAN_AFTER_SUCCESS: ${ABS_SCAN_AFTER_SUCCESS:-false}
+  PUID: ${PUID:-}
+  PGID: ${PGID:-}
+
 services:
 
   app:
@@ -34,8 +58,12 @@ services:
     container_name: reeldock-app
     command: app
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     # By default, bind only to localhost for safety.
-    # To expose the service to your LAN, change to "8080:8080", but make sure to enable HTTP Basic Auth first!
+    # To expose the service to your LAN, change to "8080:8080", enable AUTH_* in
+    # `.env`, then recreate: docker compose up -d --force-recreate
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -47,25 +75,7 @@ services:
           create_host_path: false
       - ./config:/config
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=sqlite+aiosqlite:////data/app.db
-      - OUTPUT_ROOT=${OUTPUT_ROOT:-/media/podcasts}
-      - WORK_DIR=/data/work
-      - ARCHIVE_FILE=/data/config/youtube-archive.txt
-      - EXTENSION_API_ENABLED=${EXTENSION_API_ENABLED:-false}
-      - EXTENSION_API_TOKEN=${EXTENSION_API_TOKEN:-}
-      # Optional: set PUID/PGID to match your NFS share user
-      # - PUID=1000
-      # - PGID=1000
-      # Optional: Audiobookshelf integration
-      # - ABS_BASE_URL=http://audiobookshelf:13378
-      # - ABS_API_TOKEN=your-abs-api-token
-      # - ABS_LIBRARY_ID=your-library-id
-      # - ABS_SCAN_AFTER_SUCCESS=true
-      # Optional: Enable basic auth
-      # - AUTH_ENABLED=true
-      # - AUTH_USERNAME=admin
-      # - AUTH_PASSWORD=changeme
+      <<: *app-environment
     depends_on:
       redis:
         condition: service_healthy
@@ -84,6 +94,9 @@ services:
     container_name: reeldock-worker
     command: worker
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - ./data:/data
       - type: bind
@@ -93,22 +106,13 @@ services:
           create_host_path: false
       - ./config:/config
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=sqlite+aiosqlite:////data/app.db
-      - OUTPUT_ROOT=${OUTPUT_ROOT:-/media/podcasts}
-      - WORK_DIR=/data/work
-      - ARCHIVE_FILE=/data/config/youtube-archive.txt
-      # - PUID=1000
-      # - PGID=1000
-      # - ABS_BASE_URL=http://audiobookshelf:13378
-      # - ABS_API_TOKEN=your-abs-api-token
-      # - ABS_LIBRARY_ID=your-library-id
+      <<: *app-environment
     depends_on:
       redis:
         condition: service_healthy
 
   redis:
-    image: redis:8-alpine
+    image: redis:8.2-alpine
     container_name: reeldock-redis
     restart: unless-stopped
     volumes:

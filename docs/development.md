@@ -113,9 +113,17 @@ Pre-commit hooks use the same Ruff version from `uv.lock` via `uv run --frozen`.
 
 ## 6. Database schema
 
-Schema is derived from SQLAlchemy models in `app/models.py`. On startup, `init_db()` creates any missing tables and adds any missing columns. There is no separate migration tool.
+Schema is defined by SQLAlchemy models in `app/models.py` and versioned with **Alembic**.
 
-After changing models, restart the app. Existing rows are preserved; new columns are added with safe defaults when needed. Columns removed from models are left in place (SQLite does not drop them automatically).
+On startup, `init_db()` runs `alembic upgrade head`. Pre-Alembic SQLite databases (tables present, no `alembic_version`) are detected, brought up to the current model shape, then stamped at the baseline revision so future changes use migrations only.
+
+### Changing the schema
+
+1. Edit models in `app/models.py`
+2. Generate a revision: `uv run alembic revision --autogenerate -m "describe change"`
+3. Review the generated script under `alembic/versions/`
+4. Apply locally: `uv run alembic upgrade head` (also runs automatically on app start)
+5. Commit the revision with your model change
 
 ### Worker-only startup
 

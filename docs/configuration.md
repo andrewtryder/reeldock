@@ -38,8 +38,8 @@ The Settings page is driven by a configuration registry. The following settings 
 | Cleanup temp on success | `CLEANUP_TEMP_ON_SUCCESS` | Remove temp files after success |
 | Cleanup temp on failure | `CLEANUP_TEMP_ON_FAILURE` | Remove temp files after failure |
 | Dry run | `DRY_RUN` | Simulate imports without downloading |
-| Allow playlist URLs | `ALLOW_PLAYLISTS` | Accept playlist-style URLs and import only the single resolved video (full playlist import is not yet supported). |
-| Allow channel URLs | `ALLOW_CHANNELS` | Accept channel-style URLs where yt-dlp can resolve a single item (full channel import is not yet supported). |
+| Allow playlist URLs | `ALLOW_PLAYLISTS` | Accept playlist URLs and enumerate videos for batch selection in the UI. |
+| Allow channel URLs | `ALLOW_CHANNELS` | Accept channel URLs and enumerate videos for batch selection in the UI. |
 | ABS scan after success | `ABS_SCAN_AFTER_SUCCESS` | Trigger Audiobookshelf scan after import |
 
 **Read-only in UI (for now):** `MAX_CONCURRENT_JOBS` until runtime concurrency is fully supported.
@@ -60,6 +60,8 @@ The Settings page is driven by a configuration registry. The following settings 
 | `AUTH_ENABLED` | `false` | Enable HTTP Basic Authentication. Set to `true` if exposing to the LAN/WAN. |
 | `AUTH_USERNAME` | — | Username for Basic Authentication. |
 | `AUTH_PASSWORD` | — | Password for Basic Authentication. |
+| `EXTENSION_API_ENABLED` | `false` | Enable `/api/extension/*` for the browser extension. |
+| `EXTENSION_API_TOKEN` | — | Required when extension API is enabled; app refuses to start if missing. |
 | **Infrastructure** | | |
 | `REDIS_URL` | `redis://redis:6379/0` | Connection string for Redis queue. |
 | `DATABASE_URL` | `sqlite+aiosqlite:////data/app.db` | SQLAlchemy connection string for SQLite database. |
@@ -71,8 +73,8 @@ The Settings page is driven by a configuration registry. The following settings 
 | `ARCHIVE_FILE` | `/data/config/youtube-archive.txt` | `yt-dlp` archive file used as a secondary duplicate guard at download time. |
 | `COOKIES_FILE` | — | Absolute path to a Netscape cookies file passed to yt-dlp via `--cookies`. |
 | **Download & Processing** | | |
-| `ALLOW_PLAYLISTS` | `false` | Accept playlist-style URLs. yt-dlp is always invoked with `--no-playlist`, so only the resolved single video is imported; batch playlist imports are not yet supported. |
-| `ALLOW_CHANNELS` | `false` | Accept channel-style URLs. Only a single resolved video is imported; batch channel imports are not yet supported. |
+| `ALLOW_PLAYLISTS` | `false` | Accept playlist URLs and enumerate entries for batch import in the UI. |
+| `ALLOW_CHANNELS` | `false` | Accept channel URLs and enumerate entries for batch import in the UI. |
 | `DEFAULT_DESTINATION_FOLDER` | — | Default selected subdirectory under `OUTPUT_ROOT`. |
 | `YTDLP_BIN` | `yt-dlp` | Command path to `yt-dlp`. |
 | `FFMPEG_BIN` | `ffmpeg` | Command path to `ffmpeg`. |

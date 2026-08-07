@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, STORAGE_KEYS, loadSettings, saveSettings } from './settings.js';
+import { DEFAULT_SETTINGS, STORAGE_KEYS, loadSettings, saveSettings, ensureServerHostPermission } from './settings.js';
 
 function $(id) { return document.getElementById(id); }
 
@@ -139,7 +139,19 @@ async function loadStatusFromServer(serverUrl, authEnabled = false, apiToken = n
 
 async function onSave() {
   try {
-    await saveSettings(collect());
+    const settings = collect();
+    if (settings.serverUrl) {
+      const granted = await ensureServerHostPermission(settings.serverUrl);
+      if (!granted) {
+        setStatus('Host permission is required for this ReelDock server URL.', false);
+        return;
+      }
+    }
+    if (settings.authEnabled && !settings.apiToken) {
+      setStatus('API token is required when auth is enabled (server requires EXTENSION_API_TOKEN).', false);
+      return;
+    }
+    await saveSettings(settings);
 
     // Refresh status after saving
     setStatus('Settings saved, testing connection...', true);

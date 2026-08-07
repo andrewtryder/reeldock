@@ -5,7 +5,10 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import Boolean, DateTime, Integer, String, Text, inspect, text
 from sqlalchemy import create_engine as _sync_create_engine
 from sqlalchemy.engine import Connection, Engine
@@ -22,6 +25,9 @@ from app.config import get_settings
 from app.models import Base
 
 logger = logging.getLogger(__name__)
+
+_BASELINE_REVISION = "0001_baseline"
+_ROOT = Path(__file__).resolve().parents[1]
 
 # ---------------------------------------------------------------------------
 # Async engine (FastAPI app)
@@ -73,7 +79,6 @@ def _default_sql_for_column(column: Column[object]) -> str:
     if column.nullable:
         return ""
 
-    # NOT NULL columns need a default when added to a table that already has rows.
     if isinstance(column.type, Boolean):
         return " DEFAULT 0"
     if isinstance(column.type, Integer):
@@ -86,10 +91,7 @@ def _default_sql_for_column(column: Column[object]) -> str:
 
 
 def _add_missing_columns(connection: Connection) -> None:
-    """Add model columns that are missing from existing tables.
-
-    ``create_all`` only creates missing tables; it does not alter existing ones.
-    """
+    """One-time additive sync used only when stamping a pre-Alembic database."""
     inspector = inspect(connection)
     dialect = connection.dialect
     for table in Base.metadata.sorted_tables:
@@ -107,27 +109,47 @@ def _add_missing_columns(connection: Connection) -> None:
             logger.info("Added column %s.%s", table.name, column.name)
 
 
-def _drop_alembic_version(connection: Connection) -> None:
-    """Remove leftover Alembic bookkeeping from older installs."""
+def _alembic_config() -> Config:
+    cfg = Config(str(_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_ROOT / "alembic"))
+    cfg.set_main_option("sqlalchemy.url", get_settings().sync_database_url)
+    return cfg
+
+
+def _is_legacy_unversioned(connection: Connection) -> bool:
     inspector = inspect(connection)
-    if inspector.has_table("alembic_version"):
-        connection.execute(text("DROP TABLE alembic_version"))
-        logger.info("Dropped obsolete alembic_version table")
+    return inspector.has_table("jobs") and not inspector.has_table("alembic_version")
 
 
-def _init_schema(connection: Connection) -> None:
-    """Create missing tables and columns from SQLAlchemy models."""
-    Base.metadata.create_all(bind=connection)
-    _add_missing_columns(connection)
-    _drop_alembic_version(connection)
+def run_migrations() -> None:
+    """Apply Alembic migrations, stamping pre-Alembic databases first."""
+    engine = get_sync_engine()
+    cfg = _alembic_config()
+    legacy = False
+
+    with engine.begin() as connection:
+        legacy = _is_legacy_unversioned(connection)
+        if legacy:
+            # Bring a pre-Alembic SQLite DB up to the current model shape, then
+            # stamp the baseline so future revisions use Alembic only.
+            Base.metadata.create_all(bind=connection)
+            _add_missing_columns(connection)
+            logger.info("Detected legacy unversioned database; preparing Alembic stamp")
+
+    if legacy:
+        command.stamp(cfg, _BASELINE_REVISION)
+        logger.info("Stamped legacy database at %s", _BASELINE_REVISION)
+
+    command.upgrade(cfg, "head")
+    logger.info("Alembic migrations applied (head)")
 
 
 async def init_db() -> None:
-    """Create or update the database schema from models."""
-    engine = get_async_engine()
+    """Create or update the database schema via Alembic."""
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(_init_schema)
+        # Alembic uses the sync engine; ensure it exists before upgrading.
+        get_sync_engine()
+        run_migrations()
     except Exception as exc:
         print(f"Database schema init failed: {exc}", file=sys.stderr, flush=True)
         logger.exception("Database schema init failed")

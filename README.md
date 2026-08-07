@@ -8,147 +8,116 @@
   <a href="https://scorecard.dev/viewer/?uri=github.com/andrewtryder/reeldock"><img src="https://api.scorecard.dev/projects/github.com/andrewtryder/reeldock/badge" alt="OpenSSF Scorecard" /></a>
 </p>
 
-A self-hosted sidecar application that converts individual YouTube videos into `.m4b` audiobook files and writes them directly to the directory that [Audiobookshelf](https://www.audiobookshelf.org/) scans.
+A self-hosted sidecar that turns YouTube videos (and selected playlist/channel batches) into `.m4b` audiobooks and writes them into the directory [Audiobookshelf](https://www.audiobookshelf.org/) scans.
 
 > [!NOTE]
 > **This is not an Audiobookshelf plugin.** It is an independent container that shares the same podcast/audiobook directory as your Audiobookshelf instance.
-
----
-
-## What It Does / Workflow
-
-1. Paste a YouTube video URL into the web UI.
-2. The app fetches metadata (title, channel, duration, chapters) using `yt-dlp`.
-3. Select the destination folder inside your Audiobookshelf podcasts directory (or create a new folder).
-4. Optionally edit the output title and select embed options (metadata, chapters, thumbnail).
-5. Submit — a background worker downloads the audio with `yt-dlp` and remuxes it to `.m4b` using `ffmpeg` (with cover art and chapter markings).
-6. The finished `.m4b` is written to your Audiobookshelf media directory.
-7. Optionally trigger an Audiobookshelf library scan automatically via API.
-
----
-
-## Features
-
-- **Metadata Preview**: Review thumbnail, title, channel name, and chapters before downloading.
-- **Background Downloads**: Async task queue managed by an RQ worker with live-updating log views.
-- **Embedded Media**: Automatically embeds cover art, metadata, and chapter divisions into the `.m4b` file.
-- **Audiobookshelf Integration**: Automatically triggers library scans via API upon successful download.
-- **Path Traversal Protection**: Secure validation prevents writing outside of the designated root directory.
-- **Format Fallbacks**: Gracefully falls back to audio-only if cover art muxing fails.
-- **Collision Management**: Configurable options for duplicate filenames (`skip`, `overwrite`, `append_id`, `append_counter`).
-- **NFS & Permissions Friendly**: Supports `PUID` and `PGID` configurations to match host filesystem ownership.
+>
+> ReelDock is not affiliated with YouTube, Google, or Audiobookshelf. Use it only with content you have the right to download and keep.
 
 ---
 
 ## Quick Start (Docker Compose)
 
-Deploy the application stack in minutes:
-
 ```bash
-# 1. Clone the repository
 git clone https://github.com/andrewtryder/reeldock.git
 cd reeldock
-
-# 2. Configure paths in .env
 cp .env.example .env
-# Edit .env to set your HOST_PODCASTS_DIR (e.g. /mnt/podcasts)
-
-# 3. Create local storage directories
+# Edit HOST_PODCASTS_DIR (and AUTH_* if you will expose beyond localhost)
 mkdir -p data config
-
-# 4. Start the application
-docker compose up -d
+docker compose up -d --build
 ```
 
-The web interface will be available at **`http://localhost:8080`** (localhost only by default).
+Open **http://localhost:8080** (bound to localhost by default).
 
-For a complete walkthrough, see the [Quickstart Guide](docs/quickstart.md).
+Images are also published to Docker Hub / GHCR after CI on `main`. See the [Quickstart Guide](docs/quickstart.md).
+
+<p align="center">
+  <img src="assets/screenshots/import.png" alt="Import page" width="720" />
+</p>
+<p align="center">
+  <img src="assets/screenshots/preview-simple.png" alt="Preview Simple/Advanced options" width="720" />
+</p>
+<p align="center">
+  <img src="assets/screenshots/jobs.png" alt="Jobs list" width="720" />
+</p>
 
 ---
 
-## Rename Migration Notice
+## What It Does
 
-Recent releases finalized the project rename to `reeldock`.
+1. Paste a YouTube video, playlist, or channel URL (playlists/channels require Settings flags).
+2. Preview metadata; for batches, select which videos to queue.
+3. Choose destination folder, Simple/Advanced import options (embed, SponsorBlock, audio quality, loudness, …).
+4. Background workers download with `yt-dlp`, remux with `ffmpeg`, and write `.m4b` files atomically.
+5. Optionally trigger an Audiobookshelf library scan via API.
 
-- Update clone/remotes to `github.com/andrewtryder/reeldock`.
-- Rename any leftover local paths/service names/images to `reeldock`.
-- Reinstall the Firefox extension if you were using the previous extension ID.
-- If you automate extension API auth, use `REELDOCK_*` and `X-REELDOCK-Token`.
-- If you use native/systemd deployments, migrate queue/service identifiers to `reeldock` and `reeldock-*`.
+---
+
+## Features
+
+- **Single-video and batch import** — playlist/channel enumeration with per-video selection (`MAX_PLAYLIST_ENTRIES`).
+- **Simple / Advanced import panel** — embed options, SponsorBlock skip-segments, audio quality presets, loudness normalization, per-job overrides.
+- **Browser extension** — queue the current YouTube tab into your local instance (token required when the extension API is enabled).
+- **Background jobs** — RQ worker with live progress and job logs.
+- **Audiobookshelf integration** — shared media root + optional post-success library scan.
+- **Diagnostics** — authenticated path/permission checks (public `/ready` stays minimal for probes).
+- **Security defaults** — localhost bind, optional HTTP Basic Auth via `.env`, URL allowlisting, path traversal guards.
+- **Reproducible images** — locked Python deps (`uv.lock`), pinned base/uv/yt-dlp digests in the Dockerfile.
 
 ---
 
 ## Path Model Summary
 
-When deployed under Docker, paths map from the Docker host to the container:
-
-* **`HOST_PODCASTS_DIR`**: The directory on your Docker host machine where podcasts/audiobooks are stored.
-* **`CONTAINER_PODCASTS_DIR`**: The path inside the running container (usually `/media/podcasts`).
-* **`OUTPUT_ROOT`**: The path the application writes to inside the container. This must match `CONTAINER_PODCASTS_DIR`.
+* **`HOST_PODCASTS_DIR`**: Directory on the Docker host (Audiobookshelf media).
+* **`CONTAINER_PODCASTS_DIR`**: Mount inside the container (usually `/media/podcasts`).
+* **`OUTPUT_ROOT`**: Where the app writes; must match `CONTAINER_PODCASTS_DIR` in Docker.
 
 > [!IMPORTANT]
-> In Docker, the application writes to the **container path**, not the host path. The Settings page in the web UI should normally be left as `/media/podcasts`.
+> In Docker, Settings should normally keep `OUTPUT_ROOT=/media/podcasts` — the container path, not the host path.
 
-### Common Configuration Examples
-
-#### Mac Docker Test
-For local testing on macOS where a network share is mounted under `/Volumes`:
-```env
-HOST_PODCASTS_DIR=/Volumes/Synology/Media/Podcasts
-CONTAINER_PODCASTS_DIR=/media/podcasts
-OUTPUT_ROOT=/media/podcasts
-```
-
-#### Proxmox / Linux Docker
-For a standard Linux server mounting an NFS share locally:
-```env
-HOST_PODCASTS_DIR=/mnt/podcasts
-CONTAINER_PODCASTS_DIR=/media/podcasts
-OUTPUT_ROOT=/media/podcasts
-```
-
-For more details on volume setups, read the [Paths and Volumes Guide](docs/paths-and-volumes.md).
+See [Paths and Volumes](docs/paths-and-volumes.md) for Mac/Linux examples.
 
 ---
 
-## Screenshots
+## Responsible use
 
-Screenshots are coming soon. Recommended captures:
-- Import page
-- Preview page
-- Jobs page
-- Job detail page
-- Settings page
+ReelDock shells out to `yt-dlp` / `ffmpeg` for personal media workflows. Respect YouTube’s terms and copyright law. Do not use this project to redistribute content you do not own or have license to keep.
+
+---
+
+## Upgrade / rename notes
+
+If you are migrating from older names or images:
+
+- Update remotes to `github.com/andrewtryder/reeldock`.
+- Prefer current image/service names (`reeldock`).
+- Reinstall the Firefox extension if the extension ID changed.
+- Extension auth headers use `X-REELDOCK-Token` / `REELDOCK_*` naming.
+- Existing SQLite databases are stamped onto Alembic on first boot of builds that include migrations.
 
 ---
 
 ## Detailed Documentation
 
-Refer to the documents in the `/docs` directory for detailed deployment and configuration topics:
-
-* 📖 **[Quickstart Guide](docs/quickstart.md)**: Setup and initial configuration instructions.
-* 📁 **[Paths and Volumes](docs/paths-and-volumes.md)**: Deep dive into the host-to-container volume model.
-* ⚙️ **[Configuration Reference](docs/configuration.md)**: Full list of environment variables and YAML settings.
-* 🐋 **[Docker Deployment](docs/deployment-docker.md)**: Managing the Docker Compose stack, Mac file sharing, and write validation.
-* 🖥️ **[Proxmox VE Deployment](docs/deployment-proxmox.md)**: Virtual Machine (Docker/Native) and Linux Container (LXC) setups.
-* 📚 **[Audiobookshelf Integration](docs/audiobookshelf.md)**: Connecting ABS, directory naming layout, and scan API configuration.
-* 🛠️ **[Troubleshooting Guide](docs/troubleshooting.md)**: Fixes for permission errors, extractor issues, and missing metadata.
-* 🔒 **[Security Guidelines](docs/security.md)**: Localhost binding, Basic Auth configuration, and reverse proxying.
-* 💻 **[Development Guide](docs/development.md)**: Setting up a local virtual environment, starting Redis, running tests, and linting.
-* 🚀 **[Releasing Guide](docs/releasing.md)**: Release Please workflow, component-based version bumps, and extension asset publishing.
+* 📖 [Quickstart](docs/quickstart.md)
+* 📁 [Paths and Volumes](docs/paths-and-volumes.md)
+* ⚙️ [Configuration](docs/configuration.md)
+* 🐋 [Docker Deployment](docs/deployment-docker.md)
+* 🖥️ [Proxmox VE](docs/deployment-proxmox.md)
+* 📚 [Audiobookshelf](docs/audiobookshelf.md)
+* 🧩 [Browser extension](browser-extension/README.md)
+* 🛠️ [Troubleshooting](docs/troubleshooting.md)
+* 🔒 [Security](docs/security.md)
+* 💻 [Development](docs/development.md)
+* 🚀 [Releasing](docs/releasing.md)
 
 ---
 
 ## Development
 
-To run tests and code quality checks locally:
-
 ```bash
-# Install uv: https://docs.astral.sh/uv/getting-started/installation/
-
 uv sync --dev
-
-# Run the same checks as CI
 uv sync --locked --dev
 uv run --frozen ruff format --check .
 uv run --frozen ruff check .
@@ -156,4 +125,4 @@ uv run --frozen mypy app worker
 uv run --frozen pytest
 ```
 
-See the [Development Guide](docs/development.md) for full instructions.
+See the [Development Guide](docs/development.md).

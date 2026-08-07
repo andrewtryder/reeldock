@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.path_checks import check_writable_directory
@@ -167,8 +167,8 @@ class Settings(BaseSettings):
     extension_api_token: str | None = Field(
         None,
         alias="EXTENSION_API_TOKEN",
-        description="Optional bearer token for extension API. "
-        "If set, requires Authorization: Bearer <token> or X-REELDOCK-Token headers.",
+        description="Required bearer token when EXTENSION_API_ENABLED=true. "
+        "Send Authorization: Bearer <token> or X-REELDOCK-Token.",
     )
 
     # ── Infrastructure ───────────────────────────────────────────────────────
@@ -295,6 +295,25 @@ class Settings(BaseSettings):
         if v is None or v == "":
             return None
         return v
+
+    @model_validator(mode="after")
+    def validate_auth_credentials(self) -> Settings:
+        """Refuse to start with Basic Auth enabled but empty credentials."""
+        if self.auth_enabled:
+            username = (self.auth_username or "").strip()
+            password = (self.auth_password or "").strip()
+            if not username or not password:
+                raise ValueError(
+                    "AUTH_ENABLED=true requires non-empty AUTH_USERNAME and AUTH_PASSWORD"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def validate_extension_api_token_required(self) -> Settings:
+        """Refuse to start with the extension API enabled but no token."""
+        if self.extension_api_enabled and not self.extension_api_token:
+            raise ValueError("EXTENSION_API_ENABLED=true requires a non-empty EXTENSION_API_TOKEN")
+        return self
 
     # ── Computed helpers ──────────────────────────────────────────────────────
 

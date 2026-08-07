@@ -6,7 +6,7 @@ import app.config as config_module
 import app.db as db_module
 import pytest
 from app.config import get_setting_sources, reload_settings, save_settings
-from app.main import app
+from app.factory import create_app
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -35,6 +35,12 @@ def settings_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path = data_dir / "app.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
     monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
+    monkeypatch.setenv("REELDOCK_FETCH_UI_VERSION", "0")
+    monkeypatch.setenv("EXTENSION_API_ENABLED", "false")
+    monkeypatch.delenv("EXTENSION_API_TOKEN", raising=False)
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.delenv("AUTH_USERNAME", raising=False)
+    monkeypatch.delenv("AUTH_PASSWORD", raising=False)
     monkeypatch.delenv("OUTPUT_ROOT", raising=False)
     monkeypatch.delenv("DRY_RUN", raising=False)
     monkeypatch.delenv("ALLOW_PLAYLISTS", raising=False)
@@ -93,47 +99,47 @@ def test_save_and_load_custom_settings(settings_env: Path):
 
 
 def test_get_settings_page(settings_env: Path):
-    client = TestClient(app)
-    response = client.get("/settings")
-    assert response.status_code == 200
-    assert "Settings" in response.text
-    assert "Output Root Directory" in response.text
-    assert "/media/podcasts" in response.text
+    with TestClient(create_app()) as client:
+        response = client.get("/settings")
+        assert response.status_code == 200
+        assert "Settings" in response.text
+        assert "Output Root Directory" in response.text
+        assert "/media/podcasts" in response.text
 
 
 def test_post_settings_valid(settings_env: Path, tmp_path: Path):
-    client = TestClient(app)
-    valid_path = tmp_path / "new_output"
-    response = client.post(
-        "/settings",
-        data={
-            "output_root": str(valid_path),
-            "dry_run": "on",
-            "allow_playlists": "on",
-            "allow_channels": "on",
-            "abs_scan_after_success": "on",
-            "collision_mode": "skip",
-            "cleanup_temp_on_success": "on",
-            "cleanup_temp_on_failure": "on",
-            "job_timeout_seconds": "7200",
-            "retry_max": "2",
-            "retry_interval_seconds": "30,120",
-            "max_playlist_entries": "50",
-            "output_extension": "m4b",
-            "filename_template": "{title}.m4b",
-            "folder_name_field": "uploader_id",
-            "folder_name_fallbacks": "uploader_id,channel",
-            "allowed_domains": "youtube.com,youtu.be",
-            "ytdlp_extra_args": "--verbose",
-            "ffmpeg_extra_args": "",
-            "cookies_file": "",
-            "default_destination_folder": "",
-            **_LOUDNESS_FORM_FIELDS,
-        },
-    )
-    assert response.status_code == 200
-    assert "Settings saved successfully" in response.text
-    assert str(valid_path) in response.text
+    with TestClient(create_app()) as client:
+        valid_path = tmp_path / "new_output"
+        response = client.post(
+            "/settings",
+            data={
+                "output_root": str(valid_path),
+                "dry_run": "on",
+                "allow_playlists": "on",
+                "allow_channels": "on",
+                "abs_scan_after_success": "on",
+                "collision_mode": "skip",
+                "cleanup_temp_on_success": "on",
+                "cleanup_temp_on_failure": "on",
+                "job_timeout_seconds": "7200",
+                "retry_max": "2",
+                "retry_interval_seconds": "30,120",
+                "max_playlist_entries": "50",
+                "output_extension": "m4b",
+                "filename_template": "{title}.m4b",
+                "folder_name_field": "uploader_id",
+                "folder_name_fallbacks": "uploader_id,channel",
+                "allowed_domains": "youtube.com,youtu.be",
+                "ytdlp_extra_args": "--verbose",
+                "ffmpeg_extra_args": "",
+                "cookies_file": "",
+                "default_destination_folder": "",
+                **_LOUDNESS_FORM_FIELDS,
+            },
+        )
+        assert response.status_code == 200
+        assert "Settings saved successfully" in response.text
+        assert str(valid_path) in response.text
 
     settings = reload_settings()
     assert settings.output_root == valid_path
@@ -144,51 +150,51 @@ def test_post_settings_valid(settings_env: Path, tmp_path: Path):
 
 
 def test_post_settings_relative(settings_env: Path):
-    client = TestClient(app)
-    response = client.post(
-        "/settings",
-        data={
-            "output_root": "some/relative/path",
-            "collision_mode": "append_id",
-            "job_timeout_seconds": "10800",
-            "retry_max": "3",
-            "retry_interval_seconds": "60,300,900",
-            "max_playlist_entries": "100",
-            "output_extension": "m4b",
-            "filename_template": "{title}.m4b",
-            "folder_name_field": "uploader_id",
-            "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
-            "allowed_domains": "youtube.com",
-            **_LOUDNESS_FORM_FIELDS,
-        },
-    )
-    assert response.status_code == 400
-    assert "absolute path" in response.text.lower()
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/settings",
+            data={
+                "output_root": "some/relative/path",
+                "collision_mode": "append_id",
+                "job_timeout_seconds": "10800",
+                "retry_max": "3",
+                "retry_interval_seconds": "60,300,900",
+                "max_playlist_entries": "100",
+                "output_extension": "m4b",
+                "filename_template": "{title}.m4b",
+                "folder_name_field": "uploader_id",
+                "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
+                "allowed_domains": "youtube.com",
+                **_LOUDNESS_FORM_FIELDS,
+            },
+        )
+        assert response.status_code == 400
+        assert "absolute path" in response.text.lower()
 
 
 def test_post_settings_non_writable(settings_env: Path):
-    client = TestClient(app)
-    fake_file = settings_env / "not_a_dir"
-    fake_file.touch()
-    response = client.post(
-        "/settings",
-        data={
-            "output_root": str(fake_file),
-            "collision_mode": "append_id",
-            "job_timeout_seconds": "10800",
-            "retry_max": "3",
-            "retry_interval_seconds": "60,300,900",
-            "max_playlist_entries": "100",
-            "output_extension": "m4b",
-            "filename_template": "{title}.m4b",
-            "folder_name_field": "uploader_id",
-            "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
-            "allowed_domains": "youtube.com",
-            **_LOUDNESS_FORM_FIELDS,
-        },
-    )
-    assert response.status_code == 400
-    assert "not writable" in response.text.lower()
+    with TestClient(create_app()) as client:
+        fake_file = settings_env / "not_a_dir"
+        fake_file.touch()
+        response = client.post(
+            "/settings",
+            data={
+                "output_root": str(fake_file),
+                "collision_mode": "append_id",
+                "job_timeout_seconds": "10800",
+                "retry_max": "3",
+                "retry_interval_seconds": "60,300,900",
+                "max_playlist_entries": "100",
+                "output_extension": "m4b",
+                "filename_template": "{title}.m4b",
+                "folder_name_field": "uploader_id",
+                "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
+                "allowed_domains": "youtube.com",
+                **_LOUDNESS_FORM_FIELDS,
+            },
+        )
+        assert response.status_code == 400
+        assert "not writable" in response.text.lower()
 
 
 def test_env_locks_setting_in_ui(settings_env: Path, monkeypatch: pytest.MonkeyPatch):
@@ -200,26 +206,26 @@ def test_env_locks_setting_in_ui(settings_env: Path, monkeypatch: pytest.MonkeyP
 
 
 def test_extra_args_reject_shell_injection(settings_env: Path):
-    client = TestClient(app)
-    valid_path = settings_env / "output"
-    valid_path.mkdir()
-    response = client.post(
-        "/settings",
-        data={
-            "output_root": str(valid_path),
-            "ytdlp_extra_args": "--verbose; rm -rf /",
-            "collision_mode": "append_id",
-            "job_timeout_seconds": "10800",
-            "retry_max": "3",
-            "retry_interval_seconds": "60,300,900",
-            "max_playlist_entries": "100",
-            "output_extension": "m4b",
-            "filename_template": "{title}.m4b",
-            "folder_name_field": "uploader_id",
-            "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
-            "allowed_domains": "youtube.com",
-            **_LOUDNESS_FORM_FIELDS,
-        },
-    )
-    assert response.status_code == 400
-    assert "shell metacharacters" in response.text.lower()
+    with TestClient(create_app()) as client:
+        valid_path = settings_env / "output"
+        valid_path.mkdir()
+        response = client.post(
+            "/settings",
+            data={
+                "output_root": str(valid_path),
+                "ytdlp_extra_args": "--verbose; rm -rf /",
+                "collision_mode": "append_id",
+                "job_timeout_seconds": "10800",
+                "retry_max": "3",
+                "retry_interval_seconds": "60,300,900",
+                "max_playlist_entries": "100",
+                "output_extension": "m4b",
+                "filename_template": "{title}.m4b",
+                "folder_name_field": "uploader_id",
+                "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
+                "allowed_domains": "youtube.com",
+                **_LOUDNESS_FORM_FIELDS,
+            },
+        )
+        assert response.status_code == 400
+        assert "shell metacharacters" in response.text.lower()

@@ -43,7 +43,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
 
 @pytest.fixture
 def extension_enabled_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """Create a test client with extension API enabled."""
+    """Create a test client with extension API enabled and a required token."""
     monkeypatch.setenv("EXTENSION_API_ENABLED", "true")
     monkeypatch.setenv("EXTENSION_API_TOKEN", "test-token-12345")
     # Need to clear the settings cache after setting env vars
@@ -54,16 +54,7 @@ def extension_enabled_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestCl
         yield test_client
 
 
-@pytest.fixture
-def extension_enabled_no_token_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """Create a test client with extension API enabled but no token."""
-    monkeypatch.setenv("EXTENSION_API_ENABLED", "true")
-    monkeypatch.setenv("EXTENSION_API_TOKEN", "")
-    import app.config as cfg_module
-
-    cfg_module._settings = None
-    with TestClient(create_app()) as test_client:
-        yield test_client
+EXT_AUTH = {"Authorization": "Bearer test-token-12345"}
 
 
 @pytest.fixture
@@ -154,15 +145,10 @@ def test_extension_status_disabled_by_default(client):
     assert "Extension API not enabled" in response.text
 
 
-def test_extension_status_enabled_no_token(extension_enabled_no_token_client):
-    """Test extension status when enabled but no token required."""
-    response = extension_enabled_no_token_client.get("/api/extension/status")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["ok"] is True
-    assert data["extension_api_enabled"] is True
-    assert data["auth_required"] is False
-    assert data["app"] == "reeldock"
+def test_extension_status_enabled_requires_token(extension_enabled_client):
+    """Token is always required when the extension API is enabled."""
+    response = extension_enabled_client.get("/api/extension/status")
+    assert response.status_code == 401
 
 
 def test_extension_status_enabled_with_token(extension_enabled_client):
@@ -178,6 +164,10 @@ def test_extension_status_with_bearer_token(extension_enabled_client):
         headers={"Authorization": "Bearer test-token-12345"},
     )
     assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["auth_required"] is True
+    assert data["app"] == "reeldock"
 
 
 def test_extension_status_with_wrong_token(extension_enabled_client):
@@ -221,11 +211,9 @@ def test_extension_queue_disabled_by_default(client):
     assert response.status_code == 404
 
 
-def test_extension_queue_enabled_no_token(
-    extension_enabled_no_token_client, mocked_ytdlp, mocked_queue
-):
-    """Test extension queue when enabled but no token required."""
-    response = extension_enabled_no_token_client.post(
+def test_extension_queue_requires_token(extension_enabled_client, mocked_ytdlp, mocked_queue):
+    """Queue rejects requests when the required token is missing."""
+    response = extension_enabled_client.post(
         "/api/extension/queue",
         json={
             "url": "https://www.youtube.com/watch?v=test123",
@@ -237,12 +225,7 @@ def test_extension_queue_enabled_no_token(
             "trigger_abs_scan": False,
         },
     )
-    assert response.status_code == 201
-    data = response.json()
-    assert "job_id" in data
-    assert "rq_job_id" in data
-    assert data["status"] == "queued"
-    assert data["title"] == "Test Video"
+    assert response.status_code == 401
 
 
 def test_extension_queue_enabled_with_token(extension_enabled_client, mocked_ytdlp, mocked_queue):
@@ -307,14 +290,15 @@ def test_extension_queue_wrong_token(extension_enabled_client, mocked_ytdlp, moc
     assert "Invalid extension API token" in response.text
 
 
-def test_extension_queue_invalid_url(extension_enabled_no_token_client, mocked_ytdlp, mocked_queue):
+def test_extension_queue_invalid_url(extension_enabled_client, mocked_ytdlp, mocked_queue):
     """Test extension queue with invalid URL returns 400."""
     from app.services.ytdlp import UrlValidationResult
 
     mocked_ytdlp.validate_url.return_value = UrlValidationResult(valid=False, error="URL is empty")
 
-    response = extension_enabled_no_token_client.post(
+    response = extension_enabled_client.post(
         "/api/extension/queue",
+        headers=EXT_AUTH,
         json={
             "url": "https://example.com/not-youtube",
             "destination_folder": "",
@@ -329,14 +313,13 @@ def test_extension_queue_invalid_url(extension_enabled_no_token_client, mocked_y
     assert "URL is empty" in response.text
 
 
-def test_extension_queue_metadata_failure(
-    extension_enabled_no_token_client, mocked_ytdlp, mocked_queue
-):
+def test_extension_queue_metadata_failure(extension_enabled_client, mocked_ytdlp, mocked_queue):
     """Test extension queue when metadata fetch fails returns 422."""
     mocked_ytdlp.run_preview.side_effect = Exception("yt-dlp failed")
 
-    response = extension_enabled_no_token_client.post(
+    response = extension_enabled_client.post(
         "/api/extension/queue",
+        headers=EXT_AUTH,
         json={
             "url": "https://www.youtube.com/watch?v=test123",
             "destination_folder": "",
@@ -352,13 +335,14 @@ def test_extension_queue_metadata_failure(
 
 
 def test_extension_queue_rejects_already_imported(
-    extension_enabled_no_token_client, mocked_ytdlp, mocked_queue
+    extension_enabled_client, mocked_ytdlp, mocked_queue
 ):
     """Queue endpoint should fail early for already imported video ids."""
     _seed_imported_video("test123")
 
-    response = extension_enabled_no_token_client.post(
+    response = extension_enabled_client.post(
         "/api/extension/queue",
+        headers=EXT_AUTH,
         json={
             "url": "https://www.youtube.com/watch?v=test123",
             "destination_folder": "",
@@ -374,13 +358,14 @@ def test_extension_queue_rejects_already_imported(
 
 
 def test_extension_queue_allows_reimport_with_flag(
-    extension_enabled_no_token_client, mocked_ytdlp, mocked_queue
+    extension_enabled_client, mocked_ytdlp, mocked_queue
 ):
     """Queue endpoint should allow duplicates when allow_reimport=true."""
     _seed_imported_video("test123")
 
-    response = extension_enabled_no_token_client.post(
+    response = extension_enabled_client.post(
         "/api/extension/queue",
+        headers=EXT_AUTH,
         json={
             "url": "https://www.youtube.com/watch?v=test123",
             "destination_folder": "",
@@ -395,25 +380,22 @@ def test_extension_queue_allows_reimport_with_flag(
     assert response.status_code == 201
 
 
-def test_extension_queue_json_parsing_error(
-    extension_enabled_no_token_client, mocked_ytdlp, mocked_queue
-):
+def test_extension_queue_json_parsing_error(extension_enabled_client, mocked_ytdlp, mocked_queue):
     """Test extension queue with invalid JSON returns 400."""
-    response = extension_enabled_no_token_client.post(
+    response = extension_enabled_client.post(
         "/api/extension/queue",
-        headers={"Content-Type": "application/json"},
+        headers={**EXT_AUTH, "Content-Type": "application/json"},
         data="invalid json",
     )
     assert response.status_code == 400
     assert "Invalid JSON body" in response.text
 
 
-def test_extension_queue_no_url_field(
-    extension_enabled_no_token_client, mocked_ytdlp, mocked_queue
-):
+def test_extension_queue_no_url_field(extension_enabled_client, mocked_ytdlp, mocked_queue):
     """Test extension queue without URL field returns 400."""
-    response = extension_enabled_no_token_client.post(
+    response = extension_enabled_client.post(
         "/api/extension/queue",
+        headers=EXT_AUTH,
         json={
             "destination_folder": "",
             "output_title": "",

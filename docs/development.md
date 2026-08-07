@@ -115,7 +115,12 @@ Pre-commit hooks use the same Ruff version from `uv.lock` via `uv run --frozen`.
 
 Schema is defined by SQLAlchemy models in `app/models.py` and versioned with **Alembic**.
 
-On startup, `init_db()` runs `alembic upgrade head`. Pre-Alembic SQLite databases (tables present, no `alembic_version`) are detected, brought up to the current model shape, then stamped at the baseline revision so future changes use migrations only.
+On startup, `init_db()` runs `alembic upgrade head`. Pre-baseline SQLite databases are detected and stamped first:
+
+- tables present with no `alembic_version` (unversioned legacy)
+- databases carrying a known retired ReelDock revision ID
+
+Those DBs are reconciled to the current model shape, then stamped at `0001_baseline`. Unknown revision IDs fail loudly. The baseline revision itself uses frozen `op.create_table` ops and must not import live ORM models.
 
 ### Changing the schema
 

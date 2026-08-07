@@ -1,18 +1,9 @@
-import { DEFAULT_SETTINGS, STORAGE_KEYS, loadSettings, saveSettings, ensureServerHostPermission } from './settings.js';
+import { loadSettings, saveSettings, ensureServerHostPermission } from './settings.js';
 
 function $(id) { return document.getElementById(id); }
 
-function syncAuthUi(authEnabled) {
-  const tokenRow = $('apiTokenRow');
-  const tokenInput = $('apiToken');
-  if (!tokenRow || !tokenInput) return;
-  tokenRow.classList.toggle('hidden', !authEnabled);
-  tokenInput.disabled = !authEnabled;
-}
-
 function populate(settings) {
   $('serverUrl').value = settings.serverUrl || '';
-  $('authEnabled').checked = Boolean(settings.authEnabled);
   $('apiToken').value = settings.apiToken || '';
   $('defaultDestinationFolder').value = settings.defaultDestinationFolder || '';
   $('embedMetadata').checked = settings.embedMetadata;
@@ -20,15 +11,12 @@ function populate(settings) {
   $('embedChapters').checked = settings.embedChapters;
   $('triggerAbsScan').checked = settings.triggerAbsScan;
   $('allowReimport').checked = settings.allowReimport;
-  syncAuthUi(Boolean(settings.authEnabled));
 }
 
 function collect() {
-  const authEnabled = $('authEnabled').checked;
   return {
     serverUrl: $('serverUrl').value.trim(),
-    authEnabled,
-    apiToken: authEnabled ? $('apiToken').value.trim() : '',
+    apiToken: $('apiToken').value.trim(),
     defaultDestinationFolder: $('defaultDestinationFolder').value.trim(),
     embedMetadata: $('embedMetadata').checked,
     embedThumbnail: $('embedThumbnail').checked,
@@ -115,7 +103,7 @@ function updateStatusPanel(statusData, settings) {
   document.getElementById('overall-status-indicator').className = `status-indicator ${overallClass}`;
 }
 
-async function loadStatusFromServer(serverUrl, authEnabled = false, apiToken = null) {
+async function loadStatusFromServer(serverUrl, apiToken = null) {
   if (!serverUrl) {
     throw new Error('Server URL is required');
   }
@@ -123,7 +111,7 @@ async function loadStatusFromServer(serverUrl, authEnabled = false, apiToken = n
   try {
     const base = serverUrl.replace(/\/+$/, '');
     const headers = {};
-    if (authEnabled && apiToken) headers['Authorization'] = `Bearer ${apiToken}`;
+    if (apiToken) headers['Authorization'] = `Bearer ${apiToken}`;
 
     const res = await fetch(`${base}/api/extension/status`, { headers });
     if (!res.ok) {
@@ -147,8 +135,8 @@ async function onSave() {
         return;
       }
     }
-    if (settings.authEnabled && !settings.apiToken) {
-      setStatus('API token is required when auth is enabled (server requires EXTENSION_API_TOKEN).', false);
+    if (!settings.apiToken) {
+      setStatus('API token is required (server requires EXTENSION_API_TOKEN).', false);
       return;
     }
     await saveSettings(settings);
@@ -162,7 +150,7 @@ async function onSave() {
 }
 
 async function onTest() {
-  const { serverUrl, authEnabled, apiToken } = collect();
+  const { serverUrl, apiToken } = collect();
 
   if (!serverUrl) {
     setStatus('Enter a server URL first.', false);
@@ -174,7 +162,7 @@ async function onTest() {
   document.getElementById('status-panel').style.display = 'none';
 
   try {
-    const statusData = await loadStatusFromServer(serverUrl, authEnabled, apiToken);
+    const statusData = await loadStatusFromServer(serverUrl, apiToken);
     const showDetailedStatus = !statusData.ok;
     if (showDetailedStatus) {
       // Only show detailed status when there is a problem.
@@ -215,9 +203,6 @@ async function onTest() {
 
 (async () => {
   populate(await loadSettings());
-  $('authEnabled').addEventListener('change', (event) => {
-    syncAuthUi(Boolean(event.target?.checked));
-  });
   $('save').addEventListener('click', onSave);
   $('test').addEventListener('click', onTest);
 
@@ -229,7 +214,6 @@ async function onTest() {
       try {
         const statusData = await loadStatusFromServer(
           initialSettings.serverUrl,
-          Boolean(initialSettings.authEnabled),
           initialSettings.apiToken
         );
         if (!statusData.ok) {

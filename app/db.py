@@ -27,6 +27,18 @@ from app.models import Base
 logger = logging.getLogger(__name__)
 
 _BASELINE_REVISION = "0001_baseline"
+# Historical ReelDock Alembic revision IDs retired when migrations were removed
+# (PR #79) and later replaced by the frozen 0001_baseline revision.
+_RETIRED_REVISIONS = frozenset(
+    {
+        "90d922c029c3",
+        "b4e8f1a92d10",
+        "c7a3e9f12b40",
+        "d8f4a2b61c30",
+        "e1a5c3d72f40",
+        "f2b6d4e83a50",
+    }
+)
 _ROOT = Path(__file__).resolve().parents[1]
 
 # ---------------------------------------------------------------------------
@@ -116,27 +128,76 @@ def _alembic_config() -> Config:
     return cfg
 
 
-def _is_legacy_unversioned(connection: Connection) -> bool:
+def _read_alembic_revision(connection: Connection) -> str | None:
+    """Return the current alembic_version row, or None if unversioned."""
     inspector = inspect(connection)
-    return inspector.has_table("jobs") and not inspector.has_table("alembic_version")
+    if not inspector.has_table("alembic_version"):
+        return None
+    row = connection.execute(text("SELECT version_num FROM alembic_version")).fetchone()
+    if row is None:
+        return None
+    return str(row[0])
+
+
+def _drop_alembic_version(connection: Connection) -> None:
+    """Remove obsolete Alembic bookkeeping before stamping the baseline."""
+    inspector = inspect(connection)
+    if inspector.has_table("alembic_version"):
+        connection.execute(text("DROP TABLE alembic_version"))
+        logger.info("Dropped obsolete alembic_version table")
+
+
+def _reconcile_legacy_schema(connection: Connection) -> None:
+    """Bring a pre-baseline SQLite DB up to the current model shape."""
+    Base.metadata.create_all(bind=connection)
+    _add_missing_columns(connection)
+
+
+def _legacy_stamp_reason(connection: Connection) -> str | None:
+    """Return why a DB needs a baseline stamp, or None if upgrade can proceed.
+
+    Raises RuntimeError for unknown alembic revisions so corrupted or
+    incompatible databases fail loudly instead of upgrading blindly.
+    """
+    inspector = inspect(connection)
+    has_jobs = inspector.has_table("jobs")
+    revision = _read_alembic_revision(connection)
+
+    if revision is None:
+        if has_jobs:
+            return "unversioned"
+        return None
+
+    if revision == _BASELINE_REVISION:
+        return None
+
+    if revision in _RETIRED_REVISIONS:
+        return f"retired:{revision}"
+
+    raise RuntimeError(
+        f"Unknown alembic revision {revision!r}; refusing to migrate. "
+        f"Known baseline is {_BASELINE_REVISION!r}; retired IDs are "
+        f"{sorted(_RETIRED_REVISIONS)}."
+    )
 
 
 def run_migrations() -> None:
-    """Apply Alembic migrations, stamping pre-Alembic databases first."""
+    """Apply Alembic migrations, stamping pre-baseline databases first."""
     engine = get_sync_engine()
     cfg = _alembic_config()
-    legacy = False
+    stamp_reason: str | None = None
 
     with engine.begin() as connection:
-        legacy = _is_legacy_unversioned(connection)
-        if legacy:
-            # Bring a pre-Alembic SQLite DB up to the current model shape, then
-            # stamp the baseline so future revisions use Alembic only.
-            Base.metadata.create_all(bind=connection)
-            _add_missing_columns(connection)
-            logger.info("Detected legacy unversioned database; preparing Alembic stamp")
+        stamp_reason = _legacy_stamp_reason(connection)
+        if stamp_reason is not None:
+            _drop_alembic_version(connection)
+            _reconcile_legacy_schema(connection)
+            logger.info(
+                "Detected legacy database (%s); preparing Alembic stamp",
+                stamp_reason,
+            )
 
-    if legacy:
+    if stamp_reason is not None:
         command.stamp(cfg, _BASELINE_REVISION)
         logger.info("Stamped legacy database at %s", _BASELINE_REVISION)
 

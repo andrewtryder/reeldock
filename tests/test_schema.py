@@ -8,6 +8,22 @@ from pathlib import Path
 import pytest
 from app.db import init_db
 
+_MINIMAL_JOBS_DDL = """
+CREATE TABLE jobs (
+    id VARCHAR(36) PRIMARY KEY,
+    url TEXT NOT NULL,
+    status VARCHAR(14) NOT NULL,
+    collision_mode VARCHAR(20) NOT NULL,
+    embed_metadata BOOLEAN NOT NULL,
+    embed_thumbnail BOOLEAN NOT NULL,
+    embed_chapters BOOLEAN NOT NULL,
+    trigger_abs_scan BOOLEAN NOT NULL,
+    attempts INTEGER NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 
 def _reset_db_engines() -> None:
     import app.db as db_module
@@ -66,20 +82,8 @@ async def test_init_db_creates_schema_on_fresh_database(schema_db: Path):
 async def test_init_db_stamps_legacy_database(schema_db: Path):
     with sqlite3.connect(schema_db) as conn:
         conn.executescript(
-            """
-            CREATE TABLE jobs (
-                id VARCHAR(36) PRIMARY KEY,
-                url TEXT NOT NULL,
-                status VARCHAR(14) NOT NULL,
-                collision_mode VARCHAR(20) NOT NULL,
-                embed_metadata BOOLEAN NOT NULL,
-                embed_thumbnail BOOLEAN NOT NULL,
-                embed_chapters BOOLEAN NOT NULL,
-                trigger_abs_scan BOOLEAN NOT NULL,
-                attempts INTEGER NOT NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
+            f"""
+            {_MINIMAL_JOBS_DDL}
             CREATE TABLE job_attempts (
                 id VARCHAR(36) PRIMARY KEY,
                 job_id VARCHAR(36) NOT NULL,
@@ -115,6 +119,56 @@ async def test_init_db_stamps_legacy_database(schema_db: Path):
         assert "alembic_version" in tables
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
         assert version[0] == "0001_baseline"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retired_revision", ["f2b6d4e83a50", "c7a3e9f12b40"])
+async def test_init_db_stamps_retired_alembic_revision(schema_db: Path, retired_revision: str):
+    with sqlite3.connect(schema_db) as conn:
+        conn.executescript(
+            f"""
+            {_MINIMAL_JOBS_DDL}
+            CREATE TABLE alembic_version (
+                version_num VARCHAR(32) NOT NULL
+            );
+            INSERT INTO alembic_version (version_num) VALUES ('{retired_revision}');
+            """
+        )
+        conn.commit()
+
+    await init_db()
+
+    with sqlite3.connect(schema_db) as conn:
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        assert "import_batches" in tables
+        assert "app_settings" in tables
+        assert "alembic_version" in tables
+        version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        assert version[0] == "0001_baseline"
+        jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+        assert "batch_id" in jobs_cols
+        assert "sponsorblock_remove" in jobs_cols
+
+
+@pytest.mark.asyncio
+async def test_init_db_rejects_unknown_alembic_revision(schema_db: Path):
+    with sqlite3.connect(schema_db) as conn:
+        conn.executescript(
+            f"""
+            {_MINIMAL_JOBS_DDL}
+            CREATE TABLE alembic_version (
+                version_num VARCHAR(32) NOT NULL
+            );
+            INSERT INTO alembic_version (version_num) VALUES ('deadbeef');
+            """
+        )
+        conn.commit()
+
+    with pytest.raises(RuntimeError, match="Unknown alembic revision 'deadbeef'"):
+        await init_db()
 
 
 @pytest.mark.asyncio

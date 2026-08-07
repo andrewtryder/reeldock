@@ -63,7 +63,7 @@ Images are also published to Docker Hub / GHCR after CI on `main`. See the [Quic
 - **Audiobookshelf integration** — shared media root + optional post-success library scan.
 - **Diagnostics** — authenticated path/permission checks (public `/ready` stays minimal for probes).
 - **Security defaults** — localhost bind, optional HTTP Basic Auth via `.env`, URL allowlisting, path traversal guards.
-- **Reproducible images** — locked Python deps (`uv.lock`), pinned base/uv/yt-dlp digests in the Dockerfile.
+- **Reproducible images** — locked Python deps (`uv.lock`), pinned base/uv/yt-dlp digests in the Dockerfile, and a digest-pinned Redis image in Compose.
 
 ---
 

@@ -371,21 +371,9 @@
   <label for="serverUrl">Server URL</label>
   <input id="serverUrl" type="text" placeholder="http://192.168.1.50:8080" />
 
-  <div class="setting-card">
-    <div class="switch-row">
-      <label class="switch-label" for="authEnabled">Enable API auth token</label>
-      <label class="switch">
-        <input id="authEnabled" type="checkbox" />
-        <span class="slider"></span>
-      </label>
-    </div>
-    <p class="help-text">Leave off for localhost-only usage. Turn on only when your server requires an extension API token.</p>
-  </div>
-
-  <div id="apiTokenRow" class="hidden">
-    <label for="apiToken">API token</label>
-    <input id="apiToken" type="password" placeholder="EXTENSION_API_TOKEN from backend" />
-  </div>
+  <label for="apiToken">API token</label>
+  <input id="apiToken" type="password" placeholder="EXTENSION_API_TOKEN from backend" />
+  <p class="help-text">Required. Must match <code>EXTENSION_API_TOKEN</code> on the ReelDock server.</p>
 
   <label for="defaultDestinationFolder">Default destination folder (optional)</label>
   <input id="defaultDestinationFolder" type="text" placeholder="Podcasts" />

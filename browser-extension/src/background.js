@@ -32,7 +32,7 @@ function buildRequestBody(url, options = {}) {
 
 function authHeaders() {
   const headers = { 'Content-Type': 'application/json' };
-  if (settings.authEnabled && settings.apiToken) {
+  if (settings.apiToken) {
     headers['Authorization'] = `Bearer ${settings.apiToken}`;
   }
   return headers;
@@ -187,7 +187,7 @@ function buildJobWebSocketUrl(jobId) {
   const base = new URL(baseUrl);
   const wsProtocol = base.protocol === 'http:' ? 'ws:' : 'wss:';
   const wsUrl = new URL(`${wsProtocol}//${base.host}/api/ws/jobs/${encodeURIComponent(jobId)}`);
-  if (settings.authEnabled && settings.apiToken) {
+  if (settings.apiToken) {
     wsUrl.searchParams.set('token', settings.apiToken);
   }
   return wsUrl.toString();

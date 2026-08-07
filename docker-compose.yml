@@ -59,8 +59,7 @@ services:
     command: app
     restart: unless-stopped
     env_file:
-      - path: .env
-        required: false
+      - .env
     # By default, bind only to localhost for safety.
     # To expose the service to your LAN, change to "8080:8080", enable AUTH_* in
     # `.env`, then recreate: docker compose up -d --force-recreate
@@ -95,8 +94,7 @@ services:
     command: worker
     restart: unless-stopped
     env_file:
-      - path: .env
-        required: false
+      - .env
     volumes:
       - ./data:/data
       - type: bind
@@ -112,7 +110,7 @@ services:
         condition: service_healthy
 
   redis:
-    image: redis:8.2-alpine
+    image: redis:8.2-alpine@sha256:a7859ed111db3c1f5404a973a4747505d559fb5ca32d37e447afc0ef845a2103
     container_name: reeldock-redis
     restart: unless-stopped
     volumes:

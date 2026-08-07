@@ -1,7 +1,6 @@
 // Default settings used on first install and as the in-memory state seed.
 export const DEFAULT_SETTINGS = Object.freeze({
   serverUrl: '',
-  authEnabled: true,
   apiToken: '',
   defaultDestinationFolder: '',
   triggerAbsScan: false,
@@ -14,7 +13,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
 // Storage keys we persist. Keep this list in sync with options.js.
 export const STORAGE_KEYS = [
   'serverUrl',
-  'authEnabled',
   'apiToken',
   'defaultDestinationFolder',
   'triggerAbsScan',

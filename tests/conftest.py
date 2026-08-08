@@ -48,7 +48,6 @@ def default_settings(
     """A Settings instance wired to temp directories via env vars."""
     monkeypatch.setenv("APP_HOST", "127.0.0.1")
     monkeypatch.setenv("APP_PORT", "8080")
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:////tmp/test.db")
     monkeypatch.setenv("WORK_DIR", str(tmp_work_dir))

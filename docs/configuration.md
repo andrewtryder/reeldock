@@ -30,8 +30,6 @@ The Settings page is driven by a configuration registry. The following settings 
 | yt-dlp extra args | `YTDLP_EXTRA_ARGS` | Space-separated extra yt-dlp arguments |
 | ffmpeg extra args | `FFMPEG_EXTRA_ARGS` | Space-separated extra ffmpeg arguments |
 | Filename template | `FILENAME_TEMPLATE` | Output filename template |
-| Folder name field | `FOLDER_NAME_FIELD` | Primary metadata field for folder naming |
-| Folder name fallbacks | `FOLDER_NAME_FALLBACKS` | Comma-separated fallback fields |
 | Job timeout | `JOB_TIMEOUT_SECONDS` | Maximum job runtime in seconds |
 | Retry count | `RETRY_MAX` | Maximum retry attempts |
 | Retry intervals | `RETRY_INTERVAL_SECONDS` | Comma-separated wait times between retries |
@@ -40,11 +38,14 @@ The Settings page is driven by a configuration registry. The following settings 
 | Dry run | `DRY_RUN` | Simulate imports without downloading |
 | Allow playlist URLs | `ALLOW_PLAYLISTS` | Accept playlist URLs and enumerate videos for batch selection in the UI. |
 | Allow channel URLs | `ALLOW_CHANNELS` | Accept channel URLs and enumerate videos for batch selection in the UI. |
+| Max playlist entries | `MAX_PLAYLIST_ENTRIES` | Maximum videos enumerated or queued from one playlist/channel. |
+| Skip SponsorBlock sponsors | `SPONSORBLOCK_REMOVE` | Remove sponsor segments during download (`--sponsorblock-remove sponsor`). |
+| Normalize loudness | `LOUDNESS_NORMALIZE` | Apply ffmpeg loudnorm (EBU R128) during conversion. |
+| Loudness target | `LOUDNESS_TARGET_LUFS` | Integrated loudness target (typically `-16`). |
+| Loudness bitrate | `LOUDNESS_AUDIO_BITRATE` | AAC bitrate used when loudness re-encodes. |
 | ABS scan after success | `ABS_SCAN_AFTER_SUCCESS` | Trigger Audiobookshelf scan after import |
 
-**Read-only in UI (for now):** `MAX_CONCURRENT_JOBS` until runtime concurrency is fully supported.
-
-**Not editable in UI (secrets / infrastructure):** `AUTH_PASSWORD`, `APP_SECRET_KEY`, `ABS_API_TOKEN`, `EXTENSION_API_TOKEN`, `REDIS_URL`, `DATABASE_URL`, and binary paths.
+**Not editable in UI (secrets / infrastructure):** `AUTH_PASSWORD`, `ABS_API_TOKEN`, `EXTENSION_API_TOKEN`, `REDIS_URL`, `DATABASE_URL`, and binary paths.
 
 ---
 
@@ -55,8 +56,6 @@ The Settings page is driven by a configuration registry. The following settings 
 | **Application & Auth** | | |
 | `APP_HOST` | `0.0.0.0` | Bind address for the web server. |
 | `APP_PORT` | `8080` | Bind port for the web server. |
-| `APP_BASE_URL` | — | Public URL used to generate links (optional). |
-| `APP_SECRET_KEY` | `changeme-...` | Secret key used for session signing. Required if Auth is enabled. |
 | `AUTH_ENABLED` | `false` | Enable HTTP Basic Authentication. Set to `true` if exposing to the LAN/WAN. |
 | `AUTH_USERNAME` | — | Username for Basic Authentication. |
 | `AUTH_PASSWORD` | — | Password for Basic Authentication. |
@@ -75,6 +74,11 @@ The Settings page is driven by a configuration registry. The following settings 
 | **Download & Processing** | | |
 | `ALLOW_PLAYLISTS` | `false` | Accept playlist URLs and enumerate entries for batch import in the UI. |
 | `ALLOW_CHANNELS` | `false` | Accept channel URLs and enumerate entries for batch import in the UI. |
+| `MAX_PLAYLIST_ENTRIES` | `100` | Maximum videos enumerated or queued from one playlist/channel submission. |
+| `SPONSORBLOCK_REMOVE` | `false` | When true, yt-dlp removes sponsor segments (`--sponsorblock-remove sponsor`). |
+| `LOUDNESS_NORMALIZE` | `false` | Apply ffmpeg loudnorm during conversion (re-encodes audio). |
+| `LOUDNESS_TARGET_LUFS` | `-16` | Loudnorm integrated loudness target. |
+| `LOUDNESS_AUDIO_BITRATE` | `192k` | AAC bitrate when loudness normalization re-encodes. |
 | `DEFAULT_DESTINATION_FOLDER` | — | Default selected subdirectory under `OUTPUT_ROOT`. |
 | `YTDLP_BIN` | `yt-dlp` | Command path to `yt-dlp`. |
 | `FFMPEG_BIN` | `ffmpeg` | Command path to `ffmpeg`. |
@@ -85,11 +89,8 @@ The Settings page is driven by a configuration registry. The following settings 
 | `FFMPEG_EXTRA_ARGS` | — | Extra arguments passed to `ffmpeg`. |
 | `OUTPUT_EXTENSION` | `m4b` | File extension of the final output file (usually `m4b`). |
 | `FILENAME_TEMPLATE` | `{title}.m4b` | Output filename template. |
-| `FOLDER_NAME_FIELD` | `uploader_id` | Field used for the folder name (e.g., `uploader_id`, `uploader`, `channel`). |
-| `FOLDER_NAME_FALLBACKS` | `uploader_id,channel_id,channel,uploader` | Fallback fields for folder naming. |
 | `ALLOWED_DOMAINS` | YouTube hostnames | Comma-separated permitted import domains. |
 | **Job Management** | | |
-| `MAX_CONCURRENT_JOBS` | `1` | Maximum number of downloads processed simultaneously. |
 | `JOB_TIMEOUT_SECONDS` | `10800` | Job timeout duration in seconds (3 hours). |
 | `RETRY_MAX` | `3` | Maximum download retry attempts. |
 | `RETRY_INTERVAL_SECONDS` | `60,300,900` | Intervals between retries. |
@@ -126,14 +127,12 @@ download:
   allow_channels: false
   audio_format: "m4a"
   filename_template: "{title}.m4b"
-  folder_name_field: "uploader_id"
   cookies_file: "/data/config/cookies.txt"
   allowed_domains:
     - youtube.com
     - youtu.be
 
 jobs:
-  max_concurrent_jobs: 1
   timeout_seconds: 10800
   retry_max: 3
   retry_intervals_seconds: [60, 300, 900]

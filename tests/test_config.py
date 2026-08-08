@@ -12,7 +12,6 @@ from pydantic import ValidationError
 
 def test_defaults(monkeypatch: pytest.MonkeyPatch):
     """Default settings are set correctly."""
-    monkeypatch.setenv("APP_SECRET_KEY", "test")
     monkeypatch.delenv("ALLOW_PLAYLISTS", raising=False)
     monkeypatch.delenv("ALLOW_CHANNELS", raising=False)
     monkeypatch.delenv("MAX_PLAYLIST_ENTRIES", raising=False)
@@ -33,7 +32,6 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch):
     """Environment variables override defaults."""
     monkeypatch.setenv("APP_PORT", "9090")
     monkeypatch.setenv("ALLOW_PLAYLISTS", "true")
-    monkeypatch.setenv("APP_SECRET_KEY", "mysecret")
     s = Settings()
     assert s.app_port == 9090
     assert s.allow_playlists is True
@@ -42,7 +40,6 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch):
 def test_ytdlp_extra_args_from_env(monkeypatch: pytest.MonkeyPatch):
     """Space-separated YTDLP_EXTRA_ARGS string is parsed to list."""
     monkeypatch.setenv("YTDLP_EXTRA_ARGS", "--verbose --no-warnings")
-    monkeypatch.setenv("APP_SECRET_KEY", "test")
     s = Settings()
     assert s.ytdlp_extra_args == ["--verbose", "--no-warnings"]
 
@@ -50,21 +47,11 @@ def test_ytdlp_extra_args_from_env(monkeypatch: pytest.MonkeyPatch):
 def test_retry_intervals_from_env(monkeypatch: pytest.MonkeyPatch):
     """Comma-separated RETRY_INTERVAL_SECONDS is parsed to int list."""
     monkeypatch.setenv("RETRY_INTERVAL_SECONDS", "30,120,600")
-    monkeypatch.setenv("APP_SECRET_KEY", "test")
     s = Settings()
     assert s.retry_interval_seconds == [30, 120, 600]
 
 
-def test_folder_name_fallbacks_from_env(monkeypatch: pytest.MonkeyPatch):
-    """Comma-separated FOLDER_NAME_FALLBACKS is parsed."""
-    monkeypatch.setenv("FOLDER_NAME_FALLBACKS", "channel,uploader")
-    monkeypatch.setenv("APP_SECRET_KEY", "test")
-    s = Settings()
-    assert s.folder_name_fallbacks == ["channel", "uploader"]
-
-
 def test_invalid_collision_mode(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("APP_SECRET_KEY", "test")
     monkeypatch.setenv("COLLISION_MODE", "bogus")
     with pytest.raises(ValidationError):
         Settings()
@@ -112,7 +99,6 @@ def test_abs_configured_property(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ABS_BASE_URL", "http://abs:13378")
     monkeypatch.setenv("ABS_API_TOKEN", "mytoken")
     monkeypatch.setenv("ABS_LIBRARY_ID", "lib123")
-    monkeypatch.setenv("APP_SECRET_KEY", "test")
     s = Settings()
     assert s.abs_configured is True
 
@@ -121,13 +107,11 @@ def test_abs_not_configured(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("ABS_BASE_URL", raising=False)
     monkeypatch.delenv("ABS_API_TOKEN", raising=False)
     monkeypatch.delenv("ABS_LIBRARY_ID", raising=False)
-    monkeypatch.setenv("APP_SECRET_KEY", "test")
     s = Settings()
     assert s.abs_configured is False
 
 
 def test_sync_database_url(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("APP_SECRET_KEY", "test")
     monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:////data/app.db")
     s = Settings()
     assert "aiosqlite" not in s.sync_database_url
@@ -158,7 +142,6 @@ def test_db_override_applies_when_not_pinned(
     data_dir.mkdir()
     db_path = data_dir / "app.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
     monkeypatch.delenv("OUTPUT_ROOT", raising=False)
     monkeypatch.setattr(cfg_module, "_get_default_data_dir", lambda: data_dir)
     monkeypatch.setattr(cfg_module, "_parse_dotenv_keys", lambda: set())
@@ -192,7 +175,6 @@ def test_env_blocks_db_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     data_dir.mkdir()
     db_path = data_dir / "app.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
     monkeypatch.setenv("OUTPUT_ROOT", "/env/output")
     monkeypatch.setattr(cfg_module, "_get_default_data_dir", lambda: data_dir)
     monkeypatch.setattr(cfg_module, "_parse_dotenv_keys", lambda: set())
@@ -223,7 +205,6 @@ def test_yaml_blocks_db_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     cfg_file.write_text(yaml.dump({"paths": {"output_root": "/yaml/output"}}))
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
     monkeypatch.delenv("OUTPUT_ROOT", raising=False)
     monkeypatch.setattr(cfg_module, "_get_default_data_dir", lambda: data_dir)
     monkeypatch.setattr(cfg_module, "_parse_dotenv_keys", lambda: set())

@@ -34,7 +34,6 @@ def settings_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     data_dir.mkdir()
     db_path = data_dir / "app.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
     monkeypatch.setenv("REELDOCK_FETCH_UI_VERSION", "0")
     monkeypatch.setenv("EXTENSION_API_ENABLED", "false")
     monkeypatch.delenv("EXTENSION_API_TOKEN", raising=False)
@@ -127,8 +126,6 @@ def test_post_settings_valid(settings_env: Path, tmp_path: Path):
                 "max_playlist_entries": "50",
                 "output_extension": "m4b",
                 "filename_template": "{title}.m4b",
-                "folder_name_field": "uploader_id",
-                "folder_name_fallbacks": "uploader_id,channel",
                 "allowed_domains": "youtube.com,youtu.be",
                 "ytdlp_extra_args": "--verbose",
                 "ffmpeg_extra_args": "",
@@ -162,8 +159,6 @@ def test_post_settings_relative(settings_env: Path):
                 "max_playlist_entries": "100",
                 "output_extension": "m4b",
                 "filename_template": "{title}.m4b",
-                "folder_name_field": "uploader_id",
-                "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
                 "allowed_domains": "youtube.com",
                 **_LOUDNESS_FORM_FIELDS,
             },
@@ -187,8 +182,6 @@ def test_post_settings_non_writable(settings_env: Path):
                 "max_playlist_entries": "100",
                 "output_extension": "m4b",
                 "filename_template": "{title}.m4b",
-                "folder_name_field": "uploader_id",
-                "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
                 "allowed_domains": "youtube.com",
                 **_LOUDNESS_FORM_FIELDS,
             },
@@ -221,8 +214,6 @@ def test_extra_args_reject_shell_injection(settings_env: Path):
                 "max_playlist_entries": "100",
                 "output_extension": "m4b",
                 "filename_template": "{title}.m4b",
-                "folder_name_field": "uploader_id",
-                "folder_name_fallbacks": "uploader_id,channel_id,channel,uploader",
                 "allowed_domains": "youtube.com",
                 **_LOUDNESS_FORM_FIELDS,
             },

@@ -15,9 +15,8 @@ DbDep = Annotated[AsyncSession, Depends(get_db)]
 
 
 def register_routers(app: FastAPI) -> None:
-    from app.routes import config, diagnostics, extension, jobs, pages, ws
+    from app.routes import diagnostics, extension, jobs, pages, ws
 
-    app.include_router(config.router)
     app.include_router(jobs.router)
     app.include_router(jobs.abs_router)
     app.include_router(pages.router)

@@ -15,7 +15,6 @@ from app.services.ytdlp import (
 def make_svc(**kwargs) -> YtDlpService:
     import os
 
-    os.environ.setdefault("APP_SECRET_KEY", "test")
     for key, value in kwargs.items():
         os.environ[key] = str(value)
     from app.config import Settings

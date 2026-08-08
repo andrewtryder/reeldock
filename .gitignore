@@ -167,11 +167,11 @@ logs/
 *.mp3
 *.part
 
-# Environment / migration temp files
-.repo-standards-migration-state.json
-
 # Coverage artifacts
 coverage/
 
-# Rulesync tooling
+# Tooling caches / extension build outputs
+.ruff_cache/
+browser-extension/dist/
+browser-extension/artifacts/
 node_modules/

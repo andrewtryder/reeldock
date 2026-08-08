@@ -53,7 +53,7 @@ You can bypass interactive prompts by passing command-line flags.
 ./proxmox-install.sh \
   --mode docker-vm \
   --vmid 105 \
-  --hostname yt-abs-docker \
+  --hostname reeldock-docker \
   --storage local \
   --bridge vmbr0 \
   --cores 2 \
@@ -67,7 +67,7 @@ You can bypass interactive prompts by passing command-line flags.
 ./proxmox-install.sh \
   --mode native-vm \
   --vmid 106 \
-  --hostname yt-abs-native \
+  --hostname reeldock-native \
   --storage local \
   --bridge vmbr0 \
   --cores 2 \

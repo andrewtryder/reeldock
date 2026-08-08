@@ -86,11 +86,6 @@ if [ ! -f "$ENV_FILE" ]; then
     log "Creating default configuration at $ENV_FILE..."
     cp .env.example "$ENV_FILE"
 
-    # Generate random secret key
-    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-
-    # Update config paths and keys
-    sed -i "s|^APP_SECRET_KEY=.*|APP_SECRET_KEY=${SECRET_KEY}|" "$ENV_FILE"
     sed -i "s|^REDIS_URL=.*|REDIS_URL=redis://localhost:6379/0|" "$ENV_FILE"
     sed -i "s|^DATABASE_URL=.*|DATABASE_URL=sqlite+aiosqlite:////var/lib/reeldock/app.db|" "$ENV_FILE"
     sed -i "s|^WORK_DIR=.*|WORK_DIR=/var/lib/reeldock/work|" "$ENV_FILE"

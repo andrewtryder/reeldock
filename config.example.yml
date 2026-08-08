@@ -17,8 +17,6 @@
 app:
   host: "0.0.0.0"
   port: 8080
-  base_url: ~ # e.g. "http://yt-abs.local:8080"
-  secret_key: "change-me-to-a-random-secret"
   auth_enabled: false
   auth_username: "admin"
   auth_password: "changeme"
@@ -49,12 +47,9 @@ download:
   ffmpeg_extra_args: ""
   output_extension: "m4b"
   filename_template: "{title}.m4b"
-  folder_name_field: "uploader_id"
-  folder_name_fallbacks: "uploader_id,channel_id,channel,uploader"
   collision_mode: "append_id"  # skip | overwrite | append_id | append_counter
 
 jobs:
-  max_concurrent_jobs: 1
   timeout_seconds: 10800
   retry_max: 3
   retry_intervals_seconds: [60, 300, 900]

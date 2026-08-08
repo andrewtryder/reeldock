@@ -238,24 +238,6 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         help_text="Template for the final output filename.",
         validate=validate_filename_template,
     ),
-    SettingSpec(
-        key="folder_name_field",
-        env_alias="FOLDER_NAME_FIELD",
-        label="Folder Name Field",
-        group="naming",
-        type=SettingType.STR,
-        default="uploader_id",
-        help_text="Primary metadata field used for the output folder name.",
-    ),
-    SettingSpec(
-        key="folder_name_fallbacks",
-        env_alias="FOLDER_NAME_FALLBACKS",
-        label="Folder Name Fallbacks",
-        group="naming",
-        type=SettingType.CSV_LIST,
-        default="uploader_id,channel_id,channel,uploader",
-        help_text="Comma-separated fallback fields for folder naming.",
-    ),
     # ── Jobs ─────────────────────────────────────────────────────────────────
     SettingSpec(
         key="job_timeout_seconds",
@@ -305,17 +287,6 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         type=SettingType.BOOL,
         default="false",
         help_text="Remove temporary working files after a failed import.",
-    ),
-    SettingSpec(
-        key="max_concurrent_jobs",
-        env_alias="MAX_CONCURRENT_JOBS",
-        label="Max Concurrent Jobs",
-        group="jobs",
-        type=SettingType.INT,
-        default="1",
-        help_text="Maximum simultaneous imports (read-only until runtime supports tuning).",
-        mutable=False,
-        restart_required=True,
     ),
     # ── Runtime behavior ─────────────────────────────────────────────────────
     SettingSpec(

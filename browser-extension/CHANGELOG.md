@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.10.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.9.0...browser-extension-v1.10.0) (2026-08-08)
+
+
+### Features
+
+* **app:** add dedup ledger, output filesize, and extension UX updates ([664cf27](https://github.com/andrewtryder/reeldock/commit/664cf276316a41d313026bab1eaef97539b884a8))
+* **app:** ship jobs dedup, output metadata, and extension updates ([5b58813](https://github.com/andrewtryder/reeldock/commit/5b5881305f491731ccff14fb9564f422574c2b07))
+* **branding:** replace app and extension icons ([a32f026](https://github.com/andrewtryder/reeldock/commit/a32f02601bffe82f1f1b5fe5598487eb775ada5c))
+* **branding:** replace app and extension icons ([26cf385](https://github.com/andrewtryder/reeldock/commit/26cf38507872046537451c6d05e471cd426bdaca))
+* **branding:** replace logo, favicon, and extension icons ([36eec2a](https://github.com/andrewtryder/reeldock/commit/36eec2a774576b2f5a6bbc64203cbb97b144e762))
+* **branding:** replace logo, favicon, and extension icons ([69c5d19](https://github.com/andrewtryder/reeldock/commit/69c5d19b2901d46b3b76bcd7dff4c5f9b6b17867))
+* **browser-extension:** add extension integration and UI updates ([0b97341](https://github.com/andrewtryder/reeldock/commit/0b97341f1fc785bccae56a2cf73d22d2c9cfc26b))
+* **browser-extension:** add extension integration and UI updates ([1da5904](https://github.com/andrewtryder/reeldock/commit/1da59042c94165cd3a9afd6a87da7a7f397caff1))
+* **import:** replace advanced modal with inline options and SponsorBlock ([#81](https://github.com/andrewtryder/reeldock/issues/81)) ([cfe34a0](https://github.com/andrewtryder/reeldock/commit/cfe34a06ba352c35b7c846e5dffbea2e91dff7d1))
+* **pipeline:** stage m4b output and harden Docker/CodeQL workflows ([1ffc0f3](https://github.com/andrewtryder/reeldock/commit/1ffc0f34e63df2f7363e53fd0e8a5072eed8a3fb))
+* **pipeline:** stage m4b output and harden Docker/CodeQL workflows ([a0f5eab](https://github.com/andrewtryder/reeldock/commit/a0f5eab4ca6cf7a071b8dc844d6cc96d9ddf2f88))
+
+
+### Bug Fixes
+
+* **db:** freeze Alembic baseline and harden upgrade paths ([381ccf9](https://github.com/andrewtryder/reeldock/commit/381ccf991c03a55cc4270c996382eddf169d3426))
+* **extension:** harden popup and optional auth websocket flow ([41a4542](https://github.com/andrewtryder/reeldock/commit/41a454215f3037b5f8eb42a7793a10d218bac933))
+* **extension:** harden popup flow and align optional auth websocket behavior ([8ed0097](https://github.com/andrewtryder/reeldock/commit/8ed009701b72223c0393199e478493eff880713f))
+* **release:** correct Release Please manifest path and sync extension version ([342a03e](https://github.com/andrewtryder/reeldock/commit/342a03eba06d018444b8c95c4611a552dbd225f5))
+* **release:** correct Release Please manifest path and sync extension version ([bc692a0](https://github.com/andrewtryder/reeldock/commit/bc692a0ecfcd5426ee64a21be42abf182320a042))
+* **security:** harden public release auth and deployment ([74f3bb9](https://github.com/andrewtryder/reeldock/commit/74f3bb936432cd6e28f9ab8e5a500ced9e570b81))
+* **security:** harden public release auth and deployment ([4d80104](https://github.com/andrewtryder/reeldock/commit/4d80104a28808f3624ffbb593ebdd9bdea4da3d2))
+
 ## [1.9.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.8.0...browser-extension-v1.9.0) (2026-08-08)
 
 ### Features

@@ -272,6 +272,12 @@ class ImportPipeline:
                     f"[setup] Collision mode=skip and file exists; "
                     f"reusing {output_path} without download or conversion"
                 )
+                # Filename collision is not proof this video_id produced the
+                # existing file — do not write ImportedVideo on this path.
+                log(
+                    "[setup] Dedup ledger not updated for collision skip "
+                    "(existing file ownership for this video_id is unconfirmed)"
+                )
                 existing_size = output_path.stat().st_size
                 self._set_progress(
                     job,
@@ -281,8 +287,6 @@ class ImportPipeline:
                     speed="",
                     force=True,
                 )
-                if not sync_mark_video_imported(self.db, job, overwrite=True):
-                    log("[setup] Dedup ledger update skipped (no video_id)")
                 sync_update_job(
                     self.db,
                     job,

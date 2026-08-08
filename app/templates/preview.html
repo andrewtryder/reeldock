@@ -198,6 +198,23 @@
     }));
   });
 
+  (() => {
+    const destSelect = document.getElementById('destination_folder');
+    const newFolderInput = document.getElementById('new_folder');
+    if (destSelect && newFolderInput) {
+      destSelect.addEventListener('change', () => {
+        if (destSelect.value) {
+          newFolderInput.value = '';
+        }
+      });
+      newFolderInput.addEventListener('input', () => {
+        if (newFolderInput.value.trim()) {
+          destSelect.value = '';
+        }
+      });
+    }
+  })();
+
   document.getElementById('import-form').addEventListener('submit', function(e) {
     const btn = document.getElementById('create-btn');
     if (btn) {

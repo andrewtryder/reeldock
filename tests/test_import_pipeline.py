@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from app.config import Settings
-from app.models import Base, Job, JobStatus
+from app.models import Base, ImportedVideo, Job, JobStatus
 from app.services.ffmpeg import FfprobeResult, RemuxResult
 from app.services.import_pipeline import ImportPipeline
 from sqlalchemy import create_engine, text
@@ -699,6 +699,8 @@ def test_pipeline_collision_skip_does_not_download(
     assert job.final_output_path == str(existing)
     assert job.output_file_size == existing.stat().st_size
     assert existing.read_bytes() == b"already-here"
+    # Filename collision must not claim this video_id as imported.
+    assert test_db.get(ImportedVideo, "skip123") is None
     mock_popen.assert_not_called()
     mock_find.assert_not_called()
     mock_remux.assert_not_called()

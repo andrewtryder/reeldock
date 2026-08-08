@@ -239,7 +239,11 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         group="naming",
         type=SettingType.STR,
         default="{title}.m4b",
-        help_text="Template for the final output filename.",
+        help_text=(
+            "Template for the audiobook filename stem. Placeholders: {title}, "
+            "{video_id}, {uploader}, {channel}, {upload_date}. ReelDock always "
+            "appends .m4b (embedded media extensions in the template are stripped)."
+        ),
         validate=validate_filename_template,
     ),
     # ── Jobs ─────────────────────────────────────────────────────────────────

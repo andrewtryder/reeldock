@@ -313,7 +313,11 @@
             {% if skipped_collision %}Existing Audiobook Kept{% else %}Audiobook Created{% endif %}
           </p>
           <h2 class="font-headline-sm text-headline-sm text-paper break-all">{{ out_name | e }}</h2>
-          {% if job.uploader or job.channel or out_folder %}
+          {% if skipped_collision %}
+          <p class="font-body-md text-body-md text-paper-muted mt-1">
+            Import skipped — existing file was left unchanged{% if out_folder %} in {{ out_folder | e }}{% endif %}.
+          </p>
+          {% elif job.uploader or job.channel or out_folder %}
           <p class="font-body-md text-body-md text-paper-muted mt-1">
             Saved to {{ out_folder | e }}{% if job.uploader or job.channel %} / @{{ (job.uploader or job.channel) | e }}{% endif %}
           </p>

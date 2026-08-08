@@ -1,33 +1,31 @@
 # Changelog
 
-## Unreleased
+## [1.9.0](https://github.com/andrewtryder/reeldock/compare/v1.8.0...v1.9.0) (2026-08-08)
 
 ### Features
 
-* **db:** restore Alembic migrations with a frozen `0001_baseline` schema (`app/baseline_schema.py`). Unversioned and known retired-revision SQLite databases are reconciled to that frozen shape and stamped on first startup; unknown revisions fail loudly. Later schema changes advance only via Alembic revisions.
-* **ui:** add Diagnostics page with health checks for yt-dlp, ffmpeg, ffprobe, Redis, database, paths, disk space, cookies, and ABS API.
-* **ui:** unify page headers, shared badge tokens, success/warning palette, and layout polish across Import, Jobs, Settings, Preview, Job Detail, and Diagnostics.
+* **import:** replace advanced modal with inline options and SponsorBlock ([#81](https://github.com/andrewtryder/reeldock/issues/81)) ([cfe34a0](https://github.com/andrewtryder/reeldock/commit/cfe34a06ba352c35b7c846e5dffbea2e91dff7d1))
+* **db:** restore Alembic with a frozen `0001_baseline` schema; stamp unversioned and known retired-revision SQLite databases on upgrade ([#101](https://github.com/andrewtryder/reeldock/issues/101))
+* **ui:** add Diagnostics page with health checks for yt-dlp, ffmpeg, ffprobe, Redis, database, paths, disk space, cookies, and ABS API
 
 ### Security
 
-* **compose:** inject `.env` into app/worker via `env_file` and explicit `AUTH_*` / extension mappings so documented auth settings reach the container.
-* **auth:** refuse startup when `AUTH_ENABLED=true` without username/password.
-* **extension:** require a non-empty `EXTENSION_API_TOKEN` when `EXTENSION_API_ENABLED=true`; extension always sends/requires the API token (no optional auth toggle); manifest moves LAN `http(s)://*/*` to optional host permissions.
-* **api:** minimize public `/ready` to status-only (path details stay on authenticated Diagnostics).
+* **auth:** refuse startup when `AUTH_ENABLED=true` without credentials; Compose injects `AUTH_*` / extension settings from `.env` ([#101](https://github.com/andrewtryder/reeldock/issues/101))
+* **extension:** require `EXTENSION_API_TOKEN` when the extension API is enabled; extension always sends the configured token ([#101](https://github.com/andrewtryder/reeldock/issues/101))
+* **api:** minimize public `/ready` to status-only ([#101](https://github.com/andrewtryder/reeldock/issues/101))
 
 ### Bug Fixes
 
-* **api:** restore public JSON routes `/api/config`, `/api/folders`, and `/api/preview` after cleanup; `/api/config` keeps `max_concurrent_jobs: 1` as a fixed compatibility field (not a live setting).
+* **api:** restore public JSON routes `/api/config`, `/api/folders`, and `/api/preview` after cleanup; `max_concurrent_jobs` remains a fixed compatibility field ([#114](https://github.com/andrewtryder/reeldock/issues/114)) ([60ef250](https://github.com/andrewtryder/reeldock/commit/60ef250e9f95505d1ebd726b4acf84911ddf3aef))
 
 ### Removed
 
-* Unused settings with no runtime consumers: `APP_BASE_URL`, `APP_SECRET_KEY`, `FOLDER_NAME_FIELD`, `FOLDER_NAME_FALLBACKS`, `MAX_CONCURRENT_JOBS`.
-* Rulesync / repo-standards scaffolding and duplicate brand assets.
-* Orphaned `docs/DESIGN.md`; browser extension docs consolidated into `browser-extension/README.md`.
+* Unused settings with no runtime consumers: `APP_BASE_URL`, `APP_SECRET_KEY`, `FOLDER_NAME_*`, `MAX_CONCURRENT_JOBS` ([#102](https://github.com/andrewtryder/reeldock/issues/102))
+* Rulesync / repo-standards scaffolding and duplicate brand assets ([#102](https://github.com/andrewtryder/reeldock/issues/102))
 
 ### Build
 
-* **docker:** pin Python base, uv, and yt-dlp release digests; digest-pin Redis in Compose; SHA-pin GitHub Actions.
+* **docker:** pin Python base, uv, and yt-dlp digests; digest-pin Redis in Compose; SHA-pin GitHub Actions ([#101](https://github.com/andrewtryder/reeldock/issues/101))
 
 ## [1.8.0](https://github.com/andrewtryder/reeldock/compare/v1.7.1...v1.8.0) (2026-07-05)
 

@@ -29,6 +29,23 @@
 
 * **docker:** pin Python base, uv, and yt-dlp release digests; digest-pin Redis in Compose; SHA-pin GitHub Actions.
 
+## [1.9.0](https://github.com/andrewtryder/reeldock/compare/v1.8.0...v1.9.0) (2026-08-08)
+
+
+### Features
+
+* **import:** replace advanced modal with inline options and SponsorBlock ([#81](https://github.com/andrewtryder/reeldock/issues/81)) ([cfe34a0](https://github.com/andrewtryder/reeldock/commit/cfe34a06ba352c35b7c846e5dffbea2e91dff7d1))
+
+
+### Bug Fixes
+
+* **api:** restore public config and preview JSON routes ([53fb180](https://github.com/andrewtryder/reeldock/commit/53fb180281824d90075a68443903b1431623c0f7))
+* **api:** restore public config and preview JSON routes ([60ef250](https://github.com/andrewtryder/reeldock/commit/60ef250e9f95505d1ebd726b4acf84911ddf3aef))
+* **db:** freeze Alembic baseline and harden upgrade paths ([381ccf9](https://github.com/andrewtryder/reeldock/commit/381ccf991c03a55cc4270c996382eddf169d3426))
+* **db:** reconcile legacy DBs to frozen baseline schema ([065cd34](https://github.com/andrewtryder/reeldock/commit/065cd3429147f547109ee1d98b381d14208f947c))
+* **security:** harden public release auth and deployment ([74f3bb9](https://github.com/andrewtryder/reeldock/commit/74f3bb936432cd6e28f9ab8e5a500ced9e570b81))
+* **security:** harden public release auth and deployment ([4d80104](https://github.com/andrewtryder/reeldock/commit/4d80104a28808f3624ffbb593ebdd9bdea4da3d2))
+
 ## [1.8.0](https://github.com/andrewtryder/reeldock/compare/v1.7.1...v1.8.0) (2026-07-05)
 
 

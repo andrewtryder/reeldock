@@ -217,12 +217,14 @@ class ImportPipeline:
             video_id = job.video_id or "unknown"
 
             try:
+                # Final audiobook container is always .m4b regardless of legacy
+                # per-job output_extension overrides.
                 output_path = fs.resolve_output_path(
                     dest_folder,
                     output_title,
                     video_id,
                     job.collision_mode,
-                    extension=job.output_extension,
+                    extension="m4b",
                     filename_template=job.filename_template,
                     uploader=job.uploader,
                     channel=job.channel,
@@ -235,7 +237,9 @@ class ImportPipeline:
             eff_ytdlp_extra = self._split_extra_args(job.ytdlp_extra_args)
             eff_ffmpeg_extra = self._split_extra_args(job.ffmpeg_extra_args)
             eff_cookies = Path(job.cookies_file) if job.cookies_file else None
-            eff_audio_format = job.audio_format
+            # Source extract format is pipeline-owned (m4a-friendly remux). Quality
+            # presets map to --audio-quality only; users no longer pick containers.
+            eff_audio_format = self.settings.ytdlp_audio_format or "m4a"
             eff_audio_quality = job.audio_quality
             eff_loudness_normalize = (
                 job.loudness_normalize
@@ -258,8 +262,55 @@ class ImportPipeline:
             log(f"URL: {job.url}")
             log(f"DRY_RUN: {eff_dry_run}")
             log(f"LOUDNESS_NORMALIZE: {eff_loudness_normalize}")
+            log(f"COLLISION_MODE: {job.collision_mode}")
 
             self._set_progress(job, percent=2.0, label="Setup complete", eta="", speed="")
+
+            # ── Collision skip: keep existing file, do not re-download/overwrite ─
+            if job.collision_mode == "skip" and output_path.exists():
+                log(
+                    f"[setup] Collision mode=skip and file exists; "
+                    f"reusing {output_path} without download or conversion"
+                )
+                existing_size = output_path.stat().st_size
+                self._set_progress(
+                    job,
+                    percent=self._M_COMPLETE,
+                    label="Skipped (file exists)",
+                    eta="",
+                    speed="",
+                    force=True,
+                )
+                if not sync_mark_video_imported(self.db, job, overwrite=True):
+                    log("[setup] Dedup ledger update skipped (no video_id)")
+                sync_update_job(
+                    self.db,
+                    job,
+                    status=JobStatus.succeeded,
+                    phase="skipped_collision",
+                    final_output_path=str(output_path),
+                    output_file_size=existing_size,
+                )
+                self.db.commit()
+                sync_record_attempt(
+                    self.db,
+                    job,
+                    status="succeeded",
+                    started_at=started_at,
+                    finished_at=datetime.now(tz=UTC),
+                    artifact_metadata=json.dumps(
+                        {
+                            "collision": {
+                                "mode": "skip",
+                                "path": str(output_path),
+                                "filesize": existing_size,
+                            }
+                        }
+                    ),
+                )
+                self.db.commit()
+                log(f"=== Job {self.job_id} skipped (collision) ===")
+                return
 
             # ── DRY RUN Mode ──────────────────────────────────────────────────
             if eff_dry_run:
@@ -360,6 +411,10 @@ class ImportPipeline:
             log("[download] Starting yt-dlp")
 
             dl_template = ytdlp_svc.get_output_template(self.job_id)
+            # Bypass yt-dlp's download-archive on retry attempts: archive may
+            # record success before conversion/commit finishes. Allow-reimport
+            # also bypasses so intentional redownloads are not blocked.
+            bypass_archive = bool(job.allow_reimport) or (job.attempts or 1) > 1
             dl_cmd = ytdlp_svc.build_download_command(
                 job.url,
                 self.job_id,
@@ -367,13 +422,18 @@ class ImportPipeline:
                 embed_metadata=job.embed_metadata,
                 embed_thumbnail=job.embed_thumbnail,
                 embed_chapters=job.embed_chapters,
-                force_archive_bypass=bool(job.allow_reimport),
+                force_archive_bypass=bypass_archive,
                 audio_format=eff_audio_format,
                 audio_quality=eff_audio_quality,
                 sponsorblock_remove=job.sponsorblock_remove,
                 cookies_file=eff_cookies,
                 extra_args=eff_ytdlp_extra,
             )
+            if bypass_archive:
+                log(
+                    "[download] Bypassing yt-dlp download-archive "
+                    f"(allow_reimport={bool(job.allow_reimport)} attempts={job.attempts})"
+                )
 
             # Ensure archive parent dir exists
             if self.settings.archive_file:
@@ -418,7 +478,9 @@ class ImportPipeline:
             )
             self.db.commit()
 
-            downloaded_file = ytdlp_svc.find_downloaded_file(self.job_id)
+            downloaded_file = ytdlp_svc.find_downloaded_file(
+                self.job_id, preferred_format=eff_audio_format
+            )
             if downloaded_file is None:
                 # Check download archive message
                 log_content = ""
@@ -428,7 +490,8 @@ class ImportPipeline:
                 if "has already been recorded in the archive" in log_content:
                     err_msg = (
                         "Video has already been recorded in the download archive. "
-                        "To re-download, remove the video ID from your youtube-archive.txt file."
+                        "Retry this job to bypass the archive, or remove the video ID "
+                        "from your youtube-archive.txt file."
                     )
                 else:
                     err_msg = "Could not locate downloaded audio file in work directory"
@@ -437,7 +500,7 @@ class ImportPipeline:
             # Wrap in DownloadArtifact
             dl_artifact = DownloadArtifact(
                 path=downloaded_file,
-                format=eff_audio_format or self.settings.ytdlp_audio_format,
+                format=downloaded_file.suffix.lstrip(".") or eff_audio_format,
                 filesize=downloaded_file.stat().st_size,
                 title=job.source_title,
                 uploader=job.uploader,
@@ -662,7 +725,9 @@ class ImportPipeline:
                 raise PipelineCancelledError()
 
             # ── Audiobookshelf Scan ───────────────────────────────────────────
-            if job.trigger_abs_scan and self.settings.abs_scan_after_success:
+            # Per-job checkbox controls whether this job scans. Global
+            # ABS_SCAN_AFTER_SUCCESS is only the UI default for that checkbox.
+            if job.trigger_abs_scan:
                 self._set_progress(
                     job,
                     percent=self._M_SCAN,

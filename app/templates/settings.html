@@ -18,6 +18,30 @@
       Configure global application behavior. Environment and YAML values take precedence and lock their fields.
     </p>
 
+    {% if library_path_writable is defined %}
+    <div class="mb-6 section-entrance section-entrance-1">
+      {% if library_path_writable %}
+      <div class="bg-success-container/20 border border-success/25 text-on-success-container rounded-xl p-4 flex items-start gap-3 shadow-md">
+        <span class="material-symbols-outlined shrink-0">check_circle</span>
+        <div class="min-w-0">
+          <p class="font-body-md text-body-md">Library path writable</p>
+          <p class="font-code text-code opacity-80 break-all">{{ library_path | e }}</p>
+          <a href="/diagnostics" class="font-label-md text-label-md uppercase text-amber hover:underline mt-1 inline-block">Open Diagnostics</a>
+        </div>
+      </div>
+      {% else %}
+      <div class="bg-warning-container/20 border border-warning/25 text-on-warning-container rounded-xl p-4 flex items-start gap-3 shadow-md">
+        <span class="material-symbols-outlined shrink-0">warning</span>
+        <div class="min-w-0">
+          <p class="font-body-md text-body-md">Library path is not writable</p>
+          <p class="font-code text-code opacity-80 break-all">{{ library_path | e }}</p>
+          <a href="/diagnostics" class="font-label-md text-label-md uppercase text-amber hover:underline mt-1 inline-block">Open Diagnostics</a>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
     {% if error %}
     <div class="bg-error-container/20 border border-error/30 text-error rounded-xl p-4 flex items-start gap-3 mb-6 shadow-md">
       <span class="material-symbols-outlined shrink-0 text-error">cancel</span>

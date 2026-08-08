@@ -348,13 +348,14 @@ class FilesystemService:
         upload_date: str | None = None,
     ) -> Path:
         mode = collision_mode or self.settings.collision_mode
+        # Audiobook output is always .m4b; ignore legacy OUTPUT_EXTENSION overrides.
         return resolve_output_path(
             self.settings.output_root,
             destination_folder,
             title,
             video_id,
             mode,
-            extension or self.settings.output_extension,
+            "m4b",
             filename_template or self.settings.filename_template,
             uploader=uploader,
             channel=channel,

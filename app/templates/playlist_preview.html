@@ -71,13 +71,14 @@
 
           <div class="max-h-[28rem] overflow-y-auto custom-scrollbar border border-panel-line/30 rounded-lg divide-y divide-panel-line/30">
             {% for entry in meta.entries %}
-            <label class="flex items-start gap-3 p-3 hover:bg-panel-raised/60 cursor-pointer transition-colors">
+            {% set already_imported = imported_ids is defined and entry.id in imported_ids %}
+            <label class="flex items-start gap-3 p-3 hover:bg-panel-raised/60 cursor-pointer transition-colors {% if already_imported %}opacity-80{% endif %}">
               <input
                 type="checkbox"
                 name="selected"
                 value="{{ entry.id | e }}"
                 class="entry-select mt-1 h-4 w-4 accent-amber cursor-pointer"
-                checked
+                {% if not already_imported %}checked{% endif %}
               />
               {% if entry.thumbnail %}
               <img
@@ -98,6 +99,7 @@
                 <span class="font-code text-code text-paper-muted">
                   {{ entry.duration | duration }}
                   {% if entry.uploader %} · {{ entry.uploader | e }}{% endif %}
+                  {% if already_imported %} · <span class="text-amber">Already imported</span>{% endif %}
                 </span>
               </div>
               <input type="hidden" name="title_{{ entry.id | e }}" value="{{ entry.title | e }}" />

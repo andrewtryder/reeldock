@@ -223,6 +223,18 @@ def test_output_path_collision_append_id(tmp_path: Path):
     assert result.name == "My Episode [abc123].m4b"
 
 
+def test_output_path_collision_overwrite(tmp_path: Path):
+    root = tmp_path / "out"
+    folder = root / "ChannelA"
+    folder.mkdir(parents=True)
+    existing = folder / "My Episode.m4b"
+    existing.write_bytes(b"x")
+    result = resolve_output_path(
+        root, "ChannelA", "My Episode", "abc123", collision_mode="overwrite"
+    )
+    assert result == existing
+
+
 def test_output_path_collision_skip(tmp_path: Path):
     root = tmp_path / "out"
     folder = root / "ChannelA"

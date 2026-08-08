@@ -16,7 +16,6 @@ def make_client(
 ) -> AudiobookshelfClient:
     import os
 
-    os.environ.setdefault("APP_SECRET_KEY", "test")
     os.environ["ABS_BASE_URL"] = base_url
     os.environ["ABS_API_TOKEN"] = api_token
     os.environ["ABS_LIBRARY_ID"] = library_id

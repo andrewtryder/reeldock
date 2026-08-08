@@ -265,8 +265,6 @@ if [ "$MODE" = "docker-vm" ]; then
   - systemctl enable docker --now
   - cd /opt/reeldock
   - cp .env.example .env
-  - SECRET_KEY=\$(openssl rand -hex 32)
-  - sed -i "s|^APP_SECRET_KEY=.*|APP_SECRET_KEY=\${SECRET_KEY}|" .env
   - sed -i "s|^REDIS_URL=.*|REDIS_URL=redis://redis:6379/0|" .env
   - sed -i "s|^DATABASE_URL=.*|DATABASE_URL=sqlite+aiosqlite:////data/app.db|" .env
   - echo "Starting Docker Compose stack..."

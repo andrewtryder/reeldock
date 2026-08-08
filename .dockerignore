@@ -32,3 +32,10 @@ README.md
 docs/
 *.md
 tests/
+.github/
+assets/
+browser-extension/
+scripts/
+systemd/
+release-please-config.json
+.release-please-manifest.json

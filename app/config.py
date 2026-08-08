@@ -42,8 +42,6 @@ def _load_yaml() -> dict[str, Any]:
         {
             "APP_HOST": app.get("host", None),
             "APP_PORT": app.get("port", None),
-            "APP_BASE_URL": app.get("base_url", None),
-            "APP_SECRET_KEY": app.get("secret_key", None),
             "AUTH_ENABLED": app.get("auth_enabled", None),
             "AUTH_USERNAME": app.get("auth_username", None),
             "AUTH_PASSWORD": app.get("auth_password", None),
@@ -74,8 +72,6 @@ def _load_yaml() -> dict[str, Any]:
             "FFMPEG_EXTRA_ARGS": dl.get("ffmpeg_extra_args", None),
             "OUTPUT_EXTENSION": dl.get("output_extension", None),
             "FILENAME_TEMPLATE": dl.get("filename_template", None),
-            "FOLDER_NAME_FIELD": dl.get("folder_name_field", None),
-            "FOLDER_NAME_FALLBACKS": dl.get("folder_name_fallbacks", None),
             "COLLISION_MODE": dl.get("collision_mode", None),
             "COOKIES_FILE": dl.get("cookies_file", None),
             "ALLOWED_DOMAINS": dl.get("allowed_domains", None),
@@ -90,7 +86,6 @@ def _load_yaml() -> dict[str, Any]:
     jobs = raw.get("jobs", {})
     flat.update(
         {
-            "MAX_CONCURRENT_JOBS": jobs.get("max_concurrent_jobs", None),
             "JOB_TIMEOUT_SECONDS": jobs.get("timeout_seconds", None),
             "RETRY_MAX": jobs.get("retry_max", None),
             "RETRY_INTERVAL_SECONDS": jobs.get("retry_intervals_seconds", None),
@@ -150,8 +145,6 @@ class Settings(BaseSettings):
     # ── App ──────────────────────────────────────────────────────────────────
     app_host: str = Field("0.0.0.0", alias="APP_HOST")  # noqa: S104
     app_port: int = Field(8080, alias="APP_PORT")
-    app_base_url: str | None = Field(None, alias="APP_BASE_URL")
-    app_secret_key: str = Field("changeme-set-app-secret-key", alias="APP_SECRET_KEY")
 
     # ── Auth ─────────────────────────────────────────────────────────────────
     auth_enabled: bool = Field(False, alias="AUTH_ENABLED")
@@ -205,11 +198,6 @@ class Settings(BaseSettings):
 
     output_extension: str = Field("m4b", alias="OUTPUT_EXTENSION")
     filename_template: str = Field("{title}.m4b", alias="FILENAME_TEMPLATE")
-    folder_name_field: str = Field("uploader_id", alias="FOLDER_NAME_FIELD")
-    folder_name_fallbacks: Any = Field(
-        default_factory=lambda: ["uploader_id", "channel_id", "channel", "uploader"],
-        alias="FOLDER_NAME_FALLBACKS",
-    )
     collision_mode: str = Field("append_id", alias="COLLISION_MODE")
 
     loudness_normalize: bool = Field(False, alias="LOUDNESS_NORMALIZE")
@@ -223,7 +211,6 @@ class Settings(BaseSettings):
     )
 
     # ── Jobs ─────────────────────────────────────────────────────────────────
-    max_concurrent_jobs: int = Field(1, alias="MAX_CONCURRENT_JOBS")
     job_timeout_seconds: int = Field(10800, alias="JOB_TIMEOUT_SECONDS")
     retry_max: int = Field(3, alias="RETRY_MAX")
     retry_interval_seconds: Any = Field(
@@ -249,13 +236,6 @@ class Settings(BaseSettings):
     def parse_space_separated_list(cls, v: Any) -> Any:  # noqa: ANN401
         if isinstance(v, str):
             return [x for x in v.split() if x]
-        return v
-
-    @field_validator("folder_name_fallbacks", mode="before")
-    @classmethod
-    def parse_comma_list(cls, v: Any) -> Any:  # noqa: ANN401
-        if isinstance(v, str):
-            return [x.strip() for x in v.split(",") if x.strip()]
         return v
 
     @field_validator("retry_interval_seconds", mode="before")

@@ -11,7 +11,6 @@ from app.services.ytdlp import VideoMetadata, YtDlpService
 def make_svc(**kwargs) -> YtDlpService:  # type: ignore[return]
     import os
 
-    os.environ.setdefault("APP_SECRET_KEY", "test")
     for k, v in kwargs.items():
         os.environ[k] = str(v)
     s = Settings()

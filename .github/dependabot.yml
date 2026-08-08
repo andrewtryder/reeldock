@@ -1,7 +1,7 @@
 # Dependabot configuration
 # Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
 #
-# Ecosystems: github-actions, npm (root + browser-extension), uv, docker,
+# Ecosystems: github-actions, npm (browser-extension), uv, docker,
 # docker-compose, pre-commit
 
 version: 2
@@ -10,19 +10,6 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    versioning-strategy: increase
-    open-pull-requests-limit: 5
-    groups:
-      development-dependencies:
-        dependency-type: "development"
-        update-types:
-          - "minor"
-          - "patch"
 
   - package-ecosystem: "npm"
     directory: "/browser-extension"

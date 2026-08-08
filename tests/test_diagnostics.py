@@ -29,7 +29,6 @@ from fastapi.testclient import TestClient
 def isolated_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     db_path = tmp_path / "test-diagnostics.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
 
     import app.config as cfg_module
     import app.db as db_module

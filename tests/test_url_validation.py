@@ -10,7 +10,6 @@ from app.services.ytdlp import YtDlpService
 def make_svc(allow_playlists: bool = False, allow_channels: bool = False) -> YtDlpService:
     import os
 
-    os.environ.setdefault("APP_SECRET_KEY", "test")
     os.environ["ALLOW_PLAYLISTS"] = str(allow_playlists).lower()
     os.environ["ALLOW_CHANNELS"] = str(allow_channels).lower()
     s = Settings()

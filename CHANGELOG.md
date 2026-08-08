@@ -15,6 +15,13 @@
 * **extension:** require a non-empty `EXTENSION_API_TOKEN` when `EXTENSION_API_ENABLED=true`; extension always sends/requires the API token (no optional auth toggle); manifest moves LAN `http(s)://*/*` to optional host permissions.
 * **api:** minimize public `/ready` to status-only (path details stay on authenticated Diagnostics).
 
+### Removed
+
+* Unused settings with no runtime consumers: `APP_BASE_URL`, `APP_SECRET_KEY`, `FOLDER_NAME_FIELD`, `FOLDER_NAME_FALLBACKS`, `MAX_CONCURRENT_JOBS`.
+* Unused JSON API routes `/api/config`, `/api/folders`, and `/api/preview` (HTML UI calls services directly).
+* Rulesync / repo-standards scaffolding and duplicate brand assets.
+* Orphaned `docs/DESIGN.md`; browser extension docs consolidated into `browser-extension/README.md`.
+
 ### Build
 
 * **docker:** pin Python base, uv, and yt-dlp release digests; digest-pin Redis in Compose; SHA-pin GitHub Actions.

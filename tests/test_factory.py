@@ -25,7 +25,6 @@ from fastapi.testclient import TestClient
 def isolated_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     db_path = tmp_path / "test-factory.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
     monkeypatch.delenv("REELDOCK_UI_VERSION", raising=False)
 
     import app.config as cfg_module

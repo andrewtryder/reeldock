@@ -2,17 +2,10 @@
 
 ## [1.9.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.8.0...browser-extension-v1.9.0) (2026-08-08)
 
-
 ### Features
 
-* **import:** replace advanced modal with inline options and SponsorBlock ([#81](https://github.com/andrewtryder/reeldock/issues/81)) ([cfe34a0](https://github.com/andrewtryder/reeldock/commit/cfe34a06ba352c35b7c846e5dffbea2e91dff7d1))
-
-
-### Bug Fixes
-
-* **db:** freeze Alembic baseline and harden upgrade paths ([381ccf9](https://github.com/andrewtryder/reeldock/commit/381ccf991c03a55cc4270c996382eddf169d3426))
-* **security:** harden public release auth and deployment ([74f3bb9](https://github.com/andrewtryder/reeldock/commit/74f3bb936432cd6e28f9ab8e5a500ced9e570b81))
-* **security:** harden public release auth and deployment ([4d80104](https://github.com/andrewtryder/reeldock/commit/4d80104a28808f3624ffbb593ebdd9bdea4da3d2))
+* Require a configured API token for ReelDock extension API calls (HTTP Bearer and WebSocket); remove the optional auth toggle from Options ([#101](https://github.com/andrewtryder/reeldock/issues/101))
+* Move non-localhost server origins to optional host permissions requested when saving the server URL ([#101](https://github.com/andrewtryder/reeldock/issues/101))
 
 ## [1.8.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.7.1...browser-extension-v1.8.0) (2026-07-03)
 

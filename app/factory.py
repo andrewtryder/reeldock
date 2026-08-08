@@ -148,17 +148,12 @@ def create_app() -> FastAPI:
     @app.get("/ready")
     async def ready() -> JSONResponse:
         results = check_required_paths()
-        checks = {
-            result.name.lower(): {
-                "path": str(result.path),
-                "ok": result.error is None,
-                **({"error": result.error} if result.error else {}),
-            }
-            for result in results
-        }
         all_ok = all(result.error is None for result in results)
+        # Public probe only — detailed path diagnostics live on the
+        # authenticated Diagnostics page (Basic Auth bypasses /ready for
+        # Docker HEALTHCHECK, so do not leak filesystem paths here).
         return JSONResponse(
-            content={"status": "ready" if all_ok else "not_ready", "checks": checks},
+            content={"status": "ready" if all_ok else "not_ready"},
             status_code=200 if all_ok else 503,
         )
 

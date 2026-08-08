@@ -15,7 +15,10 @@ from fastapi.testclient import TestClient
 def isolated_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     db_path = tmp_path / "test-readiness.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
+    monkeypatch.setenv("REELDOCK_FETCH_UI_VERSION", "0")
+    monkeypatch.setenv("EXTENSION_API_ENABLED", "false")
+    monkeypatch.delenv("EXTENSION_API_TOKEN", raising=False)
+    monkeypatch.setenv("AUTH_ENABLED", "false")
 
     import app.config as cfg_module
     import app.db as db_module
@@ -63,9 +66,8 @@ def test_ready_returns_200_when_paths_writable(
     response = client.get("/ready")
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "ready"
-    assert body["checks"]["output_root"]["ok"] is True
-    assert body["checks"]["work_dir"]["ok"] is True
+    assert body == {"status": "ready"}
+    assert "checks" not in body
 
 
 def test_ready_returns_503_when_output_not_writable(
@@ -89,9 +91,9 @@ def test_ready_returns_503_when_output_not_writable(
     response = client.get("/ready")
     assert response.status_code == 503
     body = response.json()
-    assert body["status"] == "not_ready"
-    assert body["checks"]["output_root"]["ok"] is False
-    assert "error" in body["checks"]["output_root"]
+    assert body == {"status": "not_ready"}
+    assert "checks" not in body
+    assert "missing-podcasts" not in response.text
 
 
 def test_ready_bypasses_basic_auth(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -117,4 +119,4 @@ def test_ready_bypasses_basic_auth(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
 
         ready = auth_client.get("/ready")
         assert ready.status_code == 200
-        assert ready.json()["status"] == "ready"
+        assert ready.json() == {"status": "ready"}

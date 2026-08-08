@@ -4,9 +4,20 @@
 
 ### Features
 
-* **db:** add Alembic migrations; replace manual startup schema changes with versioned revisions. Existing SQLite databases are bootstrapped automatically on first startup after upgrade.
+* **db:** restore Alembic migrations with a frozen `0001_baseline` schema (`app/baseline_schema.py`). Unversioned and known retired-revision SQLite databases are reconciled to that frozen shape and stamped on first startup; unknown revisions fail loudly. Later schema changes advance only via Alembic revisions.
 * **ui:** add Diagnostics page with health checks for yt-dlp, ffmpeg, ffprobe, Redis, database, paths, disk space, cookies, and ABS API.
 * **ui:** unify page headers, shared badge tokens, success/warning palette, and layout polish across Import, Jobs, Settings, Preview, Job Detail, and Diagnostics.
+
+### Security
+
+* **compose:** inject `.env` into app/worker via `env_file` and explicit `AUTH_*` / extension mappings so documented auth settings reach the container.
+* **auth:** refuse startup when `AUTH_ENABLED=true` without username/password.
+* **extension:** require a non-empty `EXTENSION_API_TOKEN` when `EXTENSION_API_ENABLED=true`; extension always sends/requires the API token (no optional auth toggle); manifest moves LAN `http(s)://*/*` to optional host permissions.
+* **api:** minimize public `/ready` to status-only (path details stay on authenticated Diagnostics).
+
+### Build
+
+* **docker:** pin Python base, uv, and yt-dlp release digests; digest-pin Redis in Compose; SHA-pin GitHub Actions.
 
 ## [1.8.0](https://github.com/andrewtryder/reeldock/compare/v1.7.1...v1.8.0) (2026-07-05)
 

@@ -113,9 +113,22 @@ Pre-commit hooks use the same Ruff version from `uv.lock` via `uv run --frozen`.
 
 ## 6. Database schema
 
-Schema is derived from SQLAlchemy models in `app/models.py`. On startup, `init_db()` creates any missing tables and adds any missing columns. There is no separate migration tool.
+Schema is defined by SQLAlchemy models in `app/models.py` and versioned with **Alembic**.
 
-After changing models, restart the app. Existing rows are preserved; new columns are added with safe defaults when needed. Columns removed from models are left in place (SQLite does not drop them automatically).
+On startup, `init_db()` runs `alembic upgrade head`. Pre-baseline SQLite databases are detected and stamped first:
+
+- tables present with no `alembic_version` (unversioned legacy)
+- databases carrying a known retired ReelDock revision ID
+
+Those DBs are reconciled to the **frozen 0001** schema in `app/baseline_schema.py` (not live ORM models), then stamped at `0001_baseline`. Unknown revision IDs fail loudly. Later schema changes advance only through Alembic revisions (`0002`, …). Do not edit `app/baseline_schema.py` to match future models.
+
+### Changing the schema
+
+1. Edit models in `app/models.py`
+2. Generate a revision: `uv run alembic revision --autogenerate -m "describe change"`
+3. Review the generated script under `alembic/versions/` (do not modify `app/baseline_schema.py`)
+4. Apply locally: `uv run alembic upgrade head` (also runs automatically on app start)
+5. Commit the revision with your model change
 
 ### Worker-only startup
 

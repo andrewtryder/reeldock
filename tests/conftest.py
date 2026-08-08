@@ -15,6 +15,12 @@ def clear_settings_cache(monkeypatch: pytest.MonkeyPatch):
 
     # Avoid background GitHub release lookups during app lifespan in tests.
     monkeypatch.setenv("REELDOCK_FETCH_UI_VERSION", "0")
+    # Override host `.env` fail-closed auth/extension settings unless a test opts in.
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.delenv("AUTH_USERNAME", raising=False)
+    monkeypatch.delenv("AUTH_PASSWORD", raising=False)
+    monkeypatch.setenv("EXTENSION_API_ENABLED", "false")
+    monkeypatch.delenv("EXTENSION_API_TOKEN", raising=False)
 
     cfg_module._settings = None
     yield

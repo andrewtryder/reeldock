@@ -26,18 +26,23 @@ def extension_api_auth(
     if not cfg.extension_api_enabled:
         raise HTTPException(status_code=404, detail="Extension API not enabled")
 
-    if cfg.extension_api_token:
-        # Authorization: Bearer <token> or X-REELDOCK-Token header
-        token = None
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-        x_token = request.headers.get("X-REELDOCK-Token")
-        if x_token:
-            token = x_token
+    if not cfg.extension_api_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Extension API token is required when the extension API is enabled",
+        )
 
-        if not token or not secrets.compare_digest(token, cfg.extension_api_token):
-            raise HTTPException(status_code=401, detail="Invalid extension API token")
+    # Authorization: Bearer <token> or X-REELDOCK-Token header
+    token = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    x_token = request.headers.get("X-REELDOCK-Token")
+    if x_token:
+        token = x_token
+
+    if not token or not secrets.compare_digest(token, cfg.extension_api_token):
+        raise HTTPException(status_code=401, detail="Invalid extension API token")
 
     return cfg
 
@@ -58,20 +63,25 @@ async def validate_websocket_token(
     if not settings.extension_api_enabled:
         raise HTTPException(status_code=404, detail="Extension API not enabled")
 
-    if settings.extension_api_token:
-        token = None
-        auth_header = websocket.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-        x_token = websocket.headers.get("X-REELDOCK-Token")
-        if x_token:
-            token = x_token
-        query_token = websocket.query_params.get("token")
-        if query_token:
-            token = query_token
+    if not settings.extension_api_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Extension API token is required when the extension API is enabled",
+        )
 
-        if not token or not secrets.compare_digest(token, settings.extension_api_token):
-            raise HTTPException(status_code=401, detail="Invalid extension API token")
+    token = None
+    auth_header = websocket.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    x_token = websocket.headers.get("X-REELDOCK-Token")
+    if x_token:
+        token = x_token
+    query_token = websocket.query_params.get("token")
+    if query_token:
+        token = query_token
+
+    if not token or not secrets.compare_digest(token, settings.extension_api_token):
+        raise HTTPException(status_code=401, detail="Invalid extension API token")
 
 
 def attach_basic_auth(app: FastAPI, settings: Settings) -> None:

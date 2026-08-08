@@ -1,4 +1,4 @@
-"""Tests for model-driven database schema initialization."""
+"""Tests for Alembic-backed database schema initialization."""
 
 from __future__ import annotations
 
@@ -7,6 +7,22 @@ from pathlib import Path
 
 import pytest
 from app.db import init_db
+
+_MINIMAL_JOBS_DDL = """
+CREATE TABLE jobs (
+    id VARCHAR(36) PRIMARY KEY,
+    url TEXT NOT NULL,
+    status VARCHAR(14) NOT NULL,
+    collision_mode VARCHAR(20) NOT NULL,
+    embed_metadata BOOLEAN NOT NULL,
+    embed_thumbnail BOOLEAN NOT NULL,
+    embed_chapters BOOLEAN NOT NULL,
+    trigger_abs_scan BOOLEAN NOT NULL,
+    attempts INTEGER NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+"""
 
 
 def _reset_db_engines() -> None:
@@ -23,6 +39,12 @@ def schema_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """Isolated SQLite database for schema tests."""
     db_path = tmp_path / "schema.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    monkeypatch.setenv("EXTENSION_API_ENABLED", "false")
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.setenv("REELDOCK_FETCH_UI_VERSION", "0")
+    import app.config as cfg_module
+
+    cfg_module._settings = None
     _reset_db_engines()
     return db_path
 
@@ -42,36 +64,26 @@ async def test_init_db_creates_schema_on_fresh_database(schema_db: Path):
             "job_attempts",
             "app_settings",
             "import_batches",
+            "alembic_version",
         } <= tables
-        assert "alembic_version" not in tables
+
+        version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        assert version is not None
+        assert version[0] == "0001_baseline"
 
         jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
         assert "progress" in jobs_cols
         assert "allow_reimport" in jobs_cols
         assert "batch_id" in jobs_cols
-
-        attempts_cols = {row[1] for row in conn.execute("PRAGMA table_info(job_attempts)")}
-        assert "artifact_metadata" in attempts_cols
+        assert "sponsorblock_remove" in jobs_cols
 
 
 @pytest.mark.asyncio
-async def test_init_db_adds_missing_columns_to_existing_tables(schema_db: Path):
+async def test_init_db_stamps_legacy_database(schema_db: Path):
     with sqlite3.connect(schema_db) as conn:
         conn.executescript(
-            """
-            CREATE TABLE jobs (
-                id VARCHAR(36) PRIMARY KEY,
-                url TEXT NOT NULL,
-                status VARCHAR(14) NOT NULL,
-                collision_mode VARCHAR(20) NOT NULL,
-                embed_metadata BOOLEAN NOT NULL,
-                embed_thumbnail BOOLEAN NOT NULL,
-                embed_chapters BOOLEAN NOT NULL,
-                trigger_abs_scan BOOLEAN NOT NULL,
-                attempts INTEGER NOT NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
+            f"""
+            {_MINIMAL_JOBS_DDL}
             CREATE TABLE job_attempts (
                 id VARCHAR(36) PRIMARY KEY,
                 job_id VARCHAR(36) NOT NULL,
@@ -96,9 +108,7 @@ async def test_init_db_adds_missing_columns_to_existing_tables(schema_db: Path):
         assert "progress" in jobs_cols
         assert "allow_reimport" in jobs_cols
         assert "batch_id" in jobs_cols
-
-        attempts_cols = {row[1] for row in conn.execute("PRAGMA table_info(job_attempts)")}
-        assert "artifact_metadata" in attempts_cols
+        assert "sponsorblock_remove" in jobs_cols
 
         tables = {
             row[0]
@@ -106,6 +116,94 @@ async def test_init_db_adds_missing_columns_to_existing_tables(schema_db: Path):
         }
         assert "import_batches" in tables
         assert "app_settings" in tables
+        assert "alembic_version" in tables
+        version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        assert version[0] == "0001_baseline"
+
+
+@pytest.mark.asyncio
+async def test_legacy_reconcile_does_not_use_live_orm_metadata(
+    schema_db: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Legacy stamp must use frozen BASELINE_METADATA, not live Base.metadata."""
+    import app.db as db_module
+    import app.models as models
+    from app.baseline_schema import BASELINE_METADATA
+
+    assert "Base" not in db_module.__dict__
+    assert db_module.BASELINE_METADATA is BASELINE_METADATA
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("live Base.metadata must not be used for legacy reconcile")
+
+    monkeypatch.setattr(models.Base.metadata, "create_all", _boom)
+    monkeypatch.setattr(models.Base.metadata, "drop_all", _boom)
+    # Empty live table registry so accidental iteration cannot add future columns.
+    monkeypatch.setattr(models.Base.metadata, "tables", {})
+
+    with sqlite3.connect(schema_db) as conn:
+        conn.executescript(_MINIMAL_JOBS_DDL)
+        conn.commit()
+
+    await init_db()
+
+    with sqlite3.connect(schema_db) as conn:
+        jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+        assert "batch_id" in jobs_cols
+        assert "sponsorblock_remove" in jobs_cols
+        assert "progress" in jobs_cols
+        version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        assert version[0] == "0001_baseline"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retired_revision", ["f2b6d4e83a50", "c7a3e9f12b40"])
+async def test_init_db_stamps_retired_alembic_revision(schema_db: Path, retired_revision: str):
+    with sqlite3.connect(schema_db) as conn:
+        conn.executescript(
+            f"""
+            {_MINIMAL_JOBS_DDL}
+            CREATE TABLE alembic_version (
+                version_num VARCHAR(32) NOT NULL
+            );
+            INSERT INTO alembic_version (version_num) VALUES ('{retired_revision}');
+            """
+        )
+        conn.commit()
+
+    await init_db()
+
+    with sqlite3.connect(schema_db) as conn:
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        assert "import_batches" in tables
+        assert "app_settings" in tables
+        assert "alembic_version" in tables
+        version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        assert version[0] == "0001_baseline"
+        jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+        assert "batch_id" in jobs_cols
+        assert "sponsorblock_remove" in jobs_cols
+
+
+@pytest.mark.asyncio
+async def test_init_db_rejects_unknown_alembic_revision(schema_db: Path):
+    with sqlite3.connect(schema_db) as conn:
+        conn.executescript(
+            f"""
+            {_MINIMAL_JOBS_DDL}
+            CREATE TABLE alembic_version (
+                version_num VARCHAR(32) NOT NULL
+            );
+            INSERT INTO alembic_version (version_num) VALUES ('deadbeef');
+            """
+        )
+        conn.commit()
+
+    with pytest.raises(RuntimeError, match="Unknown alembic revision 'deadbeef'"):
+        await init_db()
 
 
 @pytest.mark.asyncio
@@ -120,45 +218,7 @@ async def test_init_db_is_idempotent(schema_db: Path):
         }
         assert "jobs" in tables
         assert "import_batches" in tables
-
-
-@pytest.mark.asyncio
-async def test_init_db_drops_obsolete_alembic_version(schema_db: Path):
-    with sqlite3.connect(schema_db) as conn:
-        conn.executescript(
-            """
-            CREATE TABLE jobs (
-                id VARCHAR(36) PRIMARY KEY,
-                url TEXT NOT NULL,
-                status VARCHAR(14) NOT NULL,
-                collision_mode VARCHAR(20) NOT NULL,
-                embed_metadata BOOLEAN NOT NULL,
-                embed_thumbnail BOOLEAN NOT NULL,
-                embed_chapters BOOLEAN NOT NULL,
-                trigger_abs_scan BOOLEAN NOT NULL,
-                attempts INTEGER NOT NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE alembic_version (
-                version_num VARCHAR(32) NOT NULL
-            );
-            INSERT INTO alembic_version (version_num) VALUES ('f2b6d4e83a50');
-            """
-        )
-        conn.commit()
-
-    await init_db()
-
-    with sqlite3.connect(schema_db) as conn:
-        tables = {
-            row[0]
-            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        }
-        assert "alembic_version" not in tables
-        assert "import_batches" in tables
-        jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
-        assert "batch_id" in jobs_cols
+        assert "alembic_version" in tables
 
 
 @pytest.mark.asyncio
@@ -180,10 +240,6 @@ async def test_init_db_preserves_extra_columns_from_older_builds(schema_db: Path
                 updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 sponsorblock_mark_chapters BOOLEAN NOT NULL DEFAULT 0
             );
-            CREATE TABLE alembic_version (
-                version_num VARCHAR(32) NOT NULL
-            );
-            INSERT INTO alembic_version (version_num) VALUES ('f2b6d4e83a50');
             """
         )
         conn.commit()
@@ -194,3 +250,7 @@ async def test_init_db_preserves_extra_columns_from_older_builds(schema_db: Path
         jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
         assert "sponsorblock_mark_chapters" in jobs_cols
         assert "batch_id" in jobs_cols
+        assert "alembic_version" in {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }

@@ -138,7 +138,7 @@ The application exposes two probe endpoints:
 | Endpoint | Purpose |
 | :--- | :--- |
 | `/health` | **Liveness** — returns `200` when the web process is running. Use for simple uptime monitoring. |
-| `/ready` | **Readiness** — returns `200` when `OUTPUT_ROOT` and `WORK_DIR` are writable; returns `503` with per-path details otherwise. Used by the Docker healthcheck. |
+| `/ready` | **Readiness** — returns `200` with `{"status":"ready"}` when `OUTPUT_ROOT` and `WORK_DIR` are writable; returns `503` with `{"status":"not_ready"}` otherwise (no path details). Used by the Docker healthcheck. Authenticated Diagnostics shows full path checks. |
 
 ```bash
 # Liveness (always 200 if the app is up)

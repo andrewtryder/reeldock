@@ -1,7 +1,6 @@
 // Default settings used on first install and as the in-memory state seed.
 export const DEFAULT_SETTINGS = Object.freeze({
   serverUrl: '',
-  authEnabled: false,
   apiToken: '',
   defaultDestinationFolder: '',
   triggerAbsScan: false,
@@ -14,7 +13,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
 // Storage keys we persist. Keep this list in sync with options.js.
 export const STORAGE_KEYS = [
   'serverUrl',
-  'authEnabled',
   'apiToken',
   'defaultDestinationFolder',
   'triggerAbsScan',
@@ -23,6 +21,30 @@ export const STORAGE_KEYS = [
   'embedChapters',
   'allowReimport',
 ];
+
+export function isLocalServerUrl(serverUrl) {
+  if (!serverUrl) return false;
+  try {
+    const parsed = new URL(serverUrl);
+    return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
+/** Request optional host permission for non-localhost ReelDock origins. */
+export async function ensureServerHostPermission(serverUrl) {
+  if (!serverUrl || isLocalServerUrl(serverUrl)) {
+    return true;
+  }
+  const parsed = new URL(serverUrl);
+  const originPattern = `${parsed.origin}/*`;
+  const already = await chrome.permissions.contains({ origins: [originPattern] });
+  if (already) {
+    return true;
+  }
+  return chrome.permissions.request({ origins: [originPattern] });
+}
 
 // Load settings from storage, filling in defaults for missing keys.
 export async function loadSettings() {

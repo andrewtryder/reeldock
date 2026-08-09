@@ -102,7 +102,7 @@ def test_get_settings_page(settings_env: Path):
         response = client.get("/settings")
         assert response.status_code == 200
         assert "Settings" in response.text
-        assert "Output Root Directory" in response.text
+        assert "Audiobook Library Path" in response.text
         assert "/media/podcasts" in response.text
 
 

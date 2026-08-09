@@ -165,7 +165,7 @@
       </div>
     </div>
 
-    {% set has_import_overrides = job.audio_format or job.audio_quality or job.output_extension or job.filename_template or job.ytdlp_extra_args or job.ffmpeg_extra_args or job.cookies_file or job.dry_run or job.loudness_normalize is not none or job.loudness_target_lufs or job.loudness_audio_bitrate %}
+    {% set has_import_overrides = job.audio_quality or job.filename_template or job.ytdlp_extra_args or job.ffmpeg_extra_args or job.cookies_file or job.dry_run or job.loudness_normalize is not none or job.loudness_target_lufs or job.loudness_audio_bitrate %}
     {% if has_import_overrides %}
     <details class="bg-panel border border-panel-line rounded-xl p-stack-md mb-stack-lg panel-edge section-entrance section-entrance-2">
       <summary class="font-headline-sm text-headline-sm text-paper uppercase tracking-wide cursor-pointer select-none">
@@ -298,29 +298,90 @@
       </div>
     </div>
 
+    {% if job.status.value == 'succeeded' and job.final_output_path %}
+    {% set out_name = job.final_output_path.split('/')[-1] %}
+    {% set out_folder = job.destination_folder or (job.final_output_path.rsplit('/', 1)[0] if '/' in job.final_output_path else '') %}
+    {% set conv_codec = conversion_meta.get('codec_name') if conversion_meta else None %}
+    {% set conv_duration = conversion_meta.get('duration_seconds') if conversion_meta else None %}
+    {% set conv_chapters = conversion_meta.get('chapter_count') if conversion_meta else job.chapter_count %}
+    {% set used_fallback = conversion_meta.get('used_fallback') if conversion_meta else False %}
+    {% set skipped_collision = job.phase == 'skipped_collision' %}
+    <section id="audiobook-created-card" class="bg-success-container/15 border border-success/30 rounded-xl p-stack-md mb-stack-lg panel-edge section-entrance section-entrance-3">
+      <div class="flex items-start justify-between gap-4 flex-wrap">
+        <div class="min-w-0">
+          <p class="font-label-md text-label-md text-on-success-container uppercase tracking-wider mb-1">
+            {% if skipped_collision %}Existing Audiobook Kept{% else %}Audiobook Created{% endif %}
+          </p>
+          <h2 class="font-headline-sm text-headline-sm text-paper break-all">{{ out_name | e }}</h2>
+          {% if skipped_collision %}
+          <p class="font-body-md text-body-md text-paper-muted mt-1">
+            Import skipped — existing file was left unchanged{% if out_folder %} in {{ out_folder | e }}{% endif %}.
+          </p>
+          {% elif job.uploader or job.channel or out_folder %}
+          <p class="font-body-md text-body-md text-paper-muted mt-1">
+            Saved to {{ out_folder | e }}{% if job.uploader or job.channel %} / @{{ (job.uploader or job.channel) | e }}{% endif %}
+          </p>
+          {% endif %}
+        </div>
+        <button type="button" class="px-3 py-1.5 rounded-lg border border-panel-line font-label-md text-label-md uppercase text-paper-muted hover:bg-panel-raised transition-colors cursor-pointer flex items-center gap-1.5 shrink-0" onclick="copyOutputPath()" id="copy-path-btn">
+          <span class="material-symbols-outlined text-[16px]">content_copy</span>
+          Copy path
+        </button>
+      </div>
+      <dl class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div>
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Size</dt>
+          <dd class="font-code text-code text-paper">{% if job.output_file_size is not none %}{{ job.output_file_size | filesizeformat(true) }}{% else %}—{% endif %}</dd>
+        </div>
+        <div>
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Duration</dt>
+          <dd class="font-code text-code text-paper">{% if conv_duration is not none %}{{ conv_duration | duration }}{% elif job.duration %}{{ job.duration | duration }}{% else %}—{% endif %}</dd>
+        </div>
+        <div>
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Chapters</dt>
+          <dd class="font-code text-code text-paper">{% if conv_chapters is not none %}{{ conv_chapters }}{% else %}—{% endif %}</dd>
+        </div>
+        <div>
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Codec</dt>
+          <dd class="font-code text-code text-paper">{{ conv_codec | e if conv_codec else '—' }}</dd>
+        </div>
+      </dl>
+      {% if used_fallback %}
+      <p class="mt-3 font-body-md text-body-md text-paper-muted flex items-start gap-2">
+        <span class="material-symbols-outlined text-[18px] text-amber shrink-0">info</span>
+        Created successfully without embedded cover art.
+      </p>
+      {% endif %}
+      <p id="final-output-path" class="sr-only">{{ job.final_output_path | e }}</p>
+    </section>
+    {% endif %}
+
     <!-- Process Logs Console -->
-    <div class="log-viewer-section flex flex-col h-[480px] mb-4 shadow-xl">
-      <div class="log-viewer-header flex items-center justify-between mb-3 px-1">
+    <details class="log-viewer-section mb-4 shadow-xl" {% if job.status.value != 'succeeded' %}open{% endif %}>
+      <summary class="log-viewer-header flex items-center justify-between mb-3 px-1 cursor-pointer select-none list-none">
         <h3 class="font-headline-sm text-headline-sm flex items-center gap-2 text-paper font-semibold">
           <span class="material-symbols-outlined text-amber">terminal</span>
           Process Logs
         </h3>
-        <div class="flex items-center gap-2">
+        <span class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Troubleshooting</span>
+      </summary>
+      <div class="flex flex-col h-[480px]">
+        <div class="flex items-center justify-end mb-2">
           <button class="flex items-center gap-2 px-3 py-1.5 text-label-md font-label-md border border-panel-line rounded-lg hover:bg-panel-raised transition-colors text-paper-muted hover:text-paper cursor-pointer bg-panel-raised" onclick="copyLog()" id="copy-log-btn">
             <span class="material-symbols-outlined text-[16px]">content_copy</span>
             Copy Logs
           </button>
         </div>
+        <div class="log-viewer flex-1 bg-[#08090c] border border-panel-line rounded-[10px] p-stack-md overflow-hidden flex flex-col font-code text-code text-paper">
+          <pre class="overflow-y-auto terminal-scroll flex flex-col gap-1 pr-2 h-full text-[#c4c6d5] leading-relaxed whitespace-pre-wrap select-text" id="log-content">{{ log | e }}</pre>
+        </div>
       </div>
-      <div class="log-viewer flex-1 bg-[#08090c] border border-panel-line rounded-[10px] p-stack-md overflow-hidden flex flex-col font-code text-code text-paper">
-        <pre class="overflow-y-auto terminal-scroll flex flex-col gap-1 pr-2 h-full text-[#c4c6d5] leading-relaxed whitespace-pre-wrap select-text" id="log-content">{{ log | e }}</pre>
-      </div>
-    </div>
+    </details>
 
-    <div id="final-output-section" class="final-output-section mt-stack-md p-3 bg-panel rounded border border-panel-line" {% if not job.final_output_path %}style="display: none;"{% endif %}>
+    <div id="final-output-section" class="final-output-section mt-stack-md p-3 bg-panel rounded border border-panel-line" {% if job.status.value == 'succeeded' or not job.final_output_path %}style="display: none;"{% endif %}>
       <span class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Final Output Path</span>
-      <div id="final-output-path" class="font-code text-code text-paper break-all">{{ job.final_output_path | default('') | e }}</div>
-      {% if job.status.value == 'succeeded' and job.output_file_size is not none %}
+      <div class="font-code text-code text-paper break-all">{{ job.final_output_path | default('') | e }}</div>
+      {% if job.output_file_size is not none %}
       <div class="mt-2">
         <span class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">File Size</span>
         <div id="final-output-size" class="font-code text-code text-paper">{{ job.output_file_size | filesizeformat(true) }}</div>
@@ -542,6 +603,23 @@
       const btn = document.getElementById('copy-log-btn');
       const origText = btn.innerHTML;
       btn.innerHTML = '<span class="material-symbols-outlined text-[16px]">done</span> Copied!';
+      setTimeout(() => {
+        btn.innerHTML = origText;
+      }, 2000);
+    }).catch(err => {
+      console.error('Copy failed: ', err);
+    });
+  }
+
+  function copyOutputPath() {
+    const el = document.getElementById('final-output-path');
+    if (!el) return;
+    const text = el.textContent || '';
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('copy-path-btn');
+      if (!btn) return;
+      const origText = btn.innerHTML;
+      btn.innerHTML = '<span class="material-symbols-outlined text-[16px]">done</span> Copied';
       setTimeout(() => {
         btn.innerHTML = origText;
       }, 2000);

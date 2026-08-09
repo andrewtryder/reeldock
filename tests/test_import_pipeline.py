@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from app.config import Settings
-from app.models import Base, Job, JobStatus
+from app.models import Base, ImportedVideo, Job, JobStatus
 from app.services.ffmpeg import FfprobeResult, RemuxResult
 from app.services.import_pipeline import ImportPipeline
 from sqlalchemy import create_engine, text
@@ -200,8 +200,9 @@ def test_pipeline_happy_path_with_abs_scan(
     test_db.add(job)
     test_db.commit()
 
-    # Enable ABS scan in settings
-    mock_settings.abs_scan_after_success = True
+    # Enable ABS credentials; global default scan flag is OFF — per-job
+    # checkbox alone must still trigger the scan.
+    mock_settings.abs_scan_after_success = False
     mock_settings.abs_base_url = "http://abs:1337"
     mock_settings.abs_api_token = "test-token"
     mock_settings.abs_library_id = "lib-1"
@@ -662,3 +663,153 @@ def test_set_progress_clamping(test_db, mock_settings):
     test_db.refresh(job)
     assert job.progress_percent == 100.0  # unchanged
     assert job.progress_label == "Label only"
+
+
+@patch("app.services.process_runner.subprocess.Popen")
+@patch("app.services.import_pipeline.YtDlpService.find_downloaded_file")
+@patch("app.services.import_pipeline.FfmpegService.run_remux")
+def test_pipeline_collision_skip_does_not_download(
+    mock_remux, mock_find, mock_popen, test_db, mock_settings
+):
+    """skip mode must reuse the existing file and never download/convert/commit."""
+    dest = mock_settings.output_root / "SkipShow"
+    dest.mkdir(parents=True)
+    existing = dest / "Skip Episode.m4b"
+    existing.write_bytes(b"already-here")
+
+    job = Job(
+        id="job-skip",
+        url="https://youtube.com/watch?v=skip123",
+        video_id="skip123",
+        status=JobStatus.queued,
+        output_title="Skip Episode",
+        destination_folder="SkipShow",
+        collision_mode="skip",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    pipeline = ImportPipeline(test_db, mock_settings, "job-skip")
+    pipeline.run()
+
+    test_db.refresh(job)
+    assert job.status == JobStatus.succeeded
+    assert job.phase == "skipped_collision"
+    assert job.progress_label == "Skipped (file exists)"
+    assert job.final_output_path == str(existing)
+    assert job.output_file_size == existing.stat().st_size
+    assert existing.read_bytes() == b"already-here"
+    # Filename collision must not claim this video_id as imported.
+    assert test_db.get(ImportedVideo, "skip123") is None
+    mock_popen.assert_not_called()
+    mock_find.assert_not_called()
+    mock_remux.assert_not_called()
+
+
+@patch("app.services.process_runner.subprocess.Popen")
+@patch("app.services.import_pipeline.YtDlpService.find_downloaded_file")
+@patch("app.services.import_pipeline.FfmpegService.run_remux")
+@patch("app.services.import_pipeline.FfmpegService.verify_output")
+def test_pipeline_collision_overwrite_replaces_file(
+    mock_verify, mock_remux, mock_find, mock_popen, test_db, mock_settings, tmp_path
+):
+    dest = mock_settings.output_root / "OverShow"
+    dest.mkdir(parents=True)
+    existing = dest / "Over Episode.m4b"
+    existing.write_bytes(b"old-content")
+
+    job = Job(
+        id="job-over",
+        url="https://youtube.com/watch?v=over123",
+        video_id="over123",
+        status=JobStatus.queued,
+        output_title="Over Episode",
+        destination_folder="OverShow",
+        collision_mode="overwrite",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = ["[download] 100% of 1.00MiB\n"]
+    mock_proc.returncode = 0
+    mock_popen.return_value = mock_proc
+
+    downloaded = tmp_path / "work" / "job-over" / "download" / "Over Episode.m4a"
+    downloaded.parent.mkdir(parents=True, exist_ok=True)
+    downloaded.write_bytes(b"audio")
+    mock_find.return_value = downloaded
+    mock_remux.side_effect = _fake_remux_writes_staged(b"new-m4b-content")
+    mock_verify.return_value = FfprobeResult(
+        file_size=len(b"new-m4b-content"),
+        has_audio=True,
+        chapter_count=0,
+        duration_seconds=10.0,
+        codec_name="aac",
+    )
+
+    ImportPipeline(test_db, mock_settings, "job-over").run()
+
+    test_db.refresh(job)
+    assert job.status == JobStatus.succeeded
+    assert existing.read_bytes() == b"new-m4b-content"
+    mock_popen.assert_called()
+    mock_remux.assert_called()
+
+
+@patch("app.services.process_runner.subprocess.Popen")
+@patch("app.services.import_pipeline.YtDlpService.find_downloaded_file")
+@patch("app.services.import_pipeline.FfmpegService.run_remux")
+@patch("app.services.import_pipeline.FfmpegService.verify_output")
+def test_pipeline_retry_bypasses_download_archive(
+    mock_verify, mock_remux, mock_find, mock_popen, test_db, mock_settings, tmp_path
+):
+    """Second attempt must pass force_archive_bypass even without allow_reimport."""
+    job = Job(
+        id="job-retry-arch",
+        url="https://youtube.com/watch?v=arch123",
+        video_id="arch123",
+        status=JobStatus.queued,
+        output_title="Archive Retry",
+        destination_folder="Arch",
+        collision_mode="overwrite",
+        attempts=1,  # prior failed attempt; pipeline increments to 2
+        allow_reimport=False,
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = ["[download] 100% of 1.00MiB\n"]
+    mock_proc.returncode = 0
+    mock_popen.return_value = mock_proc
+
+    downloaded = tmp_path / "work" / "job-retry-arch" / "download" / "Archive Retry.m4a"
+    downloaded.parent.mkdir(parents=True, exist_ok=True)
+    downloaded.write_bytes(b"audio")
+    mock_find.return_value = downloaded
+    mock_remux.side_effect = _fake_remux_writes_staged(b"x" * 50)
+    mock_verify.return_value = FfprobeResult(
+        file_size=50,
+        has_audio=True,
+        chapter_count=0,
+        duration_seconds=5.0,
+        codec_name="aac",
+    )
+
+    captured: dict = {}
+
+    def _capture(url, job_id, output_template, **kwargs):
+        captured.update(kwargs)
+        return ["yt-dlp", "-o", output_template, "--", url]
+
+    with patch(
+        "app.services.import_pipeline.YtDlpService.build_download_command",
+        side_effect=_capture,
+    ):
+        ImportPipeline(test_db, mock_settings, "job-retry-arch").run()
+
+    assert captured.get("force_archive_bypass") is True
+    test_db.refresh(job)
+    assert job.status == JobStatus.succeeded
+    assert job.attempts == 2

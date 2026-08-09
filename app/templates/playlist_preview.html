@@ -71,13 +71,15 @@
 
           <div class="max-h-[28rem] overflow-y-auto custom-scrollbar border border-panel-line/30 rounded-lg divide-y divide-panel-line/30">
             {% for entry in meta.entries %}
-            <label class="flex items-start gap-3 p-3 hover:bg-panel-raised/60 cursor-pointer transition-colors">
+            {% set already_imported = imported_ids is defined and entry.id in imported_ids %}
+            <label class="flex items-start gap-3 p-3 hover:bg-panel-raised/60 cursor-pointer transition-colors {% if already_imported %}opacity-80{% endif %}">
               <input
                 type="checkbox"
                 name="selected"
                 value="{{ entry.id | e }}"
                 class="entry-select mt-1 h-4 w-4 accent-amber cursor-pointer"
-                checked
+                {% if already_imported %}data-already-imported="true"{% endif %}
+                {% if not already_imported %}checked{% endif %}
               />
               {% if entry.thumbnail %}
               <img
@@ -98,6 +100,7 @@
                 <span class="font-code text-code text-paper-muted">
                   {{ entry.duration | duration }}
                   {% if entry.uploader %} · {{ entry.uploader | e }}{% endif %}
+                  {% if already_imported %} · <span class="text-amber">Already imported</span>{% endif %}
                 </span>
               </div>
               <input type="hidden" name="title_{{ entry.id | e }}" value="{{ entry.title | e }}" />
@@ -150,6 +153,7 @@
             <div class="flex flex-col gap-2">
               <label for="new_folder" class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">
                 Or Create New Folder
+                <span class="font-label-md text-label-md text-paper-muted lowercase normal-case">(leave empty to use selection above)</span>
               </label>
               <div class="relative flex items-center">
                 <span class="material-symbols-outlined absolute left-3 text-paper-muted text-[18px]">create_new_folder</span>
@@ -159,12 +163,17 @@
                   type="text"
                   class="w-full pl-10 pr-4 py-2.5 bg-panel-raised border border-panel-line rounded-lg font-body-md text-paper focus:ring-2 focus:ring-amber focus:border-amber transition-all outline-none input-focus-glow"
                   placeholder="e.g. @mychannelname"
-                  value="{{ (meta.uploader_id or meta.channel or '') | e }}"
                 />
               </div>
             </div>
 
             {{ import_options_panel(settings, 'batch') }}
+
+            <p id="batch-all-imported-notice" class="hidden text-body-md text-paper-muted border border-panel-line/40 rounded-lg p-3 bg-panel-raised/50">
+              All videos in this list were already imported. Enable
+              <span class="text-paper">Allow importing this video again</span>
+              to re-queue them, or select none and cancel.
+            </p>
 
             <p id="batch-form-error" class="hidden text-body-md text-error"></p>
 
@@ -211,21 +220,72 @@
     const selectNoneBtn = document.getElementById('select-none-btn');
     const selectionCount = document.getElementById('selection-count');
     const errorEl = document.getElementById('batch-form-error');
+    const allImportedNotice = document.getElementById('batch-all-imported-notice');
     const submitBtn = document.getElementById('create-batch-btn');
+    const destSelect = document.getElementById('destination_folder');
+    const newFolderInput = document.getElementById('new_folder');
+    const allowReimport = document.getElementById('batch_allow_reimport');
     const total = checkboxes.length;
+    const importedCount = checkboxes.filter((cb) => cb.dataset.alreadyImported === 'true').length;
+    const allAlreadyImported = total > 0 && importedCount === total;
+
+    const reimportEnabled = () => Boolean(allowReimport && allowReimport.checked);
 
     const updateCount = () => {
       const selected = checkboxes.filter((cb) => cb.checked).length;
       if (selectionCount) {
         selectionCount.textContent = `${selected} / ${total} selected`;
       }
+      const showAllImported = allAlreadyImported && !reimportEnabled();
+      if (allImportedNotice) {
+        allImportedNotice.classList.toggle('hidden', !showAllImported);
+      }
+      if (submitBtn) {
+        submitBtn.disabled = showAllImported || selected === 0;
+      }
+    };
+
+    const syncImportedChecks = () => {
+      if (reimportEnabled()) return;
+      checkboxes.forEach((cb) => {
+        if (cb.dataset.alreadyImported === 'true') {
+          cb.checked = false;
+        }
+      });
+      updateCount();
     };
 
     checkboxes.forEach((cb) => cb.addEventListener('change', updateCount));
+    if (allowReimport) {
+      allowReimport.addEventListener('change', () => {
+        if (!reimportEnabled()) {
+          syncImportedChecks();
+        } else {
+          updateCount();
+        }
+      });
+    }
+
+    if (destSelect && newFolderInput) {
+      destSelect.addEventListener('change', () => {
+        if (destSelect.value) {
+          newFolderInput.value = '';
+        }
+      });
+      newFolderInput.addEventListener('input', () => {
+        if (newFolderInput.value.trim()) {
+          destSelect.value = '';
+        }
+      });
+    }
 
     if (selectAllBtn) {
       selectAllBtn.addEventListener('click', () => {
-        checkboxes.forEach((cb) => { cb.checked = true; });
+        const includeImported = reimportEnabled();
+        checkboxes.forEach((cb) => {
+          const imported = cb.dataset.alreadyImported === 'true';
+          cb.checked = includeImported || !imported;
+        });
         updateCount();
       });
     }
@@ -243,7 +303,9 @@
         if (selected === 0) {
           event.preventDefault();
           if (errorEl) {
-            errorEl.textContent = 'Select at least one video to import.';
+            errorEl.textContent = allAlreadyImported && !reimportEnabled()
+              ? 'All videos were already imported. Enable Allow importing this video again to re-queue.'
+              : 'Select at least one video to import.';
             errorEl.classList.remove('hidden');
           }
           return;

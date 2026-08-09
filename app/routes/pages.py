@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import Settings, get_setting_sources, reload_settings, save_settings
 from app.diagnostics import format_free_space
+from app.path_checks import check_writable_directory
 from app.routes import DbDep, SettingsDep
 from app.services.filesystem import FilesystemService
 from app.services.jobs import (
@@ -19,6 +20,7 @@ from app.services.jobs import (
     DuplicateVideoError,
     InvalidJobUrlError,
     JobSubmitParams,
+    get_imported_video_ids,
     get_job,
     get_jobs_list,
     get_recent_jobs,
@@ -47,10 +49,11 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
-def _format_duration(seconds: int | None) -> str:
+def _format_duration(seconds: int | float | None) -> str:
     if seconds is None:
         return "--:--"
-    h, rem = divmod(seconds, 3600)
+    total = int(seconds)
+    h, rem = divmod(total, 3600)
     m, s = divmod(rem, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
@@ -179,6 +182,7 @@ async def page_home(request: Request, db: DbDep, cfg: SettingsDep) -> HTMLRespon
 async def page_preview(
     request: Request,
     cfg: SettingsDep,
+    db: DbDep,
     url: str = Form(...),
 ) -> HTMLResponse:
     svc = YtDlpService(cfg)
@@ -213,6 +217,8 @@ async def page_preview(
                 },
                 status_code=422,
             )
+        entry_ids = [entry.id for entry in playlist_meta.entries if entry.id]
+        imported_ids = await get_imported_video_ids(db, entry_ids)
         return templates.TemplateResponse(
             "playlist_preview.html",
             {
@@ -223,6 +229,7 @@ async def page_preview(
                 "url": url,
                 "default_folder": cfg.default_destination_folder or "",
                 "max_entries": cfg.max_playlist_entries,
+                "imported_ids": imported_ids,
             },
         )
 
@@ -523,6 +530,22 @@ async def page_job_detail(
     if log_path.exists():
         log_content = log_path.read_text(encoding="utf-8", errors="replace")
 
+    conversion_meta: dict[str, object] = {}
+    collision_meta: dict[str, object] = {}
+    if job.attempts_log:
+        latest = max(job.attempts_log, key=lambda a: a.started_at or a.id)
+        if latest.artifact_metadata:
+            try:
+                import json
+
+                parsed = json.loads(latest.artifact_metadata)
+                if isinstance(parsed.get("conversion"), dict):
+                    conversion_meta = parsed["conversion"]
+                if isinstance(parsed.get("collision"), dict):
+                    collision_meta = parsed["collision"]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
     return templates.TemplateResponse(
         "job_detail.html",
         {
@@ -530,6 +553,8 @@ async def page_job_detail(
             "settings": cfg,
             "job": job,
             "log": log_content,
+            "conversion_meta": conversion_meta,
+            "collision_meta": collision_meta,
         },
     )
 
@@ -571,6 +596,8 @@ def _build_settings_context(
         "error": error,
         "success": success,
         "warnings": warnings or [],
+        "library_path_writable": check_writable_directory(cfg.output_root, create=False) is None,
+        "library_path": str(cfg.output_root),
     }
 
 

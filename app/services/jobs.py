@@ -440,9 +440,22 @@ async def get_imported_video(session: AsyncSession, video_id: str) -> ImportedVi
     return result.scalar_one_or_none()
 
 
+async def get_imported_video_ids(session: AsyncSession, video_ids: list[str]) -> set[str]:
+    """Return the subset of *video_ids* already present in the dedup ledger."""
+    normalized = [vid.strip() for vid in video_ids if vid and vid.strip()]
+    if not normalized:
+        return set()
+    result = await session.execute(
+        select(ImportedVideo.video_id).where(ImportedVideo.video_id.in_(normalized))
+    )
+    return {row[0] for row in result.all()}
+
+
 async def get_job(session: AsyncSession, job_id: str) -> Job | None:
     result = await session.execute(
-        select(Job).options(selectinload(Job.batch)).where(Job.id == job_id)
+        select(Job)
+        .options(selectinload(Job.batch), selectinload(Job.attempts_log))
+        .where(Job.id == job_id)
     )
     return result.scalar_one_or_none()
 

@@ -171,15 +171,38 @@ def test_download_command_archive(tmp_path: Path):
     assert cmd[idx + 1] == str(archive)
 
 
-def test_download_command_skip_archive():
-    svc = make_svc()
+def test_download_command_force_archive_bypass(tmp_path: Path):
+    archive = tmp_path / "archive.txt"
+    svc = make_svc(ARCHIVE_FILE=str(archive))
     cmd = svc.build_download_command(
         "https://youtu.be/abc123",
         "job-1",
         "/tmp/out/%(title)s.%(ext)s",
-        use_archive=False,
+        use_archive=True,
+        force_archive_bypass=True,
     )
     assert "--download-archive" not in cmd
+
+
+def test_find_downloaded_file_prefers_requested_format(tmp_path: Path, monkeypatch):
+    work = tmp_path / "work" / "job-1" / "download" / "uploader"
+    work.mkdir(parents=True)
+    (work / "clip.opus").write_bytes(b"opus-bytes")
+    (work / "clip.m4a").write_bytes(b"m4a-bytes-longer!!")
+    svc = make_svc(WORK_DIR=str(tmp_path / "work"), YTDLP_AUDIO_FORMAT="m4a")
+    found = svc.find_downloaded_file("job-1", preferred_format="opus")
+    assert found is not None
+    assert found.suffix == ".opus"
+
+
+def test_find_downloaded_file_falls_back_to_mp3(tmp_path: Path):
+    work = tmp_path / "work" / "job-2" / "download"
+    work.mkdir(parents=True)
+    (work / "clip.mp3").write_bytes(b"mp3")
+    svc = make_svc(WORK_DIR=str(tmp_path / "work"), YTDLP_AUDIO_FORMAT="m4a")
+    found = svc.find_downloaded_file("job-2")
+    assert found is not None
+    assert found.suffix == ".mp3"
 
 
 def test_download_command_extra_args():

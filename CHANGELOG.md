@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.10.0](https://github.com/andrewtryder/reeldock/compare/v1.9.0...v1.10.0) (2026-08-10)
+
+
+### Features
+
+* **import:** enforce M4B contract and fix collision/ABS/retry semantics ([e177d06](https://github.com/andrewtryder/reeldock/commit/e177d068616bd8a7f3e282925fa2b2bb7f18c276))
+* **import:** enforce M4B contract and fix collision/ABS/retry semantics ([53f415b](https://github.com/andrewtryder/reeldock/commit/53f415baeebb610dce36788d05fac88bce017812))
+* **ui:** polish home import and download postprocess feedback ([#122](https://github.com/andrewtryder/reeldock/issues/122)) ([1ad2503](https://github.com/andrewtryder/reeldock/commit/1ad25038b20c4790e600dc5747f495edda173fdb))
+* **ui:** polish job progress and import status UX ([#119](https://github.com/andrewtryder/reeldock/issues/119)) ([800b889](https://github.com/andrewtryder/reeldock/commit/800b8895da1bdae86ca97606ca0ac0704f01a0c1))
+* **ui:** show resolved audiobook destination on preview ([#120](https://github.com/andrewtryder/reeldock/issues/120)) ([be78424](https://github.com/andrewtryder/reeldock/commit/be78424d3d5b80e10bd0f756a91b2871b55f9fbc))
+
+
+### Bug Fixes
+
+* **deps:** bump FastAPI to 0.141 and migrate TemplateResponse ([#124](https://github.com/andrewtryder/reeldock/issues/124)) ([8577a0d](https://github.com/andrewtryder/reeldock/commit/8577a0d08100efd80d050a998677263ed7ef4061))
+* **import:** close [#116](https://github.com/andrewtryder/reeldock/issues/116) pre-merge edge cases ([bef7e8b](https://github.com/andrewtryder/reeldock/commit/bef7e8bab1eb5de588851c2b88425d498eddc967))
+
 ## [1.9.0](https://github.com/andrewtryder/reeldock/compare/v1.8.0...v1.9.0) (2026-08-08)
 
 ### Features

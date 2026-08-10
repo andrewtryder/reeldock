@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.9.0...browser-extension-v1.10.0) (2026-08-10)
+
+
+### Features
+
+* **import:** enforce M4B contract and fix collision/ABS/retry semantics ([e177d06](https://github.com/andrewtryder/reeldock/commit/e177d068616bd8a7f3e282925fa2b2bb7f18c276))
+* **import:** enforce M4B contract and fix collision/ABS/retry semantics ([53f415b](https://github.com/andrewtryder/reeldock/commit/53f415baeebb610dce36788d05fac88bce017812))
+
 ## [1.9.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.8.0...browser-extension-v1.9.0) (2026-08-08)
 
 ### Features

@@ -26,7 +26,13 @@ from app.services.jobs import (
     sync_record_attempt,
     sync_update_job,
 )
-from app.services.ytdlp import YtDlpService, parse_ytdlp_progress_line
+from app.services.ytdlp import (
+    YTDLP_PHASE_PREPARING,
+    YtDlpService,
+    classify_ytdlp_download_line,
+    parse_ytdlp_progress_line,
+    ytdlp_postprocess_label,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -425,7 +431,7 @@ class ImportPipeline:
             self._set_progress(
                 job,
                 percent=0.0,
-                label="Downloading…",
+                label="Downloading source…",
                 eta="",
                 speed="",
                 force=True,
@@ -474,7 +480,7 @@ class ImportPipeline:
 
             self._set_progress(
                 job,
-                percent=100.0,
+                clear_percent=True,
                 label="Download complete",
                 eta="",
                 speed="",
@@ -984,11 +990,26 @@ class ImportPipeline:
                 progress_info = parse_ytdlp_progress_line(line)
                 if progress_info and progress_info.percent is not None:
                     # Stage-local download percent (0-100); UI does not treat
-                    # this as whole-job completion.
+                    # this as whole-job completion. At 100% the network transfer
+                    # is done but yt-dlp may still ExtractAudio — clear percent.
                     dl_pct = max(0.0, min(100.0, float(progress_info.percent)))
-                    pct_int = round(dl_pct)
                     now = time.time()
 
+                    if dl_pct >= 100.0:
+                        preparing = ytdlp_postprocess_label(YTDLP_PHASE_PREPARING)
+                        if job.progress_percent is not None or job.progress_label != preparing:
+                            self._set_progress(
+                                job,
+                                clear_percent=True,
+                                label=preparing,
+                                eta="",
+                                speed="",
+                                force=True,
+                            )
+                            self._last_progress = 100.0
+                        return
+
+                    pct_int = round(dl_pct)
                     prog_changed = pct_int != round(self._last_progress)
                     eta_changed = progress_info.eta != (job.progress_eta or "")
                     speed_changed = progress_info.speed != (job.progress_speed or "")
@@ -1002,11 +1023,25 @@ class ImportPipeline:
                             progress_percent=round(dl_pct, 1),
                             progress_eta=progress_info.eta,
                             progress_speed=progress_info.speed,
-                            progress_label="Downloading…",
+                            progress_label="Downloading source…",
                         )
                         self.db.commit()
                         self._last_progress = dl_pct
                         self._last_progress_write_time = now
+                    return
+
+                phase = classify_ytdlp_download_line(line)
+                if phase:
+                    label = ytdlp_postprocess_label(phase)
+                    if job.progress_label != label or job.progress_percent is not None:
+                        self._set_progress(
+                            job,
+                            clear_percent=True,
+                            label=label,
+                            eta="",
+                            speed="",
+                            force=True,
+                        )
 
         res = run_streaming_process(
             cmd,

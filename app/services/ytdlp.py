@@ -543,6 +543,40 @@ class DownloadProgress:
     raw_line: str | None = None
 
 
+# Post-download yt-dlp phases while the download subprocess is still running.
+YTDLP_PHASE_PREPARING = "preparing"
+YTDLP_PHASE_EXTRACT_AUDIO = "extract_audio"
+YTDLP_PHASE_FINALIZING = "finalizing"
+
+_YTDLP_POSTPROCESS_LABELS: dict[str, str] = {
+    YTDLP_PHASE_PREPARING: "Download received — preparing audio…",
+    YTDLP_PHASE_EXTRACT_AUDIO: "Extracting audio from downloaded video…",
+    YTDLP_PHASE_FINALIZING: "Finalizing downloaded audio…",
+}
+
+
+def classify_ytdlp_download_line(line: str) -> str | None:
+    """Classify yt-dlp download/postprocess log lines for Download-stage UI.
+
+    Returns a phase key for postprocessor feedback, or None when the line
+    should not change the progress label. Percent progress is handled by
+    :func:`parse_ytdlp_progress_line`.
+    """
+    line_str = line.strip()
+    if not line_str:
+        return None
+    if "[ExtractAudio]" in line_str:
+        return YTDLP_PHASE_EXTRACT_AUDIO
+    if "Deleting original file" in line_str:
+        return YTDLP_PHASE_FINALIZING
+    return None
+
+
+def ytdlp_postprocess_label(phase: str) -> str:
+    """Human label for a Download-stage postprocessor phase."""
+    return _YTDLP_POSTPROCESS_LABELS.get(phase, "Download received — preparing audio…")
+
+
 def parse_ytdlp_progress_line(line: str) -> DownloadProgress | None:
     """
     Parse a yt-dlp progress line and extract percentage, speed, ETA, and size.

@@ -270,3 +270,22 @@
   </div>
 </div>
 {%- endmacro %}
+
+{% macro audiobook_destination_summary(dest, show_filename=true) -%}
+{# dest: DestinationPreview-like object with heading, folder_path, filename #}
+<div
+  id="audiobook-destination-summary"
+  class="rounded-lg border border-panel-line bg-panel-raised/60 p-3"
+  data-destination-summary
+  aria-live="polite"
+>
+  <p class="font-label-md text-label-md text-paper-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+    <span class="material-symbols-outlined text-amber text-[16px]">folder_open</span>
+    <span data-dest-heading>{{ dest.heading }}</span>
+  </p>
+  <p class="font-code text-code text-amber break-all" data-dest-folder>{{ dest.folder_path }}</p>
+  {% if show_filename %}
+  <p class="font-code text-code text-paper break-all mt-1{% if not dest.filename %} hidden{% endif %}" data-dest-filename>{{ dest.filename or '' }}</p>
+  {% endif %}
+</div>
+{%- endmacro %}

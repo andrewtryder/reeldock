@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import import_options_panel %}
+{% from "_macros.html" import import_options_panel, audiobook_destination_summary %}
 {% block title %}Preview: {{ meta.title | e }} — reeldock{% endblock %}
 
 {% block content %}
@@ -135,7 +135,7 @@
                 name="destination_folder"
                 class="w-full bg-panel-raised border border-panel-line rounded-lg px-4 py-2.5 font-body-md text-paper focus:ring-2 focus:ring-amber focus:border-amber transition-all outline-none input-focus-glow"
               >
-                <option value="">— Select folder —</option>
+                <option value="">{{ blank_folder_label | e }}</option>
                 {% for folder in folders %}
                 <option value="{{ folder | e }}"
                   {% if folder == default_folder or folder == meta.uploader_id or folder == meta.uploader or folder == meta.channel %}
@@ -145,8 +145,12 @@
                 {% endfor %}
               </select>
               <p class="font-label-md text-label-md text-paper-muted opacity-70">
-                Applied to every selected video under
-                <code class="font-code text-code text-amber">{{ settings.output_root }}</code>
+                {% if default_folder %}
+                Applied to every selected video. Blank uses your default under
+                {% else %}
+                Applied to every selected video. Blank saves directly under
+                {% endif %}
+                <code class="font-code text-code text-amber">{{ settings.output_root }}</code>.
               </p>
             </div>
 
@@ -166,6 +170,8 @@
                 />
               </div>
             </div>
+
+            {{ audiobook_destination_summary(dest_preview, show_filename=false) }}
 
             {{ import_options_panel(settings, 'batch') }}
 
@@ -267,15 +273,44 @@
     }
 
     if (destSelect && newFolderInput) {
+      const summary = document.querySelector('[data-destination-summary]');
+      let destTimer = null;
+
+      function applyDestSummary(data) {
+        if (!summary || !data) return;
+        const heading = summary.querySelector('[data-dest-heading]');
+        const folder = summary.querySelector('[data-dest-folder]');
+        if (heading && data.heading) heading.textContent = data.heading;
+        if (folder && data.folder_path) folder.textContent = data.folder_path;
+      }
+
+      function refreshDestination() {
+        const body = new FormData();
+        body.set('summary_kind', 'batch');
+        body.set('new_folder', newFolderInput.value);
+        body.set('destination_folder', destSelect.value);
+        fetch('/preview/destination', { method: 'POST', body })
+          .then((r) => (r.ok ? r.json() : null))
+          .then(applyDestSummary)
+          .catch(() => {});
+      }
+
+      function scheduleDestRefresh() {
+        if (destTimer) clearTimeout(destTimer);
+        destTimer = setTimeout(refreshDestination, 150);
+      }
+
       destSelect.addEventListener('change', () => {
         if (destSelect.value) {
           newFolderInput.value = '';
         }
+        scheduleDestRefresh();
       });
       newFolderInput.addEventListener('input', () => {
         if (newFolderInput.value.trim()) {
           destSelect.value = '';
         }
+        scheduleDestRefresh();
       });
     }
 

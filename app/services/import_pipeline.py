@@ -584,7 +584,7 @@ class ImportPipeline:
                     if probe_in.duration_seconds and probe_in.duration_seconds > 0:
                         media_duration = float(probe_in.duration_seconds)
                         if not job.duration:
-                            job.duration = int(round(media_duration))
+                            job.duration = round(media_duration)
                             self.db.commit()
                 except (FileNotFoundError, RuntimeError, OSError):
                     media_duration = None

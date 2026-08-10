@@ -54,9 +54,12 @@
 {% set _active_statuses = ['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
 {% set show_progress = status in _active_statuses or job.progress_percent is not none or job.progress is not none or job.progress_label %}
 {% set _raw_pct = job.progress_percent if job.progress_percent is not none else (job.progress if job.progress is not none else none) %}
-{% set _bar_pct = _raw_pct if _raw_pct is not none else 0 %}
-{% if _bar_pct > 100 %}{% set _bar_pct = 100 %}{% endif %}
 {% set _stage_names = ['Queued', 'Download', 'Convert', 'Verify', 'Save', 'Scan', 'Done'] %}
+{% set _can_be_determinate = _cur in [1, 2] %}
+{% set _show_pct = _can_be_determinate and _raw_pct is not none %}
+{% set _bar_pct = _raw_pct if _show_pct else 0 %}
+{% if _bar_pct > 100 %}{% set _bar_pct = 100 %}{% endif %}
+{% set _indeterminate_active = status in _active_statuses and not _show_pct and status != 'queued' %}
 
 {# ── Display labels ── #}
 {% set _coll_labels = {'skip': 'Skip', 'overwrite': 'Overwrite', 'append_id': 'Append video ID', 'append_counter': 'Append counter'} %}
@@ -265,7 +268,7 @@
         <div class="progress-metric flex items-baseline gap-2">
           <span class="progress-value font-headline-lg text-[42px] text-amber font-bold" id="job-progress-text">
             {%- if status == 'succeeded' -%}100%
-            {%- elif _raw_pct is not none -%}{{ _raw_pct }}%
+            {%- elif _show_pct -%}{{ _raw_pct }}%
             {%- else -%}—{%- endif -%}
           </span>
           <span class="font-label-md text-paper-muted uppercase tracking-wider" id="processing-label">
@@ -275,7 +278,7 @@
             {%- else -%}PROCESSING{%- endif -%}
           </span>
         </div>
-        <div class="progress-detail-row flex gap-gutter text-right" id="speed-eta-row">
+        <div class="progress-detail-row flex gap-gutter text-right" id="speed-eta-row"{% if not _show_pct %} style="display: none;"{% endif %}>
           <div>
             <p class="font-label-md text-label-md text-paper-muted uppercase tracking-wide">Speed</p>
             <p class="font-code text-headline-sm text-paper-muted" id="job-progress-speed">{{ job.progress_speed or '—' }}</p>
@@ -287,7 +290,7 @@
         </div>
       </div>
       <div class="mb-stack-md" id="job-progress-bar">
-        {{ vu_meter(percent=_bar_pct, segments=20, failed=(status in ['failed', 'cancelled'])) }}
+        {{ vu_meter(percent=_bar_pct, segments=20, failed=(status in ['failed', 'cancelled']), indeterminate=_indeterminate_active) }}
       </div>
       <div class="flex items-center gap-3 text-paper-muted">
         <span class="material-symbols-outlined text-[18px] text-amber">info</span>
@@ -463,7 +466,8 @@ function resolveTimelineSteps(status, phase) {
 
 function resolveStageMeta(status, phase) {
   const index = _stepIndex(status, phase);
-  return { index, name: STAGE_NAMES[index], determinate: index === 1 || index === 2 };
+  // Download/Convert *can* be determinate; actual UI uses percent presence.
+  return { index, name: STAGE_NAMES[index], canBeDeterminate: index === 1 || index === 2 };
 }
 
 function renderTimeline(steps) {
@@ -519,18 +523,32 @@ function setStatusBadge(container, status) {
 
 // ─── VU meter ─────────────────────────────────────────────────────────────
 
-function updateVuMeter(container, pct, failed) {
+function updateVuMeter(container, pct, failed, indeterminate) {
   if (!container) return;
   const meter = container.classList.contains('vu-meter') ? container : container.querySelector('.vu-meter');
   if (!meter) return;
   const segs = meter.querySelectorAll('.vu-seg');
   const n = segs.length;
+  meter.classList.toggle('vu-meter-failed', !!failed);
+  meter.classList.toggle('vu-meter-indeterminate', !!indeterminate && !failed);
+  if (indeterminate && !failed) {
+    meter.setAttribute('aria-valuenow', '0');
+    meter.setAttribute('aria-valuetext', 'Processing');
+    segs.forEach((seg, i) => {
+      seg.classList.add('is-lit');
+      seg.style.setProperty('--vu-i', String(i));
+    });
+    return;
+  }
+  meter.removeAttribute('aria-valuetext');
   let lit = Math.floor((pct / 100) * n);
   if (pct > 0 && lit < 1) lit = 1;
   if (pct >= 100) lit = n;
-  meter.classList.toggle('vu-meter-failed', !!failed);
   meter.setAttribute('aria-valuenow', String(Math.round(pct)));
-  segs.forEach((seg, i) => seg.classList.toggle('is-lit', i < lit));
+  segs.forEach((seg, i) => {
+    seg.classList.toggle('is-lit', i < lit);
+    seg.style.removeProperty('--vu-i');
+  });
 }
 
 // ─── Main render ──────────────────────────────────────────────────────────
@@ -585,22 +603,21 @@ function renderJobState(job) {
     const meta = resolveStageMeta(status, phase);
     if (stepLabel) stepLabel.textContent = `Step ${meta.index + 1} of 7 · ${meta.name}`;
 
-    // Show precise percent only for determinate stages (download/convert)
-    const showPct = pct !== null && meta.determinate;
+    // Determinate only when Download/Convert *and* a numeric stage percent exists.
+    const showPct = pct !== null && meta.canBeDeterminate;
     if (progressText) {
       if (showPct) {
         progressText.textContent = (pct !== Math.floor(pct)) ? pct.toFixed(1) + '%' : Math.round(pct) + '%';
       } else {
-        // Indeterminate — hide fake precision
         progressText.textContent = '—';
       }
     }
 
-    updateVuMeter(progressBar, showPct ? Math.min(100, Math.max(0, pct)) : 0, false);
+    updateVuMeter(progressBar, showPct ? Math.min(100, Math.max(0, pct)) : 0, false, !showPct);
     if (processingLbl) processingLbl.textContent = 'PROCESSING';
-    if (speedEtaRow) speedEtaRow.style.display = meta.determinate ? '' : 'none';
-    if (speedEl) speedEl.textContent = (meta.determinate && job.progress_speed) ? job.progress_speed : '—';
-    if (etaEl)   etaEl.textContent   = (meta.determinate && job.progress_eta)   ? job.progress_eta   : '—';
+    if (speedEtaRow) speedEtaRow.style.display = showPct ? '' : 'none';
+    if (speedEl) speedEl.textContent = (showPct && job.progress_speed) ? job.progress_speed : '—';
+    if (etaEl)   etaEl.textContent   = (showPct && job.progress_eta)   ? job.progress_eta   : '—';
     if (progressLabel) progressLabel.textContent = job.progress_label || `Stage: ${phase || status}`;
 
   } else if (status === 'succeeded') {
@@ -608,14 +625,14 @@ function renderJobState(job) {
     if (stepLabel)    stepLabel.textContent    = 'Step 7 of 7 · Done';
     if (progressText) progressText.textContent = '100%';
     if (processingLbl) processingLbl.textContent = 'COMPLETE';
-    updateVuMeter(progressBar, 100, false);
+    updateVuMeter(progressBar, 100, false, false);
     if (speedEtaRow) speedEtaRow.style.display = 'none';
 
   } else {
     // failed or cancelled
     if (progressRow) progressRow.style.display = '';
     const failedPct = pct !== null ? Math.min(100, Math.max(0, pct)) : 0;
-    updateVuMeter(progressBar, failedPct, true);
+    updateVuMeter(progressBar, failedPct, true, false);
     if (progressText) progressText.textContent = failedPct > 0 ? Math.round(failedPct) + '%' : '—';
     if (processingLbl) processingLbl.textContent = status === 'failed' ? 'FAILED' : 'CANCELLED';
     if (speedEtaRow) speedEtaRow.style.display = 'none';

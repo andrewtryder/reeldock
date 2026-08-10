@@ -330,3 +330,27 @@ def test_parse_ytdlp_progress_line():
     assert res.total is None
     assert res.speed is None
     assert res.eta is None
+
+
+def test_classify_ytdlp_download_line():
+    from app.services.ytdlp import (
+        YTDLP_PHASE_EXTRACT_AUDIO,
+        YTDLP_PHASE_FINALIZING,
+        classify_ytdlp_download_line,
+        ytdlp_postprocess_label,
+    )
+
+    assert (
+        classify_ytdlp_download_line("[ExtractAudio] Destination: /tmp/video.m4a")
+        == YTDLP_PHASE_EXTRACT_AUDIO
+    )
+    assert (
+        classify_ytdlp_download_line("Deleting original file /tmp/video.webm (pass -k to keep)")
+        == YTDLP_PHASE_FINALIZING
+    )
+    assert (
+        classify_ytdlp_download_line("[download]  12.3% of 48.55MiB at 3.21MiB/s ETA 00:13") is None
+    )
+    assert classify_ytdlp_download_line("[youtube] id: Downloading webpage") is None
+    assert "Extracting audio" in ytdlp_postprocess_label(YTDLP_PHASE_EXTRACT_AUDIO)
+    assert "Finalizing" in ytdlp_postprocess_label(YTDLP_PHASE_FINALIZING)

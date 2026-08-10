@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import import_options_panel %}
+{% from "_macros.html" import import_options_panel, audiobook_destination_summary %}
 {% block title %}Preview: {{ meta.title | e }} — reeldock{% endblock %}
 
 {% block content %}
@@ -129,7 +129,7 @@
                 name="destination_folder"
                 class="w-full bg-panel-raised border border-panel-line rounded-lg px-4 py-2.5 font-body-md text-paper focus:ring-2 focus:ring-amber focus:border-amber transition-all outline-none input-focus-glow"
               >
-                <option value="">— Select folder —</option>
+                <option value="">{{ blank_folder_label | e }}</option>
                 {% for folder in folders %}
                 <option value="{{ folder | e }}"
                   {% if folder == default_folder or folder == meta.uploader_id or folder == meta.uploader %}
@@ -138,7 +138,14 @@
                 >{{ folder | e }}</option>
                 {% endfor %}
               </select>
-              <p class="font-label-md text-label-md text-paper-muted opacity-70">Folder under media root: <code class="font-code text-code text-amber">{{ settings.output_root }}</code></p>
+              <p class="font-label-md text-label-md text-paper-muted opacity-70">
+                {% if default_folder %}
+                Blank uses your default folder under
+                {% else %}
+                Blank saves directly under the audiobook library path
+                {% endif %}
+                <code class="font-code text-code text-amber">{{ settings.output_root }}</code>.
+              </p>
             </div>
 
             <!-- New folder creation -->
@@ -158,6 +165,8 @@
                 />
               </div>
             </div>
+
+            {{ audiobook_destination_summary(dest_preview, show_filename=true) }}
 
             <!-- Embed options -->
             {{ import_options_panel(settings, 'import') }}
@@ -201,18 +210,72 @@
   (() => {
     const destSelect = document.getElementById('destination_folder');
     const newFolderInput = document.getElementById('new_folder');
+    const form = document.getElementById('import-form');
+    const summary = document.querySelector('[data-destination-summary]');
+    const titleInput = document.getElementById('output_title');
+    const templateInput = document.getElementById('import_filename_template');
+    const collisionInput = document.getElementById('import_collision_mode');
+    let timer = null;
+
+    function applySummary(data) {
+      if (!summary || !data) return;
+      const heading = summary.querySelector('[data-dest-heading]');
+      const folder = summary.querySelector('[data-dest-folder]');
+      const filename = summary.querySelector('[data-dest-filename]');
+      if (heading && data.heading) heading.textContent = data.heading;
+      if (folder && data.folder_path) folder.textContent = data.folder_path;
+      if (filename) {
+        if (data.filename) {
+          filename.textContent = data.filename;
+          filename.classList.remove('hidden');
+        } else {
+          filename.textContent = '';
+          filename.classList.add('hidden');
+        }
+      }
+    }
+
+    function refreshDestination() {
+      if (!form) return;
+      const body = new FormData();
+      body.set('summary_kind', 'single');
+      body.set('new_folder', newFolderInput ? newFolderInput.value : '');
+      body.set('destination_folder', destSelect ? destSelect.value : '');
+      body.set('output_title', titleInput ? titleInput.value : '');
+      body.set('video_id', (form.querySelector('[name="video_id"]') || {}).value || '');
+      body.set('uploader', (form.querySelector('[name="uploader"]') || {}).value || '');
+      body.set('channel', (form.querySelector('[name="channel"]') || {}).value || '');
+      body.set('upload_date', (form.querySelector('[name="upload_date"]') || {}).value || '');
+      body.set('filename_template', templateInput ? templateInput.value : '');
+      body.set('collision_mode', collisionInput ? collisionInput.value : '');
+      fetch('/preview/destination', { method: 'POST', body })
+        .then((r) => (r.ok ? r.json() : null))
+        .then(applySummary)
+        .catch(() => {});
+    }
+
+    function scheduleRefresh() {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(refreshDestination, 150);
+    }
+
     if (destSelect && newFolderInput) {
       destSelect.addEventListener('change', () => {
         if (destSelect.value) {
           newFolderInput.value = '';
         }
+        scheduleRefresh();
       });
       newFolderInput.addEventListener('input', () => {
         if (newFolderInput.value.trim()) {
           destSelect.value = '';
         }
+        scheduleRefresh();
       });
     }
+    if (titleInput) titleInput.addEventListener('input', scheduleRefresh);
+    if (templateInput) templateInput.addEventListener('input', scheduleRefresh);
+    if (collisionInput) collisionInput.addEventListener('change', scheduleRefresh);
   })();
 
   document.getElementById('import-form').addEventListener('submit', function(e) {

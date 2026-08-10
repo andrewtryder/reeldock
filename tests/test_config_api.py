@@ -69,3 +69,51 @@ def test_api_folders_returns_list(client: TestClient):
 def test_api_preview_rejects_invalid_url(client: TestClient):
     response = client.post("/api/preview", data={"url": "not-a-valid-url"})
     assert response.status_code == 400
+
+
+def test_destination_summary_api_single(client: TestClient):
+    response = client.post(
+        "/preview/destination",
+        data={
+            "summary_kind": "single",
+            "destination_folder": "Shows",
+            "output_title": "Washer Repair",
+            "video_id": "abc",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["destination_folder"] == "Shows"
+    assert body["filename"] == "Washer Repair.m4b"
+    assert body["folder_path"].endswith("Shows/")
+    assert body["summary_kind"] == "single"
+
+
+def test_destination_summary_api_batch(client: TestClient):
+    response = client.post(
+        "/preview/destination",
+        data={
+            "summary_kind": "batch",
+            "new_folder": "NewBatch",
+            "destination_folder": "Ignored",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["destination_folder"] == "NewBatch"
+    assert body["filename"] is None
+    assert body["folder_path"].endswith("NewBatch/")
+    assert body["summary_kind"] == "batch"
+
+
+def test_destination_summary_api_rejects_traversal(client: TestClient):
+    response = client.post(
+        "/preview/destination",
+        data={
+            "summary_kind": "single",
+            "new_folder": "../escape",
+            "output_title": "T",
+            "video_id": "v",
+        },
+    )
+    assert response.status_code == 400

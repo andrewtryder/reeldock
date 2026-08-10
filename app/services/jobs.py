@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import Settings
 from app.models import ImportBatch, ImportedVideo, Job, JobAttempt, JobStatus
 from app.queue import enqueue_job_task
+from app.services.destination import resolve_destination_folder
 from app.services.filesystem import FilesystemService
 from app.services.ytdlp import PlaylistEntry, YtDlpService
 
@@ -186,11 +187,14 @@ async def submit_job(
         if not validation.valid:
             raise InvalidJobUrlError(validation.error or "Invalid URL")
 
-    destination_folder = params.destination_folder or ""
-    if params.new_folder.strip():
-        fs = FilesystemService(settings)
-        fs.create_folder(params.new_folder.strip())
-        destination_folder = params.new_folder.strip()
+    new_folder = (params.new_folder or "").strip()
+    if new_folder:
+        FilesystemService(settings).create_folder(new_folder)
+    destination_folder = resolve_destination_folder(
+        new_folder=params.new_folder or "",
+        destination_folder=params.destination_folder or "",
+        default_destination_folder=settings.default_destination_folder,
+    )
 
     job = await create_job(
         session,
@@ -254,11 +258,14 @@ async def submit_batch(
     if params.source_type not in {"playlist", "channel"}:
         raise ValueError("source_type must be 'playlist' or 'channel'")
 
-    destination_folder = params.destination_folder or ""
-    if params.new_folder.strip():
-        fs = FilesystemService(settings)
-        fs.create_folder(params.new_folder.strip())
-        destination_folder = params.new_folder.strip()
+    new_folder = (params.new_folder or "").strip()
+    if new_folder:
+        FilesystemService(settings).create_folder(new_folder)
+    destination_folder = resolve_destination_folder(
+        new_folder=params.new_folder or "",
+        destination_folder=params.destination_folder or "",
+        default_destination_folder=settings.default_destination_folder,
+    )
     resolved_destination = _or_none(destination_folder)
 
     batch = ImportBatch(

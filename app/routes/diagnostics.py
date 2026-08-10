@@ -19,6 +19,7 @@ router = APIRouter(tags=["diagnostics"])
 async def page_diagnostics(request: Request, cfg: SettingsDep) -> HTMLResponse:
     checks = await asyncio.to_thread(run_diagnostics, cfg)
     return templates.TemplateResponse(
+        request,
         "diagnostics.html",
         {
             "request": request,

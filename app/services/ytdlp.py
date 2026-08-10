@@ -458,27 +458,46 @@ class YtDlpService:
         template = "%(uploader_id,channel_id,channel,uploader|Unknown Channel)s/%(title)s.%(ext)s"
         return str(s.work_dir / job_id / "download" / template)
 
-    def find_downloaded_file(self, job_id: str) -> Path | None:
+    def find_downloaded_file(
+        self, job_id: str, *, preferred_format: str | None = None
+    ) -> Path | None:
         """
         Locate the downloaded audio file under the job's work dir.
 
-        Returns the first .m4a (or configured format) file found, or None.
+        Prefers *preferred_format* (or the configured YTDLP_AUDIO_FORMAT), then
+        falls back to common audio containers yt-dlp may emit.
         """
         s = self.settings
         download_dir = s.work_dir / job_id / "download"
         if not download_dir.exists():
             return None
 
-        ext = s.ytdlp_audio_format.lstrip(".")
-        matches = list(download_dir.rglob(f"*.{ext}"))
-        if matches:
-            return matches[0]
+        preferred = (preferred_format or s.ytdlp_audio_format or "m4a").lstrip(".").lower()
+        # Prefer largest match when multiple files share an extension.
+        preferred_matches = list(download_dir.rglob(f"*.{preferred}"))
+        if preferred_matches:
+            return max(preferred_matches, key=lambda p: p.stat().st_size)
 
-        # Fallback: any audio file
-        for pattern in ("*.m4a", "*.mp4", "*.opus", "*.webm"):
-            found = list(download_dir.rglob(pattern))
+        # Fallback: common extractable / remuxable audio containers.
+        fallback_exts = (
+            "m4a",
+            "mp3",
+            "opus",
+            "ogg",
+            "flac",
+            "wav",
+            "aac",
+            "m4b",
+            "mp4",
+            "webm",
+            "mkv",
+        )
+        for ext in fallback_exts:
+            if ext == preferred:
+                continue
+            found = list(download_dir.rglob(f"*.{ext}"))
             if found:
-                return found[0]
+                return max(found, key=lambda p: p.stat().st_size)
 
         return None
 
@@ -522,6 +541,40 @@ class DownloadProgress:
     downloaded: str | None = None
     total: str | None = None
     raw_line: str | None = None
+
+
+# Post-download yt-dlp phases while the download subprocess is still running.
+YTDLP_PHASE_PREPARING = "preparing"
+YTDLP_PHASE_EXTRACT_AUDIO = "extract_audio"
+YTDLP_PHASE_FINALIZING = "finalizing"
+
+_YTDLP_POSTPROCESS_LABELS: dict[str, str] = {
+    YTDLP_PHASE_PREPARING: "Download received — preparing audio…",
+    YTDLP_PHASE_EXTRACT_AUDIO: "Extracting audio from downloaded video…",
+    YTDLP_PHASE_FINALIZING: "Finalizing downloaded audio…",
+}
+
+
+def classify_ytdlp_download_line(line: str) -> str | None:
+    """Classify yt-dlp download/postprocess log lines for Download-stage UI.
+
+    Returns a phase key for postprocessor feedback, or None when the line
+    should not change the progress label. Percent progress is handled by
+    :func:`parse_ytdlp_progress_line`.
+    """
+    line_str = line.strip()
+    if not line_str:
+        return None
+    if "[ExtractAudio]" in line_str:
+        return YTDLP_PHASE_EXTRACT_AUDIO
+    if "Deleting original file" in line_str:
+        return YTDLP_PHASE_FINALIZING
+    return None
+
+
+def ytdlp_postprocess_label(phase: str) -> str:
+    """Human label for a Download-stage postprocessor phase."""
+    return _YTDLP_POSTPROCESS_LABELS.get(phase, "Download received — preparing audio…")
 
 
 def parse_ytdlp_progress_line(line: str) -> DownloadProgress | None:

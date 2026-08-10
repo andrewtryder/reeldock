@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.8.0...browser-extension-v1.9.0) (2026-08-08)
+
+### Features
+
+* Require a configured API token for ReelDock extension API calls (HTTP Bearer and WebSocket); remove the optional auth toggle from Options ([#101](https://github.com/andrewtryder/reeldock/issues/101))
+* Move non-localhost server origins to optional host permissions requested when saving the server URL ([#101](https://github.com/andrewtryder/reeldock/issues/101))
+
 ## [1.8.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.7.1...browser-extension-v1.8.0) (2026-07-03)
 
 

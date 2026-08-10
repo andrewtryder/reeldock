@@ -179,6 +179,7 @@ def _advanced_fields_from_form(
 async def page_home(request: Request, db: DbDep, cfg: SettingsDep) -> HTMLResponse:
     recent_jobs = await get_recent_jobs(db, limit=6)
     return templates.TemplateResponse(
+        request,
         "index.html",
         {"request": request, "settings": cfg, "recent_jobs": recent_jobs},
     )
@@ -195,6 +196,7 @@ async def page_preview(
     validation = svc.validate_url(url)
     if not validation.valid:
         return templates.TemplateResponse(
+            request,
             "index.html",
             {
                 "request": request,
@@ -214,6 +216,7 @@ async def page_preview(
             playlist_meta = svc.run_playlist_preview(url, cfg.max_playlist_entries)
         except Exception as exc:
             return templates.TemplateResponse(
+                request,
                 "index.html",
                 {
                     "request": request,
@@ -240,6 +243,7 @@ async def page_preview(
             summary_kind="batch",
         )
         return templates.TemplateResponse(
+            request,
             "playlist_preview.html",
             {
                 "request": request,
@@ -261,6 +265,7 @@ async def page_preview(
         video_meta = svc.run_preview(url)
     except Exception as exc:
         return templates.TemplateResponse(
+            request,
             "index.html",
             {
                 "request": request,
@@ -289,6 +294,7 @@ async def page_preview(
         summary_kind="single",
     )
     return templates.TemplateResponse(
+        request,
         "preview.html",
         {
             "request": request,
@@ -401,6 +407,7 @@ async def page_create_job(
     )
     if validation_error:
         return templates.TemplateResponse(
+            request,
             "index.html",
             {"request": request, "settings": cfg, "error": validation_error, "url": url},
             status_code=400,
@@ -433,18 +440,21 @@ async def page_create_job(
         job, _rq_id = await submit_job(db, cfg, params)
     except InvalidJobUrlError as exc:
         return templates.TemplateResponse(
+            request,
             "index.html",
             {"request": request, "settings": cfg, "error": exc.error},
             status_code=400,
         )
     except DuplicateVideoError as exc:
         return templates.TemplateResponse(
+            request,
             "index.html",
             {"request": request, "settings": cfg, "error": str(exc)},
             status_code=409,
         )
     except ValueError as exc:
         return templates.TemplateResponse(
+            request,
             "index.html",
             {"request": request, "settings": cfg, "error": str(exc)},
             status_code=400,
@@ -519,6 +529,7 @@ async def page_create_batch(
     )
     if validation_error:
         return templates.TemplateResponse(
+            request,
             "index.html",
             {"request": request, "settings": cfg, "error": validation_error, "url": source_url},
             status_code=400,
@@ -544,6 +555,7 @@ async def page_create_batch(
         result = await submit_batch(db, cfg, params)
     except ValueError as exc:
         return templates.TemplateResponse(
+            request,
             "index.html",
             {"request": request, "settings": cfg, "error": str(exc), "url": source_url},
             status_code=400,
@@ -551,6 +563,7 @@ async def page_create_batch(
 
     if result.created == 0 and result.skipped_duplicate == 0:
         return templates.TemplateResponse(
+            request,
             "index.html",
             {
                 "request": request,
@@ -584,6 +597,7 @@ async def page_jobs(request: Request, db: DbDep, cfg: SettingsDep) -> HTMLRespon
     items = await get_jobs_list(db)
     highlight_batch = request.query_params.get("batch") or ""
     return templates.TemplateResponse(
+        request,
         "jobs.html",
         {
             "request": request,
@@ -625,6 +639,7 @@ async def page_job_detail(
                 pass
 
     return templates.TemplateResponse(
+        request,
         "job_detail.html",
         {
             "request": request,
@@ -715,6 +730,7 @@ def _process_settings_form(
 @router.get("/settings", response_class=HTMLResponse)
 async def page_settings(request: Request, cfg: SettingsDep) -> HTMLResponse:
     return templates.TemplateResponse(
+        request,
         "settings.html",
         _build_settings_context(request, cfg),
     )
@@ -734,6 +750,7 @@ async def page_update_settings(request: Request, cfg: SettingsDep) -> HTMLRespon
             spec.key: parse_form_value(form.get(spec.key), spec) for spec in SETTINGS_REGISTRY
         }
         return templates.TemplateResponse(
+            request,
             "settings.html",
             _build_settings_context(
                 request,
@@ -750,6 +767,7 @@ async def page_update_settings(request: Request, cfg: SettingsDep) -> HTMLRespon
     new_cfg = reload_settings()
 
     return templates.TemplateResponse(
+        request,
         "settings.html",
         _build_settings_context(
             request,

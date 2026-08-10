@@ -14,8 +14,7 @@ def _format_os_error(path: Path, exc: OSError, *, create: bool) -> str:
         if not create:
             return f"Path does not exist or the bind mount is not available yet: {path}"
         return (
-            f"Path is not writable: bind mount may not be ready yet ({path}). "
-            f"Original error: {exc}"
+            f"Path is not writable: bind mount may not be ready yet ({path}). Original error: {exc}"
         )
     return f"Path is not writable: {exc}"
 

@@ -42,7 +42,7 @@
 </svg>
 {%- endmacro %}
 
-{% macro vu_meter(percent=0, segments=20, failed=false, compact=false) -%}
+{% macro vu_meter(percent=0, segments=20, failed=false, compact=false, indeterminate=false) -%}
 {%- set raw = percent if percent is not none else 0 -%}
 {%- set pct = [0, [100, raw] | min] | max -%}
 {%- set floor_lit = ((pct / 100) * segments) | round(0, 'floor') | int -%}
@@ -50,15 +50,16 @@
 {%- set moss_start = (segments * 0.9) | int -%}
 {%- set gold_start = (segments * 0.7) | int -%}
 <div
-  class="vu-meter {{ 'vu-meter-compact' if compact else 'vu-meter-full' }} {{ 'vu-meter-failed' if failed else '' }}"
+  class="vu-meter {{ 'vu-meter-compact' if compact else 'vu-meter-full' }} {{ 'vu-meter-failed' if failed else '' }} {{ 'vu-meter-indeterminate' if indeterminate else '' }}"
   role="progressbar"
   aria-valuenow="{{ pct | int }}"
   aria-valuemin="0"
   aria-valuemax="100"
+  {% if indeterminate %}aria-valuetext="Processing"{% endif %}
   data-segments="{{ segments }}"
 >
   {%- for i in range(segments) -%}
-  <span class="vu-seg vu-seg-{{ 'moss' if i >= moss_start else ('gold' if i >= gold_start else 'amber') }} {{ 'is-lit' if i < lit else '' }}"></span>
+  <span class="vu-seg vu-seg-{{ 'moss' if i >= moss_start else ('gold' if i >= gold_start else 'amber') }} {{ 'is-lit' if (indeterminate or i < lit) else '' }}" style="{{ ('--vu-i:' ~ i ~ ';') if indeterminate else '' }}"></span>
   {%- endfor -%}
 </div>
 {%- endmacro %}

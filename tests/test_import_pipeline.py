@@ -689,6 +689,62 @@ def test_download_stage_100_is_not_complete(test_db, mock_settings):
     assert job.status == JobStatus.downloading
 
 
+def test_download_postprocess_clears_percent_at_100(test_db, mock_settings):
+    """Network 100% and ExtractAudio clear percent and set preparing/extracting labels."""
+    from app.services.process_runner import ProcessResult
+
+    job = Job(
+        id="job-dl-post",
+        url="https://youtube.com/watch?v=123",
+        status=JobStatus.downloading,
+        output_title="Post",
+        destination_folder="Show",
+        progress=42,
+        progress_percent=42.0,
+        progress_label="Downloading source…",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    pipeline = ImportPipeline(test_db, mock_settings, "job-dl-post")
+
+    def fake_run(cmd, *, log_line, check_cancelled, on_line=None):
+        assert on_line is not None
+        on_line("[download]  50.0% of 10.00MiB at 2.00MiB/s ETA 00:02")
+        test_db.refresh(job)
+        assert job.progress_percent == 50.0
+        assert job.progress_label == "Downloading source…"
+
+        on_line("[download] 100% of 10.00MiB in 00:05")
+        test_db.refresh(job)
+        assert job.progress_percent is None
+        assert "preparing audio" in (job.progress_label or "").lower()
+
+        on_line("[ExtractAudio] Destination: /tmp/work/video.m4a")
+        test_db.refresh(job)
+        assert job.progress_percent is None
+        assert "Extracting audio" in (job.progress_label or "")
+
+        on_line("Deleting original file /tmp/work/video.webm (pass -k to keep)")
+        test_db.refresh(job)
+        assert job.progress_percent is None
+        assert "Finalizing" in (job.progress_label or "")
+        return ProcessResult(returncode=0, cancelled=False)
+
+    with patch(
+        "app.services.process_runner.run_streaming_process",
+        side_effect=fake_run,
+    ):
+        ok = pipeline._run_subprocess(
+            ["yt-dlp", "https://example"],
+            log_func=lambda _m: None,
+            check_cancelled=lambda: False,
+            is_download=True,
+            job=job,
+        )
+    assert ok is True
+
+
 def test_save_stage_clears_percent_and_sets_label(test_db, mock_settings):
     """Commit/Save stages are indeterminate with product labels."""
     job = Job(

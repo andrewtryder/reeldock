@@ -26,7 +26,13 @@ from app.services.jobs import (
     sync_record_attempt,
     sync_update_job,
 )
-from app.services.ytdlp import YtDlpService, parse_ytdlp_progress_line
+from app.services.ytdlp import (
+    YTDLP_PHASE_PREPARING,
+    YtDlpService,
+    classify_ytdlp_download_line,
+    parse_ytdlp_progress_line,
+    ytdlp_postprocess_label,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,20 +79,9 @@ class PipelineFailedError(Exception):
 class ImportPipeline:
     """Synchronously orchestrates a job's import pipeline stages."""
 
-    # ── Progress ranges ─────────────────────────────────────────────────────
-    _RANGE_SETUP = (0.0, 2.0)
-    _RANGE_DOWNLOAD = (2.0, 70.0)
-    _RANGE_CONVERT = (72.0, 90.0)
-    # Milestones
-    _M_DOWNLOAD_DONE = 70.0
-    _M_LOCATING = 72.0
-    _M_PREPARE_CONVERT = 72.0
-    _M_CONVERT_DONE = 90.0
-    _M_VERIFY = 92.0
-    _M_VERIFIED = 94.0
-    _M_SCAN = 96.0
-    _M_CLEANUP = 98.0
-    _M_CLEANUP_DONE = 99.0
+    # Stage-local progress uses 0-100 within the active stage (download/convert).
+    # Indeterminate stages (verify/save/scan) clear percent and rely on labels.
+    # Only a succeeded job may persist 100 with label "Complete".
     _M_COMPLETE = 100.0
 
     _THROTTLE_INTERVAL = 1.0  # seconds between DB writes during streaming phases
@@ -112,9 +107,9 @@ class ImportPipeline:
 
     @staticmethod
     def _map_range(value: float, start: float, end: float) -> float:
-        """Map *value* (0.0 to 1.0) into [start, end] and clamp to 0-100."""
-        result = start + value * (end - start)
-        return max(0.0, min(100.0, result))
+        """Map *value* (0.0-1.0) into [start, end]. Overshoot clamps to *end*."""
+        ratio = max(0.0, min(1.0, value))
+        return start + ratio * (end - start)
 
     def _set_progress(
         self,
@@ -125,14 +120,42 @@ class ImportPipeline:
         eta: str | None = None,
         speed: str | None = None,
         force: bool = False,
+        clear_percent: bool = False,
     ) -> None:
-        """Persist progress fields, throttled unless *force* is True."""
+        """Persist progress fields, throttled unless *force* is True.
+
+        Stage-local percents may reach 100 for download/convert completion.
+        Job-complete ``100`` + ``Complete`` is reserved for the success path.
+        Indeterminate stages pass *clear_percent* so the UI does not reuse a
+        prior stage percent.
+        """
         now = time.time()
         pct_changed = percent is not None and round(percent) != round(job.progress_percent or 0)
         label_changed = label is not None and label != job.progress_label
         time_passed = now - self._last_progress_write_time > self._THROTTLE_INTERVAL
 
-        if not force and not pct_changed and not label_changed and not time_passed:
+        if (
+            not force
+            and not clear_percent
+            and not pct_changed
+            and not label_changed
+            and not time_passed
+        ):
+            return
+
+        if clear_percent:
+            job.progress = None
+            job.progress_percent = None
+            if label is not None:
+                job.progress_label = label
+            if eta is not None:
+                job.progress_eta = eta
+            if speed is not None:
+                job.progress_speed = speed
+            job.updated_at = datetime.now(tz=UTC)
+            self.db.flush()
+            self.db.commit()
+            self._last_progress_write_time = now
             return
 
         kwargs: dict[str, Any] = {}
@@ -217,12 +240,14 @@ class ImportPipeline:
             video_id = job.video_id or "unknown"
 
             try:
+                # Final audiobook container is always .m4b regardless of legacy
+                # per-job output_extension overrides.
                 output_path = fs.resolve_output_path(
                     dest_folder,
                     output_title,
                     video_id,
                     job.collision_mode,
-                    extension=job.output_extension,
+                    extension="m4b",
                     filename_template=job.filename_template,
                     uploader=job.uploader,
                     channel=job.channel,
@@ -235,7 +260,9 @@ class ImportPipeline:
             eff_ytdlp_extra = self._split_extra_args(job.ytdlp_extra_args)
             eff_ffmpeg_extra = self._split_extra_args(job.ffmpeg_extra_args)
             eff_cookies = Path(job.cookies_file) if job.cookies_file else None
-            eff_audio_format = job.audio_format
+            # Source extract format is pipeline-owned (m4a-friendly remux). Quality
+            # presets map to --audio-quality only; users no longer pick containers.
+            eff_audio_format = self.settings.ytdlp_audio_format or "m4a"
             eff_audio_quality = job.audio_quality
             eff_loudness_normalize = (
                 job.loudness_normalize
@@ -258,8 +285,59 @@ class ImportPipeline:
             log(f"URL: {job.url}")
             log(f"DRY_RUN: {eff_dry_run}")
             log(f"LOUDNESS_NORMALIZE: {eff_loudness_normalize}")
+            log(f"COLLISION_MODE: {job.collision_mode}")
 
             self._set_progress(job, percent=2.0, label="Setup complete", eta="", speed="")
+
+            # ── Collision skip: keep existing file, do not re-download/overwrite ─
+            if job.collision_mode == "skip" and output_path.exists():
+                log(
+                    f"[setup] Collision mode=skip and file exists; "
+                    f"reusing {output_path} without download or conversion"
+                )
+                # Filename collision is not proof this video_id produced the
+                # existing file — do not write ImportedVideo on this path.
+                log(
+                    "[setup] Dedup ledger not updated for collision skip "
+                    "(existing file ownership for this video_id is unconfirmed)"
+                )
+                existing_size = output_path.stat().st_size
+                self._set_progress(
+                    job,
+                    percent=self._M_COMPLETE,
+                    label="Skipped (file exists)",
+                    eta="",
+                    speed="",
+                    force=True,
+                )
+                sync_update_job(
+                    self.db,
+                    job,
+                    status=JobStatus.succeeded,
+                    phase="skipped_collision",
+                    final_output_path=str(output_path),
+                    output_file_size=existing_size,
+                )
+                self.db.commit()
+                sync_record_attempt(
+                    self.db,
+                    job,
+                    status="succeeded",
+                    started_at=started_at,
+                    finished_at=datetime.now(tz=UTC),
+                    artifact_metadata=json.dumps(
+                        {
+                            "collision": {
+                                "mode": "skip",
+                                "path": str(output_path),
+                                "filesize": existing_size,
+                            }
+                        }
+                    ),
+                )
+                self.db.commit()
+                log(f"=== Job {self.job_id} skipped (collision) ===")
+                return
 
             # ── DRY RUN Mode ──────────────────────────────────────────────────
             if eff_dry_run:
@@ -352,14 +430,19 @@ class ImportPipeline:
             self.db.commit()
             self._set_progress(
                 job,
-                percent=self._RANGE_DOWNLOAD[0],
-                label="Downloading",
+                percent=0.0,
+                label="Downloading source…",
                 eta="",
                 speed="",
+                force=True,
             )
             log("[download] Starting yt-dlp")
 
             dl_template = ytdlp_svc.get_output_template(self.job_id)
+            # Bypass yt-dlp's download-archive on retry attempts: archive may
+            # record success before conversion/commit finishes. Allow-reimport
+            # also bypasses so intentional redownloads are not blocked.
+            bypass_archive = bool(job.allow_reimport) or (job.attempts or 1) > 1
             dl_cmd = ytdlp_svc.build_download_command(
                 job.url,
                 self.job_id,
@@ -367,13 +450,18 @@ class ImportPipeline:
                 embed_metadata=job.embed_metadata,
                 embed_thumbnail=job.embed_thumbnail,
                 embed_chapters=job.embed_chapters,
-                force_archive_bypass=bool(job.allow_reimport),
+                force_archive_bypass=bypass_archive,
                 audio_format=eff_audio_format,
                 audio_quality=eff_audio_quality,
                 sponsorblock_remove=job.sponsorblock_remove,
                 cookies_file=eff_cookies,
                 extra_args=eff_ytdlp_extra,
             )
+            if bypass_archive:
+                log(
+                    "[download] Bypassing yt-dlp download-archive "
+                    f"(allow_reimport={bool(job.allow_reimport)} attempts={job.attempts})"
+                )
 
             # Ensure archive parent dir exists
             if self.settings.archive_file:
@@ -392,7 +480,7 @@ class ImportPipeline:
 
             self._set_progress(
                 job,
-                percent=self._M_DOWNLOAD_DONE,
+                clear_percent=True,
                 label="Download complete",
                 eta="",
                 speed="",
@@ -404,7 +492,7 @@ class ImportPipeline:
             # ── Locate Artifact ────────────────────────────────────────────────
             self._set_progress(
                 job,
-                percent=self._M_LOCATING,
+                clear_percent=True,
                 label="Locating downloaded audio",
                 eta="",
                 speed="",
@@ -418,7 +506,9 @@ class ImportPipeline:
             )
             self.db.commit()
 
-            downloaded_file = ytdlp_svc.find_downloaded_file(self.job_id)
+            downloaded_file = ytdlp_svc.find_downloaded_file(
+                self.job_id, preferred_format=eff_audio_format
+            )
             if downloaded_file is None:
                 # Check download archive message
                 log_content = ""
@@ -428,7 +518,8 @@ class ImportPipeline:
                 if "has already been recorded in the archive" in log_content:
                     err_msg = (
                         "Video has already been recorded in the download archive. "
-                        "To re-download, remove the video ID from your youtube-archive.txt file."
+                        "Retry this job to bypass the archive, or remove the video ID "
+                        "from your youtube-archive.txt file."
                     )
                 else:
                     err_msg = "Could not locate downloaded audio file in work directory"
@@ -437,7 +528,7 @@ class ImportPipeline:
             # Wrap in DownloadArtifact
             dl_artifact = DownloadArtifact(
                 path=downloaded_file,
-                format=eff_audio_format or self.settings.ytdlp_audio_format,
+                format=downloaded_file.suffix.lstrip(".") or eff_audio_format,
                 filesize=downloaded_file.stat().st_size,
                 title=job.source_title,
                 uploader=job.uploader,
@@ -449,7 +540,7 @@ class ImportPipeline:
 
             self._set_progress(
                 job,
-                percent=self._M_LOCATING,
+                clear_percent=True,
                 label="Download artifact ready",
                 eta="",
                 speed="",
@@ -462,7 +553,7 @@ class ImportPipeline:
             # ── Remux to .m4b ─────────────────────────────────────────────────
             self._set_progress(
                 job,
-                percent=self._M_PREPARE_CONVERT,
+                percent=0.0,
                 label="Preparing conversion",
                 eta="",
                 speed="",
@@ -487,6 +578,16 @@ class ImportPipeline:
 
             # Determine media duration for conversion progress mapping
             media_duration: float | None = float(job.duration) if job.duration is not None else None
+            if media_duration is None or media_duration <= 0:
+                try:
+                    probe_in = ffmpeg_svc.verify_output(dl_artifact.path)
+                    if probe_in.duration_seconds and probe_in.duration_seconds > 0:
+                        media_duration = float(probe_in.duration_seconds)
+                        if not job.duration:
+                            job.duration = int(round(media_duration))
+                            self.db.commit()
+                except (FileNotFoundError, RuntimeError, OSError):
+                    media_duration = None
 
             # Build progress callback for ffmpeg
             def _on_ffmpeg_progress(fp: FfmpegProgress) -> None:
@@ -496,24 +597,25 @@ class ImportPipeline:
                     and fp.out_time_seconds is not None
                 ):
                     ratio = min(fp.out_time_seconds / media_duration, 1.0)
-                    overall = self._map_range(ratio, *self._RANGE_CONVERT)
+                    stage_pct = round(ratio * 100.0, 1)
+                    processed = fp.out_time_seconds
                     label = (
                         "Retrying conversion without cover art"
                         if fp.raw.get("_fallback")
-                        else "Converting to M4B"
+                        else f"Converting audiobook… {processed:.0f}s / {media_duration:.0f}s"
                     )
                     self._set_progress(
                         job,
-                        percent=overall,
+                        percent=stage_pct,
                         label=label,
                         speed=fp.speed,
                     )
                 else:
                     self._set_progress(
                         job,
-                        percent=75.0,
-                        label="Converting to M4B",
-                        speed=fp.speed,
+                        clear_percent=True,
+                        label="Converting audiobook…",
+                        speed=fp.speed or "",
                     )
 
             # Wrap on_progress to inject fallback flag
@@ -545,7 +647,7 @@ class ImportPipeline:
 
             self._set_progress(
                 job,
-                percent=self._M_CONVERT_DONE,
+                percent=100.0,
                 label="Conversion complete",
                 eta="",
                 speed="",
@@ -574,8 +676,8 @@ class ImportPipeline:
             # ── Verify ────────────────────────────────────────────────────────
             self._set_progress(
                 job,
-                percent=self._M_VERIFY,
-                label="Verifying output",
+                clear_percent=True,
+                label="Checking audio, chapters and metadata…",
                 eta="",
                 speed="",
                 force=True,
@@ -604,7 +706,7 @@ class ImportPipeline:
 
                 self._set_progress(
                     job,
-                    percent=self._M_VERIFIED,
+                    clear_percent=True,
                     label="Output verified",
                     eta="",
                     speed="",
@@ -620,7 +722,7 @@ class ImportPipeline:
             except (FileNotFoundError, RuntimeError) as exc:
                 self._set_progress(
                     job,
-                    percent=self._M_VERIFY,
+                    clear_percent=True,
                     label="Verification failed",
                     eta="",
                     speed="",
@@ -632,6 +734,14 @@ class ImportPipeline:
                 raise PipelineCancelledError()
 
             # ── Commit staged output to final destination ─────────────────────
+            self._set_progress(
+                job,
+                clear_percent=True,
+                label="Saving audiobook to library…",
+                eta="",
+                speed="",
+                force=True,
+            )
             sync_update_job(self.db, job, phase="committing_output")
             self.db.commit()
             log(f"[commit] Publishing staged output to {output_path}")
@@ -655,6 +765,14 @@ class ImportPipeline:
             # From here on, conv_artifact.path refers to the committed file.
             conv_artifact.path = output_path
             log(f"[commit] Final output committed: {output_path} ({committed_size} bytes)")
+            self._set_progress(
+                job,
+                clear_percent=True,
+                label="Audiobook saved to library",
+                eta="",
+                speed="",
+                force=True,
+            )
             sync_update_job(self.db, job, phase="output_committed")
             self.db.commit()
 
@@ -662,11 +780,13 @@ class ImportPipeline:
                 raise PipelineCancelledError()
 
             # ── Audiobookshelf Scan ───────────────────────────────────────────
-            if job.trigger_abs_scan and self.settings.abs_scan_after_success:
+            # Per-job checkbox controls whether this job scans. Global
+            # ABS_SCAN_AFTER_SUCCESS is only the UI default for that checkbox.
+            if job.trigger_abs_scan:
                 self._set_progress(
                     job,
-                    percent=self._M_SCAN,
-                    label="Triggering Audiobookshelf scan",
+                    clear_percent=True,
+                    label="Refreshing Audiobookshelf…",
                     eta="",
                     speed="",
                     force=True,
@@ -684,7 +804,7 @@ class ImportPipeline:
                     log("[scan] ABS scan skipped (not configured)")
                     self._set_progress(
                         job,
-                        percent=self._M_SCAN,
+                        clear_percent=True,
                         label="Audiobookshelf scan skipped",
                         eta="",
                         speed="",
@@ -694,8 +814,8 @@ class ImportPipeline:
                     log("[scan] ABS scan triggered successfully")
                     self._set_progress(
                         job,
-                        percent=self._M_SCAN,
-                        label="Audiobookshelf scan triggered",
+                        clear_percent=True,
+                        label="Audiobookshelf refreshed",
                         eta="",
                         speed="",
                         force=True,
@@ -704,7 +824,7 @@ class ImportPipeline:
                     log(f"[scan] ABS scan failed (non-fatal): {scan_result.error}")
                     self._set_progress(
                         job,
-                        percent=self._M_SCAN,
+                        clear_percent=True,
                         label="Audiobookshelf scan failed",
                         eta="",
                         speed="",
@@ -717,7 +837,7 @@ class ImportPipeline:
             # ── Cleanup ───────────────────────────────────────────────────────
             self._set_progress(
                 job,
-                percent=self._M_CLEANUP,
+                clear_percent=True,
                 label="Cleaning up temporary files",
                 eta="",
                 speed="",
@@ -725,13 +845,18 @@ class ImportPipeline:
             )
             sync_update_job(self.db, job, phase="cleanup")
             self.db.commit()
+            # Always remove the staged file and any leftover temp sibling after a
+            # successful commit. The work-dir cleanup below remains settings-gated.
+            fs.cleanup_output_partials(staged_path, final_temp_path)
             if self.settings.cleanup_temp_on_success:
-                log("[cleanup] Cleaning up work directory")
                 fs.cleanup_work_dir(self.job_id)
+                log("[cleanup] Temporary files removed")
+            else:
+                log("[cleanup] Skipped work-dir cleanup (cleanup_temp_on_success=false)")
 
             self._set_progress(
                 job,
-                percent=self._M_CLEANUP_DONE,
+                clear_percent=True,
                 label="Cleanup complete",
                 eta="",
                 speed="",
@@ -864,13 +989,27 @@ class ImportPipeline:
             if is_download and job:
                 progress_info = parse_ytdlp_progress_line(line)
                 if progress_info and progress_info.percent is not None:
-                    dl_pct = progress_info.percent
-                    # Map download percent (0-100) into overall job range (2-70%)
-                    ratio = dl_pct / 100.0
-                    overall = self._map_range(ratio, *self._RANGE_DOWNLOAD)
-                    pct_int = round(overall)
+                    # Stage-local download percent (0-100); UI does not treat
+                    # this as whole-job completion. At 100% the network transfer
+                    # is done but yt-dlp may still ExtractAudio — clear percent.
+                    dl_pct = max(0.0, min(100.0, float(progress_info.percent)))
                     now = time.time()
 
+                    if dl_pct >= 100.0:
+                        preparing = ytdlp_postprocess_label(YTDLP_PHASE_PREPARING)
+                        if job.progress_percent is not None or job.progress_label != preparing:
+                            self._set_progress(
+                                job,
+                                clear_percent=True,
+                                label=preparing,
+                                eta="",
+                                speed="",
+                                force=True,
+                            )
+                            self._last_progress = 100.0
+                        return
+
+                    pct_int = round(dl_pct)
                     prog_changed = pct_int != round(self._last_progress)
                     eta_changed = progress_info.eta != (job.progress_eta or "")
                     speed_changed = progress_info.speed != (job.progress_speed or "")
@@ -881,14 +1020,28 @@ class ImportPipeline:
                             self.db,
                             job,
                             progress=pct_int,
-                            progress_percent=round(overall, 1),
+                            progress_percent=round(dl_pct, 1),
                             progress_eta=progress_info.eta,
                             progress_speed=progress_info.speed,
-                            progress_label="Downloading",
+                            progress_label="Downloading source…",
                         )
                         self.db.commit()
-                        self._last_progress = overall
+                        self._last_progress = dl_pct
                         self._last_progress_write_time = now
+                    return
+
+                phase = classify_ytdlp_download_line(line)
+                if phase:
+                    label = ytdlp_postprocess_label(phase)
+                    if job.progress_label != label or job.progress_percent is not None:
+                        self._set_progress(
+                            job,
+                            clear_percent=True,
+                            label=label,
+                            eta="",
+                            speed="",
+                            force=True,
+                        )
 
         res = run_streaming_process(
             cmd,

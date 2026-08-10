@@ -223,6 +223,18 @@ def test_output_path_collision_append_id(tmp_path: Path):
     assert result.name == "My Episode [abc123].m4b"
 
 
+def test_output_path_collision_overwrite(tmp_path: Path):
+    root = tmp_path / "out"
+    folder = root / "ChannelA"
+    folder.mkdir(parents=True)
+    existing = folder / "My Episode.m4b"
+    existing.write_bytes(b"x")
+    result = resolve_output_path(
+        root, "ChannelA", "My Episode", "abc123", collision_mode="overwrite"
+    )
+    assert result == existing
+
+
 def test_output_path_collision_skip(tmp_path: Path):
     root = tmp_path / "out"
     folder = root / "ChannelA"
@@ -243,6 +255,45 @@ def test_output_path_collision_append_counter(tmp_path: Path):
         root, "ChannelA", "My Episode", "abc123", collision_mode="append_counter"
     )
     assert result.name == "My Episode (2).m4b"
+
+
+def test_output_path_strips_embedded_mp3_extension(tmp_path: Path):
+    root = tmp_path / "out"
+    result = resolve_output_path(
+        root,
+        "Show",
+        "Episode Title",
+        "vid1",
+        collision_mode="append_id",
+        filename_template="{title}.mp3",
+    )
+    assert result.name == "Episode Title.m4b"
+
+
+def test_output_path_strips_embedded_m4b_extension(tmp_path: Path):
+    root = tmp_path / "out"
+    result = resolve_output_path(
+        root,
+        "Show",
+        "Episode Title",
+        "vid1",
+        collision_mode="append_id",
+        filename_template="{title}.m4b",
+    )
+    assert result.name == "Episode Title.m4b"
+
+
+def test_output_path_stem_only_template(tmp_path: Path):
+    root = tmp_path / "out"
+    result = resolve_output_path(
+        root,
+        "Show",
+        "Episode Title",
+        "vid1",
+        collision_mode="append_id",
+        filename_template="{title}",
+    )
+    assert result.name == "Episode Title.m4b"
 
 
 def test_output_path_traversal_rejected(tmp_path: Path):

@@ -98,11 +98,11 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
     SettingSpec(
         key="output_root",
         env_alias="OUTPUT_ROOT",
-        label="Output Root Directory",
+        label="Audiobook Library Path",
         group="paths",
         type=SettingType.PATH,
         default="/media/podcasts",
-        help_text="Base folder where finished audiobook files are written.",
+        help_text="Folder where finished .m4b audiobooks are written (shared with Audiobookshelf).",
         validate=_validate_absolute_writable_path,
     ),
     SettingSpec(
@@ -128,12 +128,15 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
     SettingSpec(
         key="collision_mode",
         env_alias="COLLISION_MODE",
-        label="Collision Mode",
+        label="If Audiobook File Already Exists",
         group="download",
         type=SettingType.ENUM,
         default="append_id",
         choices=COLLISION_CHOICES,
-        help_text="Strategy when the output file already exists.",
+        help_text=(
+            "skip keeps the file, overwrite replaces it, "
+            "append_id / append_counter create a new filename."
+        ),
     ),
     SettingSpec(
         key="output_extension",
@@ -142,7 +145,8 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         group="download",
         type=SettingType.STR,
         default="m4b",
-        help_text="File extension for finished output (usually m4b).",
+        help_text="Legacy setting; final audiobooks are always written as .m4b.",
+        show_in_ui=False,
     ),
     SettingSpec(
         key="allowed_domains",
@@ -170,7 +174,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="ytdlp_extra_args",
         env_alias="YTDLP_EXTRA_ARGS",
         label="yt-dlp Extra Arguments",
-        group="download",
+        group="expert",
         type=SettingType.SPACE_LIST,
         default="",
         help_text="Space-separated extra arguments passed to yt-dlp.",
@@ -180,7 +184,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="ffmpeg_extra_args",
         env_alias="FFMPEG_EXTRA_ARGS",
         label="ffmpeg Extra Arguments",
-        group="download",
+        group="expert",
         type=SettingType.SPACE_LIST,
         default="",
         help_text="Space-separated extra arguments passed to ffmpeg.",
@@ -235,7 +239,11 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         group="naming",
         type=SettingType.STR,
         default="{title}.m4b",
-        help_text="Template for the final output filename.",
+        help_text=(
+            "Template for the audiobook filename stem. Placeholders: {title}, "
+            "{video_id}, {uploader}, {channel}, {upload_date}. ReelDock always "
+            "appends .m4b (embedded media extensions in the template are stripped)."
+        ),
         validate=validate_filename_template,
     ),
     # ── Jobs ─────────────────────────────────────────────────────────────────
@@ -325,25 +333,29 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
     SettingSpec(
         key="abs_scan_after_success",
         env_alias="ABS_SCAN_AFTER_SUCCESS",
-        label="Trigger ABS Scan After Success",
+        label="Default ABS Scan After Success",
         group="runtime",
         type=SettingType.BOOL,
         default="false",
-        help_text="Request an Audiobookshelf library scan after successful imports.",
+        help_text=(
+            'Pre-checks the per-job "scan after success" checkbox. '
+            "Each job's submitted value controls whether that job triggers a scan."
+        ),
     ),
 ]
 
 SETTINGS_BY_KEY: dict[str, SettingSpec] = {spec.key: spec for spec in SETTINGS_REGISTRY}
 
 GROUP_LABELS: dict[str, str] = {
-    "paths": "Paths & Files",
+    "paths": "Library & Paths",
     "download": "Download & Processing",
     "naming": "Naming",
     "jobs": "Job Management",
     "runtime": "Runtime Behavior",
+    "expert": "Expert Settings",
 }
 
-GROUP_ORDER: tuple[str, ...] = ("paths", "download", "naming", "jobs", "runtime")
+GROUP_ORDER: tuple[str, ...] = ("paths", "download", "naming", "jobs", "runtime", "expert")
 
 
 def registry_groups() -> list[tuple[str, str, list[SettingSpec]]]:

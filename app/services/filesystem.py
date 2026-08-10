@@ -85,6 +85,31 @@ def _strip_extension_suffix(stem: str, ext: str) -> str:
     return stem
 
 
+# Media suffixes users may put in filename templates; final output is always .m4b.
+_MEDIA_STEM_SUFFIXES = (
+    ".m4b",
+    ".m4a",
+    ".mp3",
+    ".mp4",
+    ".aac",
+    ".opus",
+    ".ogg",
+    ".flac",
+    ".wav",
+    ".webm",
+    ".mkv",
+)
+
+
+def _strip_media_stem_suffix(stem: str) -> str:
+    """Strip a trailing media extension so ReelDock can own the .m4b suffix."""
+    lowered = stem.lower()
+    for suffix in _MEDIA_STEM_SUFFIXES:
+        if lowered.endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
 # ---------------------------------------------------------------------------
 # Path safety
 # ---------------------------------------------------------------------------
@@ -227,7 +252,9 @@ def resolve_output_path(
         channel=channel,
         upload_date=upload_date,
     )
-    safe_name = _strip_extension_suffix(rendered, ext)
+    # Templates may include a media extension (e.g. {title}.mp3 or {title}.m4b);
+    # strip any known media suffix so the final path is always stem + .m4b.
+    safe_name = _strip_media_stem_suffix(_strip_extension_suffix(rendered, ext))
     folder_path = resolve_safe_path(output_root, destination_folder)
     assert_within_root(output_root, folder_path)
 
@@ -348,13 +375,14 @@ class FilesystemService:
         upload_date: str | None = None,
     ) -> Path:
         mode = collision_mode or self.settings.collision_mode
+        # Audiobook output is always .m4b; ignore legacy OUTPUT_EXTENSION overrides.
         return resolve_output_path(
             self.settings.output_root,
             destination_folder,
             title,
             video_id,
             mode,
-            extension or self.settings.output_extension,
+            "m4b",
             filename_template or self.settings.filename_template,
             uploader=uploader,
             channel=channel,

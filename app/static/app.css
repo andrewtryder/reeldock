@@ -88,6 +88,25 @@
   background: #C1502E;
 }
 
+@keyframes vu-indeterminate-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+.vu-meter-indeterminate .vu-seg.is-lit {
+  opacity: 0.35;
+  animation: vu-indeterminate-pulse 1.2s ease-in-out infinite;
+  animation-delay: calc(var(--vu-i, 0) * 60ms);
+}
+.vu-meter-indeterminate .vu-seg-amber.is-lit {
+  background: #E8A33D;
+}
+.vu-meter-indeterminate .vu-seg-gold.is-lit {
+  background: #F2C878;
+}
+.vu-meter-indeterminate .vu-seg-moss.is-lit {
+  background: #6FA25E;
+}
+
 /* ── Signature: Reel Spinner ────────────────────────────────── */
 .reel-spinner {
   display: inline-block;

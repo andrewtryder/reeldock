@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from app.config import Settings
-from app.models import Base, Job, JobStatus
+from app.models import Base, ImportedVideo, Job, JobStatus
 from app.services.ffmpeg import FfprobeResult, RemuxResult
 from app.services.import_pipeline import ImportPipeline
 from sqlalchemy import create_engine, text
@@ -200,8 +200,9 @@ def test_pipeline_happy_path_with_abs_scan(
     test_db.add(job)
     test_db.commit()
 
-    # Enable ABS scan in settings
-    mock_settings.abs_scan_after_success = True
+    # Enable ABS credentials; global default scan flag is OFF — per-job
+    # checkbox alone must still trigger the scan.
+    mock_settings.abs_scan_after_success = False
     mock_settings.abs_base_url = "http://abs:1337"
     mock_settings.abs_api_token = "test-token"
     mock_settings.abs_library_id = "lib-1"
@@ -593,9 +594,9 @@ def test_map_range():
     assert ImportPipeline._map_range(0.5, 2.0, 70.0) == pytest.approx(36.0)
     assert ImportPipeline._map_range(1.0, 2.0, 70.0) == 70.0
 
-    # Clamping
-    assert ImportPipeline._map_range(-0.5, 2.0, 70.0) == 0.0
-    assert ImportPipeline._map_range(1.5, 2.0, 70.0) == 100.0
+    # Undershoot / overshoot clamp to range ends (never global 100 mid-job)
+    assert ImportPipeline._map_range(-0.5, 2.0, 70.0) == 2.0
+    assert ImportPipeline._map_range(1.5, 2.0, 70.0) == 70.0
 
     # Conversion range 72-90%
     assert ImportPipeline._map_range(0.0, 72.0, 90.0) == 72.0
@@ -604,29 +605,22 @@ def test_map_range():
 
 
 def test_download_progress_mapping():
-    """Verify yt-dlp percent maps into overall 2-70% range."""
-    # 0% -> 2%
-    assert ImportPipeline._map_range(0.0 / 100.0, 2.0, 70.0) == 2.0
-    # 50% -> 36%
-    assert ImportPipeline._map_range(50.0 / 100.0, 2.0, 70.0) == 36.0
-    # 100% -> 70%
-    assert ImportPipeline._map_range(100.0 / 100.0, 2.0, 70.0) == 70.0
+    """Download stage uses local 0-100 percent."""
+    assert ImportPipeline._map_range(0.0 / 100.0, 0.0, 100.0) == 0.0
+    assert ImportPipeline._map_range(50.0 / 100.0, 0.0, 100.0) == 50.0
+    assert ImportPipeline._map_range(100.0 / 100.0, 0.0, 100.0) == 100.0
 
 
 def test_conversion_progress_mapping_with_duration():
-    """Verify ffmpeg out_time maps into 72-90% when duration is known."""
-    # out_time=0, duration=100 -> 72% (ratio 0.0)
-    assert ImportPipeline._map_range(0.0 / 100.0, 72.0, 90.0) == 72.0
-    # out_time=50, duration=100 -> 81% (ratio 0.5)
-    assert ImportPipeline._map_range(50.0 / 100.0, 72.0, 90.0) == 81.0
-    # out_time=100, duration=100 -> 90% (ratio 1.0)
-    assert ImportPipeline._map_range(100.0 / 100.0, 72.0, 90.0) == 90.0
-    # out_time=200, duration=100 -> 90% clamped
-    assert ImportPipeline._map_range(200.0 / 100.0, 72.0, 90.0) == 100.0  # clamped by _map_range
+    """Convert stage maps media time into local 0-100; overshoot stays at 100."""
+    assert ImportPipeline._map_range(0.0 / 100.0, 0.0, 100.0) == 0.0
+    assert ImportPipeline._map_range(50.0 / 100.0, 0.0, 100.0) == 50.0
+    assert ImportPipeline._map_range(100.0 / 100.0, 0.0, 100.0) == 100.0
+    assert ImportPipeline._map_range(200.0 / 100.0, 0.0, 100.0) == 100.0
 
 
 def test_set_progress_clamping(test_db, mock_settings):
-    """Verify _set_progress clamps percent to 0-100."""
+    """Verify _set_progress clamps percent to 0-100 and can clear percent."""
     job = Job(
         id="job-clamp",
         url="https://youtube.com/watch?v=123",
@@ -657,8 +651,297 @@ def test_set_progress_clamping(test_db, mock_settings):
     assert job.progress_percent == 100.0
     assert job.progress_label == "Overflow"
 
-    # Label-only update
+    # Indeterminate stage clears percent
+    pipeline._set_progress(
+        job, clear_percent=True, label="Saving audiobook to library…", force=True
+    )
+    test_db.refresh(job)
+    assert job.progress_percent is None
+    assert job.progress_label == "Saving audiobook to library…"
+
+    # Label-only update leaves cleared percent
     pipeline._set_progress(job, label="Label only", force=True)
     test_db.refresh(job)
-    assert job.progress_percent == 100.0  # unchanged
+    assert job.progress_percent is None
     assert job.progress_label == "Label only"
+
+
+def test_download_stage_100_is_not_complete(test_db, mock_settings):
+    """Stage-local download 100% must not use the job-complete Complete label."""
+    job = Job(
+        id="job-dl100",
+        url="https://youtube.com/watch?v=123",
+        status=JobStatus.downloading,
+        output_title="DL 100",
+        destination_folder="Show",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    pipeline = ImportPipeline(test_db, mock_settings, "job-dl100")
+    pipeline._set_progress(
+        job, percent=100.0, label="Download complete", eta="", speed="", force=True
+    )
+    test_db.refresh(job)
+    assert job.progress_percent == 100.0
+    assert job.progress_label == "Download complete"
+    assert job.progress_label != "Complete"
+    assert job.status == JobStatus.downloading
+
+
+def test_download_postprocess_clears_percent_at_100(test_db, mock_settings):
+    """Network 100% and ExtractAudio clear percent and set preparing/extracting labels."""
+    from app.services.process_runner import ProcessResult
+
+    job = Job(
+        id="job-dl-post",
+        url="https://youtube.com/watch?v=123",
+        status=JobStatus.downloading,
+        output_title="Post",
+        destination_folder="Show",
+        progress=42,
+        progress_percent=42.0,
+        progress_label="Downloading source…",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    pipeline = ImportPipeline(test_db, mock_settings, "job-dl-post")
+
+    def fake_run(cmd, *, log_line, check_cancelled, on_line=None):
+        assert on_line is not None
+        on_line("[download]  50.0% of 10.00MiB at 2.00MiB/s ETA 00:02")
+        test_db.refresh(job)
+        assert job.progress_percent == 50.0
+        assert job.progress_label == "Downloading source…"
+
+        on_line("[download] 100% of 10.00MiB in 00:05")
+        test_db.refresh(job)
+        assert job.progress_percent is None
+        assert "preparing audio" in (job.progress_label or "").lower()
+
+        on_line("[ExtractAudio] Destination: /tmp/work/video.m4a")
+        test_db.refresh(job)
+        assert job.progress_percent is None
+        assert "Extracting audio" in (job.progress_label or "")
+
+        on_line("Deleting original file /tmp/work/video.webm (pass -k to keep)")
+        test_db.refresh(job)
+        assert job.progress_percent is None
+        assert "Finalizing" in (job.progress_label or "")
+        return ProcessResult(returncode=0, cancelled=False)
+
+    with patch(
+        "app.services.process_runner.run_streaming_process",
+        side_effect=fake_run,
+    ):
+        ok = pipeline._run_subprocess(
+            ["yt-dlp", "https://example"],
+            log_func=lambda _m: None,
+            check_cancelled=lambda: False,
+            is_download=True,
+            job=job,
+        )
+    assert ok is True
+
+
+def test_save_stage_clears_percent_and_sets_label(test_db, mock_settings):
+    """Commit/Save stages are indeterminate with product labels."""
+    job = Job(
+        id="job-save",
+        url="https://youtube.com/watch?v=123",
+        status=JobStatus.verifying,
+        phase="verified",
+        output_title="Save Test",
+        destination_folder="Show",
+        progress=90,
+        progress_percent=90.0,
+        progress_label="Convert complete",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    pipeline = ImportPipeline(test_db, mock_settings, "job-save")
+    pipeline._set_progress(
+        job,
+        clear_percent=True,
+        label="Saving audiobook to library…",
+        eta="",
+        speed="",
+        force=True,
+    )
+    test_db.refresh(job)
+    assert job.progress_percent is None
+    assert job.progress is None
+    assert job.progress_label == "Saving audiobook to library…"
+
+
+def test_success_sets_complete_100(test_db, mock_settings):
+    """Only the success Complete path should pair 100 with Complete."""
+    job = Job(
+        id="job-done",
+        url="https://youtube.com/watch?v=123",
+        status=JobStatus.scanning,
+        output_title="Done",
+        destination_folder="Show",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    pipeline = ImportPipeline(test_db, mock_settings, "job-done")
+    pipeline._set_progress(
+        job, percent=ImportPipeline._M_COMPLETE, label="Complete", eta="", speed="", force=True
+    )
+    test_db.refresh(job)
+    assert job.progress_percent == 100.0
+    assert job.progress_label == "Complete"
+
+
+@patch("app.services.process_runner.subprocess.Popen")
+@patch("app.services.import_pipeline.YtDlpService.find_downloaded_file")
+@patch("app.services.import_pipeline.FfmpegService.run_remux")
+def test_pipeline_collision_skip_does_not_download(
+    mock_remux, mock_find, mock_popen, test_db, mock_settings
+):
+    """skip mode must reuse the existing file and never download/convert/commit."""
+    dest = mock_settings.output_root / "SkipShow"
+    dest.mkdir(parents=True)
+    existing = dest / "Skip Episode.m4b"
+    existing.write_bytes(b"already-here")
+
+    job = Job(
+        id="job-skip",
+        url="https://youtube.com/watch?v=skip123",
+        video_id="skip123",
+        status=JobStatus.queued,
+        output_title="Skip Episode",
+        destination_folder="SkipShow",
+        collision_mode="skip",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    pipeline = ImportPipeline(test_db, mock_settings, "job-skip")
+    pipeline.run()
+
+    test_db.refresh(job)
+    assert job.status == JobStatus.succeeded
+    assert job.phase == "skipped_collision"
+    assert job.progress_label == "Skipped (file exists)"
+    assert job.final_output_path == str(existing)
+    assert job.output_file_size == existing.stat().st_size
+    assert existing.read_bytes() == b"already-here"
+    # Filename collision must not claim this video_id as imported.
+    assert test_db.get(ImportedVideo, "skip123") is None
+    mock_popen.assert_not_called()
+    mock_find.assert_not_called()
+    mock_remux.assert_not_called()
+
+
+@patch("app.services.process_runner.subprocess.Popen")
+@patch("app.services.import_pipeline.YtDlpService.find_downloaded_file")
+@patch("app.services.import_pipeline.FfmpegService.run_remux")
+@patch("app.services.import_pipeline.FfmpegService.verify_output")
+def test_pipeline_collision_overwrite_replaces_file(
+    mock_verify, mock_remux, mock_find, mock_popen, test_db, mock_settings, tmp_path
+):
+    dest = mock_settings.output_root / "OverShow"
+    dest.mkdir(parents=True)
+    existing = dest / "Over Episode.m4b"
+    existing.write_bytes(b"old-content")
+
+    job = Job(
+        id="job-over",
+        url="https://youtube.com/watch?v=over123",
+        video_id="over123",
+        status=JobStatus.queued,
+        output_title="Over Episode",
+        destination_folder="OverShow",
+        collision_mode="overwrite",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = ["[download] 100% of 1.00MiB\n"]
+    mock_proc.returncode = 0
+    mock_popen.return_value = mock_proc
+
+    downloaded = tmp_path / "work" / "job-over" / "download" / "Over Episode.m4a"
+    downloaded.parent.mkdir(parents=True, exist_ok=True)
+    downloaded.write_bytes(b"audio")
+    mock_find.return_value = downloaded
+    mock_remux.side_effect = _fake_remux_writes_staged(b"new-m4b-content")
+    mock_verify.return_value = FfprobeResult(
+        file_size=len(b"new-m4b-content"),
+        has_audio=True,
+        chapter_count=0,
+        duration_seconds=10.0,
+        codec_name="aac",
+    )
+
+    ImportPipeline(test_db, mock_settings, "job-over").run()
+
+    test_db.refresh(job)
+    assert job.status == JobStatus.succeeded
+    assert existing.read_bytes() == b"new-m4b-content"
+    mock_popen.assert_called()
+    mock_remux.assert_called()
+
+
+@patch("app.services.process_runner.subprocess.Popen")
+@patch("app.services.import_pipeline.YtDlpService.find_downloaded_file")
+@patch("app.services.import_pipeline.FfmpegService.run_remux")
+@patch("app.services.import_pipeline.FfmpegService.verify_output")
+def test_pipeline_retry_bypasses_download_archive(
+    mock_verify, mock_remux, mock_find, mock_popen, test_db, mock_settings, tmp_path
+):
+    """Second attempt must pass force_archive_bypass even without allow_reimport."""
+    job = Job(
+        id="job-retry-arch",
+        url="https://youtube.com/watch?v=arch123",
+        video_id="arch123",
+        status=JobStatus.queued,
+        output_title="Archive Retry",
+        destination_folder="Arch",
+        collision_mode="overwrite",
+        attempts=1,  # prior failed attempt; pipeline increments to 2
+        allow_reimport=False,
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = ["[download] 100% of 1.00MiB\n"]
+    mock_proc.returncode = 0
+    mock_popen.return_value = mock_proc
+
+    downloaded = tmp_path / "work" / "job-retry-arch" / "download" / "Archive Retry.m4a"
+    downloaded.parent.mkdir(parents=True, exist_ok=True)
+    downloaded.write_bytes(b"audio")
+    mock_find.return_value = downloaded
+    mock_remux.side_effect = _fake_remux_writes_staged(b"x" * 50)
+    mock_verify.return_value = FfprobeResult(
+        file_size=50,
+        has_audio=True,
+        chapter_count=0,
+        duration_seconds=5.0,
+        codec_name="aac",
+    )
+
+    captured: dict = {}
+
+    def _capture(url, job_id, output_template, **kwargs):
+        captured.update(kwargs)
+        return ["yt-dlp", "-o", output_template, "--", url]
+
+    with patch(
+        "app.services.import_pipeline.YtDlpService.build_download_command",
+        side_effect=_capture,
+    ):
+        ImportPipeline(test_db, mock_settings, "job-retry-arch").run()
+
+    assert captured.get("force_archive_bypass") is True
+    test_db.refresh(job)
+    assert job.status == JobStatus.succeeded
+    assert job.attempts == 2

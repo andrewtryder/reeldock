@@ -42,7 +42,7 @@
 </svg>
 {%- endmacro %}
 
-{% macro vu_meter(percent=0, segments=20, failed=false, compact=false) -%}
+{% macro vu_meter(percent=0, segments=20, failed=false, compact=false, indeterminate=false) -%}
 {%- set raw = percent if percent is not none else 0 -%}
 {%- set pct = [0, [100, raw] | min] | max -%}
 {%- set floor_lit = ((pct / 100) * segments) | round(0, 'floor') | int -%}
@@ -50,15 +50,16 @@
 {%- set moss_start = (segments * 0.9) | int -%}
 {%- set gold_start = (segments * 0.7) | int -%}
 <div
-  class="vu-meter {{ 'vu-meter-compact' if compact else 'vu-meter-full' }} {{ 'vu-meter-failed' if failed else '' }}"
+  class="vu-meter {{ 'vu-meter-compact' if compact else 'vu-meter-full' }} {{ 'vu-meter-failed' if failed else '' }} {{ 'vu-meter-indeterminate' if indeterminate else '' }}"
   role="progressbar"
   aria-valuenow="{{ pct | int }}"
   aria-valuemin="0"
   aria-valuemax="100"
+  {% if indeterminate %}aria-valuetext="Processing"{% endif %}
   data-segments="{{ segments }}"
 >
   {%- for i in range(segments) -%}
-  <span class="vu-seg vu-seg-{{ 'moss' if i >= moss_start else ('gold' if i >= gold_start else 'amber') }} {{ 'is-lit' if i < lit else '' }}"></span>
+  <span class="vu-seg vu-seg-{{ 'moss' if i >= moss_start else ('gold' if i >= gold_start else 'amber') }} {{ 'is-lit' if (indeterminate or i < lit) else '' }}" style="{{ ('--vu-i:' ~ i ~ ';') if indeterminate else '' }}"></span>
   {%- endfor -%}
 </div>
 {%- endmacro %}
@@ -127,12 +128,14 @@
       </div>
       <div class="flex flex-col gap-2 border-t border-panel-line/30 pt-3 mt-2">
         <span class="{{ label_class }}">Audio Quality</span>
-        {# Simple presets map to yt-dlp --audio-quality: Standard=128K, High=192K, Best=0 (best available) #}
+        {# Presets map to yt-dlp --audio-quality; final container is always .m4b #}
+        <input type="hidden" name="audio_quality" value="128K" data-audio-quality-input />
         <div class="flex flex-wrap gap-2" role="group" aria-label="Audio quality preset">
           <button type="button" class="{{ pill_btn }} mode-btn-active bg-amber-container/40 text-on-amber-container" data-quality-preset="128K">Standard</button>
           <button type="button" class="{{ pill_btn }}" data-quality-preset="192K">High</button>
           <button type="button" class="{{ pill_btn }}" data-quality-preset="0">Best</button>
         </div>
+        <p class="font-label-md text-label-md text-paper-muted opacity-75">Final audiobook is always saved as <span class="font-code text-code">.m4b</span>.</p>
       </div>
       {% if settings.abs_configured %}
       <div class="flex items-center gap-3 border-t border-panel-line/30 pt-3 mt-2">
@@ -142,9 +145,14 @@
         <label class="font-body-md text-body-md cursor-pointer select-none" for="{{ id_prefix }}_trigger_abs_scan">Trigger Audiobookshelf library scan after success</label>
       </div>
       {% endif %}
-      <div class="flex items-center gap-3 border-t border-panel-line/30 pt-3 mt-2">
-        <input type="checkbox" name="allow_reimport" value="true" id="{{ id_prefix }}_allow_reimport" class="custom-checkbox" />
-        <label class="font-body-md text-body-md cursor-pointer select-none" for="{{ id_prefix }}_allow_reimport">Allow re-import (overwrite duplicate guard)</label>
+      <div class="flex flex-col gap-1 border-t border-panel-line/30 pt-3 mt-2">
+        <div class="flex items-center gap-3">
+          <input type="checkbox" name="allow_reimport" value="true" id="{{ id_prefix }}_allow_reimport" class="custom-checkbox" />
+          <label class="font-body-md text-body-md cursor-pointer select-none" for="{{ id_prefix }}_allow_reimport">Allow importing this video again</label>
+        </div>
+        <p class="font-label-md text-label-md text-paper-muted opacity-75 pl-7">
+          Bypasses the duplicate-import guard. Filename collision mode still decides whether an existing audiobook file is reused, replaced, or saved under a new name.
+        </p>
       </div>
     </div>
   </fieldset>
@@ -155,36 +163,13 @@
       <p class="font-body-md text-body-md text-paper-muted mt-2 mb-4">Leave fields blank to use global Settings defaults.</p>
       <div class="space-y-4">
         <div class="flex flex-col gap-2">
-          <label for="{{ id_prefix }}_audio_format" class="{{ label_class }}">Audio Format</label>
-          <select id="{{ id_prefix }}_audio_format" name="audio_format" class="{{ input_class }}">
-            <option value="">— Use global default ({{ settings.ytdlp_audio_format | e }}) —</option>
-            {% for fmt in ['m4a', 'mp3', 'opus', 'wav', 'flac', 'aac', 'vorbis', 'best'] %}
-            <option value="{{ fmt }}">{{ fmt }}</option>
-            {% endfor %}
-          </select>
-        </div>
-
-        <div class="flex flex-col gap-2">
-          <label for="{{ id_prefix }}_audio_quality" class="{{ label_class }}">Precise Bitrate</label>
-          <input
-            id="{{ id_prefix }}_audio_quality"
-            name="audio_quality"
-            type="text"
-            class="{{ input_class }} font-code text-code"
-            value="128K"
-            data-audio-quality-input
-            placeholder="{{ settings.ytdlp_audio_quality or 'best' | e }}"
-          />
-        </div>
-
-        <div class="flex flex-col gap-2">
           <label for="{{ id_prefix }}_loudness_normalize" class="{{ label_class }}">Loudness Normalization</label>
           <select id="{{ id_prefix }}_loudness_normalize" name="loudness_normalize" class="{{ input_class }}">
             <option value="">— Use global default ({{ 'enabled' if settings.loudness_normalize else 'disabled' }}) —</option>
             <option value="true">Enabled</option>
             <option value="false">Disabled</option>
           </select>
-          <p class="font-label-md text-label-md text-paper-muted opacity-75">Re-encodes audio with ffmpeg loudnorm (EBU R128).</p>
+          <p class="font-label-md text-label-md text-paper-muted opacity-75">Re-encodes audio with ffmpeg loudnorm (EBU R128). When disabled, audio is stream-copied into the M4B when possible.</p>
         </div>
 
         <div class="flex flex-col gap-2">
@@ -211,24 +196,18 @@
         </div>
 
         <div class="flex flex-col gap-2">
-          <label for="{{ id_prefix }}_collision_mode" class="{{ label_class }}">Collision Mode</label>
+          <label for="{{ id_prefix }}_collision_mode" class="{{ label_class }}">If file already exists</label>
           <select id="{{ id_prefix }}_collision_mode" name="collision_mode" class="{{ input_class }}">
             <option value="">— Use global default ({{ settings.collision_mode | e }}) —</option>
             {% for choice in COLLISION_CHOICES %}
             <option value="{{ choice | e }}">{{ choice | e }}</option>
             {% endfor %}
           </select>
-        </div>
-
-        <div class="flex flex-col gap-2">
-          <label for="{{ id_prefix }}_output_extension" class="{{ label_class }}">Output Extension</label>
-          <input
-            id="{{ id_prefix }}_output_extension"
-            name="output_extension"
-            type="text"
-            class="{{ input_class }} font-code text-code"
-            placeholder="{{ settings.output_extension | e }}"
-          />
+          <p class="font-label-md text-label-md text-paper-muted opacity-75">
+            <span class="font-code text-code">skip</span> keeps the existing audiobook;
+            <span class="font-code text-code">overwrite</span> replaces it;
+            <span class="font-code text-code">append_id</span> / <span class="font-code text-code">append_counter</span> create a new filename.
+          </p>
         </div>
 
         <div class="flex flex-col gap-2">
@@ -240,50 +219,74 @@
             class="{{ input_class }} font-code text-code"
             placeholder="{{ settings.filename_template | e }}"
           />
-          <p class="font-label-md text-label-md text-paper-muted opacity-75">Placeholders: {title}, {video_id}, {uploader}, {channel}, {upload_date}</p>
+          <p class="font-label-md text-label-md text-paper-muted opacity-75">Placeholders: {title}, {video_id}, {uploader}, {channel}, {upload_date}. Extension is always <span class="font-code text-code">.m4b</span>.</p>
         </div>
 
-        <div class="flex flex-col gap-2">
-          <label for="{{ id_prefix }}_ytdlp_extra_args" class="{{ label_class }}">yt-dlp Extra Arguments</label>
-          <input
-            id="{{ id_prefix }}_ytdlp_extra_args"
-            name="ytdlp_extra_args"
-            type="text"
-            class="{{ input_class }} font-code text-code"
-            placeholder="{{ ytdlp_extra_placeholder | e }}"
-          />
-        </div>
+        <details class="border border-panel-line/40 rounded-lg p-3 bg-panel/40">
+          <summary class="font-label-md text-label-md text-paper-muted uppercase tracking-wider cursor-pointer select-none">Expert options</summary>
+          <div class="space-y-4 mt-4">
+            <div class="flex flex-col gap-2">
+              <label for="{{ id_prefix }}_ytdlp_extra_args" class="{{ label_class }}">yt-dlp Extra Arguments</label>
+              <input
+                id="{{ id_prefix }}_ytdlp_extra_args"
+                name="ytdlp_extra_args"
+                type="text"
+                class="{{ input_class }} font-code text-code"
+                placeholder="{{ ytdlp_extra_placeholder | e }}"
+              />
+            </div>
 
-        <div class="flex flex-col gap-2">
-          <label for="{{ id_prefix }}_ffmpeg_extra_args" class="{{ label_class }}">ffmpeg Extra Arguments</label>
-          <input
-            id="{{ id_prefix }}_ffmpeg_extra_args"
-            name="ffmpeg_extra_args"
-            type="text"
-            class="{{ input_class }} font-code text-code"
-            placeholder="{{ ffmpeg_extra_placeholder | e }}"
-          />
-        </div>
+            <div class="flex flex-col gap-2">
+              <label for="{{ id_prefix }}_ffmpeg_extra_args" class="{{ label_class }}">ffmpeg Extra Arguments</label>
+              <input
+                id="{{ id_prefix }}_ffmpeg_extra_args"
+                name="ffmpeg_extra_args"
+                type="text"
+                class="{{ input_class }} font-code text-code"
+                placeholder="{{ ffmpeg_extra_placeholder | e }}"
+              />
+            </div>
 
-        <div class="flex flex-col gap-2">
-          <label for="{{ id_prefix }}_cookies_file" class="{{ label_class }}">Cookies File Override</label>
-          <input
-            id="{{ id_prefix }}_cookies_file"
-            name="cookies_file"
-            type="text"
-            class="{{ input_class }} font-code text-code"
-            placeholder="{{ settings.cookies_file or '' | e }}"
-          />
-        </div>
+            <div class="flex flex-col gap-2">
+              <label for="{{ id_prefix }}_cookies_file" class="{{ label_class }}">Cookies File Override</label>
+              <input
+                id="{{ id_prefix }}_cookies_file"
+                name="cookies_file"
+                type="text"
+                class="{{ input_class }} font-code text-code"
+                placeholder="{{ settings.cookies_file or '' | e }}"
+              />
+            </div>
 
-        <div class="flex items-center gap-3 border-t border-panel-line/30 pt-3">
-          <input type="checkbox" name="dry_run" value="true" id="{{ id_prefix }}_dry_run" class="custom-checkbox" />
-          <label class="font-body-md text-body-md cursor-pointer select-none" for="{{ id_prefix }}_dry_run">
-            Dry run for this job only
-          </label>
-        </div>
+            <div class="flex items-center gap-3 border-t border-panel-line/30 pt-3">
+              <input type="checkbox" name="dry_run" value="true" id="{{ id_prefix }}_dry_run" class="custom-checkbox" />
+              <label class="font-body-md text-body-md cursor-pointer select-none" for="{{ id_prefix }}_dry_run">
+                Dry run for this job only
+              </label>
+            </div>
+          </div>
+        </details>
       </div>
     </fieldset>
   </div>
+</div>
+{%- endmacro %}
+
+{% macro audiobook_destination_summary(dest, show_filename=true) -%}
+{# dest: DestinationPreview-like object with heading, folder_path, filename #}
+<div
+  id="audiobook-destination-summary"
+  class="rounded-lg border border-panel-line bg-panel-raised/60 p-3"
+  data-destination-summary
+  aria-live="polite"
+>
+  <p class="font-label-md text-label-md text-paper-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+    <span class="material-symbols-outlined text-amber text-[16px]">folder_open</span>
+    <span data-dest-heading>{{ dest.heading }}</span>
+  </p>
+  <p class="font-code text-code text-amber break-all" data-dest-folder>{{ dest.folder_path }}</p>
+  {% if show_filename %}
+  <p class="font-code text-code text-paper break-all mt-1{% if not dest.filename %} hidden{% endif %}" data-dest-filename>{{ dest.filename or '' }}</p>
+  {% endif %}
 </div>
 {%- endmacro %}

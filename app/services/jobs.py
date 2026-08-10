@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import Settings
 from app.models import ImportBatch, ImportedVideo, Job, JobAttempt, JobStatus
 from app.queue import enqueue_job_task
+from app.services.destination import resolve_destination_folder
 from app.services.filesystem import FilesystemService
 from app.services.ytdlp import PlaylistEntry, YtDlpService
 
@@ -186,11 +187,14 @@ async def submit_job(
         if not validation.valid:
             raise InvalidJobUrlError(validation.error or "Invalid URL")
 
-    destination_folder = params.destination_folder or ""
-    if params.new_folder.strip():
-        fs = FilesystemService(settings)
-        fs.create_folder(params.new_folder.strip())
-        destination_folder = params.new_folder.strip()
+    new_folder = (params.new_folder or "").strip()
+    if new_folder:
+        FilesystemService(settings).create_folder(new_folder)
+    destination_folder = resolve_destination_folder(
+        new_folder=params.new_folder or "",
+        destination_folder=params.destination_folder or "",
+        default_destination_folder=settings.default_destination_folder,
+    )
 
     job = await create_job(
         session,
@@ -254,11 +258,14 @@ async def submit_batch(
     if params.source_type not in {"playlist", "channel"}:
         raise ValueError("source_type must be 'playlist' or 'channel'")
 
-    destination_folder = params.destination_folder or ""
-    if params.new_folder.strip():
-        fs = FilesystemService(settings)
-        fs.create_folder(params.new_folder.strip())
-        destination_folder = params.new_folder.strip()
+    new_folder = (params.new_folder or "").strip()
+    if new_folder:
+        FilesystemService(settings).create_folder(new_folder)
+    destination_folder = resolve_destination_folder(
+        new_folder=params.new_folder or "",
+        destination_folder=params.destination_folder or "",
+        default_destination_folder=settings.default_destination_folder,
+    )
     resolved_destination = _or_none(destination_folder)
 
     batch = ImportBatch(
@@ -440,9 +447,22 @@ async def get_imported_video(session: AsyncSession, video_id: str) -> ImportedVi
     return result.scalar_one_or_none()
 
 
+async def get_imported_video_ids(session: AsyncSession, video_ids: list[str]) -> set[str]:
+    """Return the subset of *video_ids* already present in the dedup ledger."""
+    normalized = [vid.strip() for vid in video_ids if vid and vid.strip()]
+    if not normalized:
+        return set()
+    result = await session.execute(
+        select(ImportedVideo.video_id).where(ImportedVideo.video_id.in_(normalized))
+    )
+    return {row[0] for row in result.all()}
+
+
 async def get_job(session: AsyncSession, job_id: str) -> Job | None:
     result = await session.execute(
-        select(Job).options(selectinload(Job.batch)).where(Job.id == job_id)
+        select(Job)
+        .options(selectinload(Job.batch), selectinload(Job.attempts_log))
+        .where(Job.id == job_id)
     )
     return result.scalar_one_or_none()
 

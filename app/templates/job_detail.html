@@ -3,98 +3,78 @@
 {% block title %}Job: {{ (job.output_title or job.source_title or job.id) | truncate(50) | e }} — reeldock{% endblock %}
 
 {% block content %}
+{% set full_title = job.output_title or job.source_title or "Unknown Title" %}
 {% set status = job.status.value %}
 {% set phase = job.phase or '' %}
 
-{# Setup timeline step classes: 'pending', 'active', 'completed', 'failed' #}
-{% set step_queued = 'pending' %}
-{% set step_downloading = 'pending' %}
-{% set step_converting = 'pending' %}
-{% set step_verifying = 'pending' %}
-{% set step_scanning = 'pending' %}
-{% set step_done = 'pending' %}
-
+{# ── Compute current step index (0–6) for SSR ── #}
+{# Save phases checked before verifying status: commit keeps status=verifying. #}
 {% if status == 'queued' %}
-  {% set step_queued = 'active' %}
-{% elif status == 'downloading' or (status == 'running' and phase == 'downloading') %}
-  {% set step_queued = 'completed' %}
-  {% set step_downloading = 'active' %}
-{% elif status in ['postprocessing', 'converting'] or (status == 'running' and phase in ['postprocessing', 'converting']) %}
-  {% set step_queued = 'completed' %}
-  {% set step_downloading = 'completed' %}
-  {% set step_converting = 'active' %}
-{% elif status == 'verifying' or (status == 'running' and phase == 'verifying') %}
-  {% set step_queued = 'completed' %}
-  {% set step_downloading = 'completed' %}
-  {% set step_converting = 'completed' %}
-  {% set step_verifying = 'active' %}
-{% elif status == 'scanning' or (status == 'running' and phase == 'scanning') %}
-  {% set step_queued = 'completed' %}
-  {% set step_downloading = 'completed' %}
-  {% set step_converting = 'completed' %}
-  {% set step_verifying = 'completed' %}
-  {% set step_scanning = 'active' %}
+  {% set _cur = 0 %}
+{% elif phase in ['committing_output', 'output_committed'] %}
+  {% set _cur = 4 %}
+{% elif status == 'downloading' or phase in ['resolving_output', 'locating_artifact', 'download_complete', 'downloading'] %}
+  {% set _cur = 1 %}
+{% elif status in ['converting', 'postprocessing'] or phase in ['converting', 'conversion_complete'] %}
+  {% set _cur = 2 %}
+{% elif status == 'verifying' or phase in ['verifying', 'verified'] %}
+  {% set _cur = 3 %}
+{% elif status == 'scanning' or phase in ['scanning', 'cleanup'] %}
+  {% set _cur = 5 %}
 {% elif status == 'succeeded' %}
-  {% set step_queued = 'completed' %}
-  {% set step_downloading = 'completed' %}
-  {% set step_converting = 'completed' %}
-  {% set step_verifying = 'completed' %}
-  {% set step_scanning = 'completed' %}
-  {% set step_done = 'completed' %}
-{% elif status == 'failed' %}
-  {% set step_queued = 'completed' %}
-  {% if phase == 'downloading' %}
-    {% set step_downloading = 'failed' %}
-  {% elif phase in ['postprocessing', 'converting'] %}
-    {% set step_downloading = 'completed' %}
-    {% set step_converting = 'failed' %}
-  {% elif phase == 'verifying' %}
-    {% set step_downloading = 'completed' %}
-    {% set step_converting = 'completed' %}
-    {% set step_verifying = 'failed' %}
-  {% elif phase == 'scanning' %}
-    {% set step_downloading = 'completed' %}
-    {% set step_converting = 'completed' %}
-    {% set step_verifying = 'completed' %}
-    {% set step_scanning = 'failed' %}
-  {% else %}
-    {% set step_queued = 'failed' %}
-  {% endif %}
-  {% set step_done = 'failed' %}
-{% elif status == 'cancelled' %}
-  {% set step_queued = 'completed' %}
-  {% if phase == 'downloading' %}
-    {% set step_downloading = 'failed' %}
-  {% elif phase in ['postprocessing', 'converting'] %}
-    {% set step_downloading = 'completed' %}
-    {% set step_converting = 'failed' %}
-  {% elif phase == 'verifying' %}
-    {% set step_downloading = 'completed' %}
-    {% set step_converting = 'completed' %}
-    {% set step_verifying = 'failed' %}
-  {% elif phase == 'scanning' %}
-    {% set step_downloading = 'completed' %}
-    {% set step_converting = 'completed' %}
-    {% set step_verifying = 'completed' %}
-    {% set step_scanning = 'failed' %}
-  {% else %}
-    {% set step_queued = 'failed' %}
-  {% endif %}
+  {% set _cur = 6 %}
+{% elif status == 'running' %}
+  {% set _cur = 1 %}
+{% else %}
+  {% set _cur = 0 %}
 {% endif %}
 
+{# ── Compute per-step state strings into ns.s[0..6] ── #}
+{% set ns = namespace(s=[]) %}
+{% for i in range(7) %}
+  {% if status == 'succeeded' %}
+    {% set _sv = 'completed' %}
+  {% elif status == 'failed' %}
+    {% if i < _cur %}{% set _sv = 'completed' %}
+    {% elif i == _cur or i == 6 %}{% set _sv = 'failed' %}
+    {% else %}{% set _sv = 'pending' %}{% endif %}
+  {% elif status == 'cancelled' %}
+    {% if i < _cur %}{% set _sv = 'completed' %}
+    {% elif i == _cur %}{% set _sv = 'failed' %}
+    {% else %}{% set _sv = 'pending' %}{% endif %}
+  {% else %}
+    {% if i < _cur %}{% set _sv = 'completed' %}
+    {% elif i == _cur %}{% set _sv = 'active' %}
+    {% else %}{% set _sv = 'pending' %}{% endif %}
+  {% endif %}
+  {% set ns.s = ns.s + [_sv] %}
+{% endfor %}
+
+{# ── Progress display ── #}
+{% set _active_statuses = ['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
+{% set show_progress = status in _active_statuses or job.progress_percent is not none or job.progress is not none or job.progress_label %}
+{% set _raw_pct = job.progress_percent if job.progress_percent is not none else (job.progress if job.progress is not none else none) %}
+{% set _bar_pct = _raw_pct if _raw_pct is not none else 0 %}
+{% if _bar_pct > 100 %}{% set _bar_pct = 100 %}{% endif %}
+{% set _stage_names = ['Queued', 'Download', 'Convert', 'Verify', 'Save', 'Scan', 'Done'] %}
+
+{# ── Display labels ── #}
+{% set _coll_labels = {'skip': 'Skip', 'overwrite': 'Overwrite', 'append_id': 'Append video ID', 'append_counter': 'Append counter'} %}
+{% set _quality_labels = {'128K': 'Standard', '192K': 'High', '0': 'Best'} %}
+
 <main class="flex-grow w-full">
-  <header class="flex justify-between items-center px-container-padding h-16 w-full border-b border-panel-line bg-panel shrink-0">
-    <div class="flex items-center gap-4 min-w-0">
-      <a href="/jobs" class="inline-flex items-center gap-1.5 text-amber hover:underline transition-all group shrink-0">
-        <span class="material-symbols-outlined text-[20px] group-hover:-translate-x-1 transition-transform">arrow_back</span>
-        <span class="font-label-md text-label-md uppercase">Back to Jobs</span>
-      </a>
-      <h1 class="font-headline-md text-headline-md text-paper font-semibold truncate uppercase tracking-wide">
-        {{ (job.output_title or job.source_title or "Unknown Title") | e }}
-      </h1>
+
+  {# ── Header ── #}
+  <header class="flex items-center gap-4 px-container-padding h-16 w-full border-b border-panel-line bg-panel shrink-0">
+    <a href="/jobs" class="inline-flex items-center gap-1.5 text-amber hover:underline transition-all group shrink-0">
+      <span class="material-symbols-outlined text-[20px] group-hover:-translate-x-1 transition-transform">arrow_back</span>
+      <span class="font-label-md text-label-md uppercase">Back to Jobs</span>
+    </a>
+    <div class="flex-1 min-w-0">
+      <h1 class="font-headline-md text-headline-md text-paper font-semibold truncate uppercase tracking-wide" title="{{ full_title | e }}">{{ full_title | e }}</h1>
     </div>
     <div class="flex items-center gap-2 shrink-0">
-      {% if job.status.value in ['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
+      {% if status in ['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
       <form method="POST" action="/api/jobs/{{ job.id }}/cancel" onsubmit="handleCancel(event, this)">
         <button type="submit" class="job-action-btn px-4 py-2 bg-error-container/20 text-error border border-error/30 font-label-md text-label-md rounded-lg hover:bg-error-container/45 transition-colors cursor-pointer flex items-center gap-1.5" id="cancel-btn">
           <span class="material-symbols-outlined text-[16px]">cancel</span>
@@ -102,8 +82,7 @@
         </button>
       </form>
       {% endif %}
-
-      {% if job.status.value in ['failed', 'cancelled'] %}
+      {% if status in ['failed', 'cancelled'] %}
       <form method="POST" action="/api/jobs/{{ job.id }}/retry" onsubmit="handleRetry(event, this)">
         <button type="submit" class="job-action-btn px-4 py-2 bg-amber-container text-on-amber-container font-label-md text-label-md rounded-lg hover:brightness-110 transition-colors cursor-pointer flex items-center gap-1.5" id="retry-btn">
           <span class="material-symbols-outlined text-[16px]">replay</span>
@@ -117,23 +96,45 @@
   <div class="p-container-padding max-w-5xl mx-auto">
     <p class="font-body-md text-body-md text-paper-muted mb-stack-lg">Detailed processing report and real-time logs.</p>
 
-    <!-- Timeline -->
+    {# ── Timeline ── #}
     <section class="bg-panel border border-panel-line rounded-xl p-stack-md mb-stack-lg panel-edge section-entrance section-entrance-1">
       <h3 class="font-headline-sm text-headline-sm text-paper mb-4 flex items-center gap-2 uppercase tracking-wide">
         <span class="material-symbols-outlined text-amber">lan</span>
         Processing Timeline
       </h3>
-      <ol class="job-timeline grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-        <li class="timeline-step timeline-step-{{ step_queued }}">{% if step_queued == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">schedule</span>{% endif %}<span>Queued</span></li>
-        <li class="timeline-step timeline-step-{{ step_downloading }}">{% if step_downloading == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">download</span>{% endif %}<span>Download</span></li>
-        <li class="timeline-step timeline-step-{{ step_converting }}">{% if step_converting == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">library_music</span>{% endif %}<span>Convert</span></li>
-        <li class="timeline-step timeline-step-{{ step_verifying }}">{% if step_verifying == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">fact_check</span>{% endif %}<span>Verify</span></li>
-        <li class="timeline-step timeline-step-{{ step_scanning }}">{% if step_scanning == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">travel_explore</span>{% endif %}<span>Scan</span></li>
-        <li class="timeline-step timeline-step-{{ step_done }}"><span class="material-symbols-outlined text-[16px]">done_all</span><span>Done</span></li>
+      <ol class="job-timeline grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        <li class="timeline-step timeline-step-{{ ns.s[0] }}" data-timeline-step="queued">
+          <span class="tl-icon">{% if ns.s[0] == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">schedule</span>{% endif %}</span>
+          <span>Queued</span>
+        </li>
+        <li class="timeline-step timeline-step-{{ ns.s[1] }}" data-timeline-step="download">
+          <span class="tl-icon">{% if ns.s[1] == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">download</span>{% endif %}</span>
+          <span>Download</span>
+        </li>
+        <li class="timeline-step timeline-step-{{ ns.s[2] }}" data-timeline-step="convert">
+          <span class="tl-icon">{% if ns.s[2] == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">library_music</span>{% endif %}</span>
+          <span>Convert</span>
+        </li>
+        <li class="timeline-step timeline-step-{{ ns.s[3] }}" data-timeline-step="verify">
+          <span class="tl-icon">{% if ns.s[3] == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">fact_check</span>{% endif %}</span>
+          <span>Verify</span>
+        </li>
+        <li class="timeline-step timeline-step-{{ ns.s[4] }}" data-timeline-step="save">
+          <span class="tl-icon">{% if ns.s[4] == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">save</span>{% endif %}</span>
+          <span>Save</span>
+        </li>
+        <li class="timeline-step timeline-step-{{ ns.s[5] }}" data-timeline-step="scan">
+          <span class="tl-icon">{% if ns.s[5] == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">travel_explore</span>{% endif %}</span>
+          <span>Scan</span>
+        </li>
+        <li class="timeline-step timeline-step-{{ ns.s[6] }}" data-timeline-step="done">
+          <span class="tl-icon"><span class="material-symbols-outlined text-[16px]">done_all</span></span>
+          <span>Done</span>
+        </li>
       </ol>
     </section>
 
-    <!-- Info Bar -->
+    {# ── Info Bar ── #}
     <div class="job-info-bar grid grid-cols-2 md:grid-cols-5 gap-gutter p-4 bg-panel-raised rounded-xl border border-panel-line mb-stack-lg shadow-md section-entrance section-entrance-2">
       <div class="flex flex-col gap-1">
         <span class="uppercase font-label-md text-label-md text-paper-muted tracking-wider">Job ID</span>
@@ -142,12 +143,14 @@
       <div class="flex flex-col gap-1">
         <span class="uppercase font-label-md text-label-md text-paper-muted tracking-wider">Status</span>
         <div id="status-badge-container">
-          {% if job.status.value in ['running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
-          {{ badge(job.status.value, variant='info', reel=true) }}
-          {% elif job.status.value == 'succeeded' %}
+          {% if status in ['running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
+          {{ badge(status, variant='info', reel=true) }}
+          {% elif status == 'queued' %}
+          {{ badge('queued', variant='info', reel=true) }}
+          {% elif status == 'succeeded' %}
           {{ badge('completed', variant='success', icon='check_circle') }}
           {% else %}
-          {{ badge(job.status.value, variant='error', icon='error') }}
+          {{ badge(status, variant='error', icon='error') }}
           {% endif %}
         </div>
       </div>
@@ -165,130 +168,135 @@
       </div>
     </div>
 
-    {% set has_import_overrides = job.audio_quality or job.filename_template or job.ytdlp_extra_args or job.ffmpeg_extra_args or job.cookies_file or job.dry_run or job.loudness_normalize is not none or job.loudness_target_lufs or job.loudness_audio_bitrate %}
-    {% if has_import_overrides %}
+    {# ── Import Settings (always shown, collapsed) ── #}
+    {% set _has_expert = job.ytdlp_extra_args or job.ffmpeg_extra_args or job.cookies_file or job.dry_run or job.filename_template %}
     <details class="bg-panel border border-panel-line rounded-xl p-stack-md mb-stack-lg panel-edge section-entrance section-entrance-2">
-      <summary class="font-headline-sm text-headline-sm text-paper uppercase tracking-wide cursor-pointer select-none">
-        Import Overrides Used
+      <summary class="font-headline-sm text-headline-sm text-paper uppercase tracking-wide cursor-pointer select-none flex items-center gap-2">
+        <span class="material-symbols-outlined text-amber">tune</span>
+        Import Settings
       </summary>
       <dl class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 font-body-md text-body-md">
-        {% if job.audio_format %}
         <div class="flex flex-col gap-0.5">
-          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Audio format</dt>
-          <dd class="font-code text-code text-paper">{{ job.audio_format | e }}</dd>
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Quality</dt>
+          <dd class="font-code text-code text-paper">{{ _quality_labels.get(job.audio_quality, job.audio_quality or 'Standard') | e }}</dd>
         </div>
-        {% endif %}
-        {% if job.audio_quality %}
         <div class="flex flex-col gap-0.5">
-          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Audio quality</dt>
-          <dd class="font-code text-code text-paper">{{ job.audio_quality | e }}</dd>
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Embed tags &amp; details</dt>
+          <dd class="text-paper">{{ 'Yes' if job.embed_metadata else 'No' }}</dd>
         </div>
-        {% endif %}
-        {% if job.loudness_normalize is not none %}
+        <div class="flex flex-col gap-0.5">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Cover art</dt>
+          <dd class="text-paper">{{ 'Yes' if job.embed_thumbnail else 'No' }}</dd>
+        </div>
+        <div class="flex flex-col gap-0.5">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Chapters</dt>
+          <dd class="text-paper">{{ 'Yes' if job.embed_chapters else 'No' }}</dd>
+        </div>
+        <div class="flex flex-col gap-0.5">
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Sponsor removal</dt>
+          <dd class="text-paper">{{ 'Yes' if job.sponsorblock_remove else 'No' }}</dd>
+        </div>
         <div class="flex flex-col gap-0.5">
           <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Loudness normalization</dt>
-          <dd class="text-paper">{{ 'Enabled' if job.loudness_normalize else 'Disabled' }}</dd>
+          <dd class="text-paper">{{ 'On' if job.loudness_normalize else 'Off' }}</dd>
         </div>
-        {% endif %}
-        {% if job.loudness_target_lufs %}
         <div class="flex flex-col gap-0.5">
-          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Loudness target (LUFS)</dt>
-          <dd class="font-code text-code text-paper">{{ job.loudness_target_lufs | e }}</dd>
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Existing-file behavior</dt>
+          <dd class="font-code text-code text-paper">{{ _coll_labels.get(job.collision_mode, job.collision_mode) | e }}</dd>
         </div>
-        {% endif %}
-        {% if job.loudness_audio_bitrate %}
         <div class="flex flex-col gap-0.5">
-          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Loudness re-encode bitrate</dt>
-          <dd class="font-code text-code text-paper">{{ job.loudness_audio_bitrate | e }}</dd>
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Destination</dt>
+          <dd class="font-code text-code text-paper break-all">{{ job.destination_folder | e if job.destination_folder else '—' }}</dd>
         </div>
-        {% endif %}
-        {% if job.output_extension %}
         <div class="flex flex-col gap-0.5">
-          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Output extension</dt>
-          <dd class="font-code text-code text-paper">{{ job.output_extension | e }}</dd>
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Scan Audiobookshelf after success</dt>
+          <dd class="text-paper">{{ 'Yes' if job.trigger_abs_scan else 'No' }}</dd>
         </div>
-        {% endif %}
-        {% if job.filename_template %}
-        <div class="flex flex-col gap-0.5 sm:col-span-2">
-          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Filename template</dt>
-          <dd class="font-code text-code text-paper break-all">{{ job.filename_template | e }}</dd>
-        </div>
-        {% endif %}
-        {% if job.ytdlp_extra_args %}
-        <div class="flex flex-col gap-0.5 sm:col-span-2">
-          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">yt-dlp extra args</dt>
-          <dd class="font-code text-code text-paper break-all">{{ job.ytdlp_extra_args | e }}</dd>
-        </div>
-        {% endif %}
-        {% if job.ffmpeg_extra_args %}
-        <div class="flex flex-col gap-0.5 sm:col-span-2">
-          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">ffmpeg extra args</dt>
-          <dd class="font-code text-code text-paper break-all">{{ job.ffmpeg_extra_args | e }}</dd>
-        </div>
-        {% endif %}
-        {% if job.cookies_file %}
-        <div class="flex flex-col gap-0.5 sm:col-span-2">
-          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Cookies file</dt>
-          <dd class="font-code text-code text-paper break-all">{{ job.cookies_file | e }}</dd>
-        </div>
-        {% endif %}
-        {% if job.dry_run %}
+        {% if job.allow_reimport %}
         <div class="flex flex-col gap-0.5">
-          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Dry run</dt>
-          <dd class="text-paper">Enabled for this job</dd>
+          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Allow importing again</dt>
+          <dd class="text-paper">Yes</dd>
         </div>
         {% endif %}
-        <div class="flex flex-col gap-0.5">
-          <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Collision mode</dt>
-          <dd class="font-code text-code text-paper">{{ job.collision_mode | e }}</dd>
-        </div>
       </dl>
+      {% if _has_expert %}
+      <details class="mt-4 bg-panel-raised border border-panel-line rounded-lg p-3">
+        <summary class="font-label-md text-label-md text-paper-muted uppercase tracking-wider cursor-pointer select-none">Expert details</summary>
+        <dl class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 font-body-md text-body-md">
+          {% if job.filename_template %}
+          <div class="flex flex-col gap-0.5 sm:col-span-2">
+            <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Filename template</dt>
+            <dd class="font-code text-code text-paper break-all">{{ job.filename_template | e }}</dd>
+          </div>
+          {% endif %}
+          {% if job.ytdlp_extra_args %}
+          <div class="flex flex-col gap-0.5 sm:col-span-2">
+            <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">yt-dlp extra args</dt>
+            <dd class="font-code text-code text-paper break-all">{{ job.ytdlp_extra_args | e }}</dd>
+          </div>
+          {% endif %}
+          {% if job.ffmpeg_extra_args %}
+          <div class="flex flex-col gap-0.5 sm:col-span-2">
+            <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">ffmpeg extra args</dt>
+            <dd class="font-code text-code text-paper break-all">{{ job.ffmpeg_extra_args | e }}</dd>
+          </div>
+          {% endif %}
+          {% if job.cookies_file %}
+          <div class="flex flex-col gap-0.5 sm:col-span-2">
+            <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Cookies file</dt>
+            <dd class="font-code text-code text-paper break-all">{{ job.cookies_file | e }}</dd>
+          </div>
+          {% endif %}
+          {% if job.dry_run %}
+          <div class="flex flex-col gap-0.5">
+            <dt class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Dry run</dt>
+            <dd class="text-paper">Enabled</dd>
+          </div>
+          {% endif %}
+        </dl>
+      </details>
+      {% endif %}
     </details>
-    {% endif %}
 
-    <!-- Progress Card -->
-    {% set show_progress = job.progress_percent is not none or job.progress is not none or job.progress_label or status in ['running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
-    {% set display_pct = job.progress_percent or job.progress or 0 %}
-    {% set bar_pct = display_pct %}
-    {% if bar_pct > 100 %}{% set bar_pct = 100 %}{% endif %}
-    <div class="progress-card bg-panel rounded-xl border border-panel-line p-stack-lg mb-stack-lg relative overflow-hidden panel-edge section-entrance section-entrance-3" id="progress-row" {% if not show_progress %}style="display: none;"{% endif %}>
+    {# ── Progress Card ── #}
+    <div class="progress-card bg-panel rounded-xl border border-panel-line p-stack-lg mb-stack-lg relative overflow-hidden panel-edge section-entrance section-entrance-3" id="progress-row"{% if not show_progress %} style="display: none;"{% endif %}>
+      <p id="job-step-label" class="font-label-md text-label-md text-paper-muted uppercase tracking-wider mb-2">Step {{ _cur + 1 }} of 7 · {{ _stage_names[_cur] }}</p>
       <div class="progress-summary-row flex items-center justify-between mb-stack-md">
         <div class="progress-metric flex items-baseline gap-2">
-          <span class="progress-value font-headline-lg text-[42px] text-amber font-bold" id="job-progress-text">{{ display_pct }}%</span>
+          <span class="progress-value font-headline-lg text-[42px] text-amber font-bold" id="job-progress-text">
+            {%- if status == 'succeeded' -%}100%
+            {%- elif _raw_pct is not none -%}{{ _raw_pct }}%
+            {%- else -%}—{%- endif -%}
+          </span>
           <span class="font-label-md text-paper-muted uppercase tracking-wider" id="processing-label">
-            {% if status == 'succeeded' %}COMPLETE
-            {% elif status == 'failed' %}FAILED
-            {% elif status == 'cancelled' %}CANCELLED
-            {% else %}PROCESSING{% endif %}
+            {%- if status == 'succeeded' -%}COMPLETE
+            {%- elif status == 'failed' -%}FAILED
+            {%- elif status == 'cancelled' -%}CANCELLED
+            {%- else -%}PROCESSING{%- endif -%}
           </span>
         </div>
         <div class="progress-detail-row flex gap-gutter text-right" id="speed-eta-row">
           <div>
             <p class="font-label-md text-label-md text-paper-muted uppercase tracking-wide">Speed</p>
-            <p class="font-code text-headline-sm text-paper-muted" id="job-progress-speed">
-              {% if job.progress_speed and status in ['downloading', 'converting'] %}{{ job.progress_speed }}{% else %}—{% endif %}
-            </p>
+            <p class="font-code text-headline-sm text-paper-muted" id="job-progress-speed">{{ job.progress_speed or '—' }}</p>
           </div>
           <div>
             <p class="font-label-md text-label-md text-paper-muted uppercase tracking-wide">ETA</p>
-            <p class="font-code text-headline-sm text-paper-muted" id="job-progress-eta">
-              {% if job.progress_eta and status in ['downloading', 'converting'] %}{{ job.progress_eta }}{% else %}—{% endif %}
-            </p>
+            <p class="font-code text-headline-sm text-paper-muted" id="job-progress-eta">{{ job.progress_eta or '—' }}</p>
           </div>
         </div>
       </div>
-      <!-- Segmented VU Meter -->
       <div class="mb-stack-md" id="job-progress-bar">
-        {{ vu_meter(percent=bar_pct, segments=20, failed=(status in ['failed', 'cancelled'])) }}
+        {{ vu_meter(percent=_bar_pct, segments=20, failed=(status in ['failed', 'cancelled'])) }}
       </div>
       <div class="flex items-center gap-3 text-paper-muted">
         <span class="material-symbols-outlined text-[18px] text-amber">info</span>
-        <p class="font-body-md" id="job-progress-label">{% if job.progress_label %}{{ job.progress_label }}{% elif job.phase %}Stage: {{ job.phase }}{% else %}Initializing...{% endif %}</p>
+        <p class="font-body-md" id="job-progress-label">{{ job.progress_label or (('Stage: ' + phase) if phase else 'Initializing...') }}</p>
       </div>
     </div>
 
-    <!-- Error Pre Section -->
-    <div id="error-section" class="error-section bg-error-container/10 border border-error/30 text-error rounded-xl p-stack-md mb-stack-lg shadow-md" {% if not job.error_message %}style="display: none;"{% endif %}>
+    {# ── Error Section ── #}
+    <div id="error-section" class="error-section bg-error-container/10 border border-error/30 text-error rounded-xl p-stack-md mb-stack-lg shadow-md"{% if not job.error_message %} style="display: none;"{% endif %}>
       <div class="flex items-start gap-3">
         <span class="material-symbols-outlined shrink-0 text-error">warning</span>
         <div class="overflow-hidden w-full">
@@ -298,7 +306,8 @@
       </div>
     </div>
 
-    {% if job.status.value == 'succeeded' and job.final_output_path %}
+    {# ── Audiobook Created Card ── #}
+    {% if status == 'succeeded' and job.final_output_path %}
     {% set out_name = job.final_output_path.split('/')[-1] %}
     {% set out_folder = job.destination_folder or (job.final_output_path.rsplit('/', 1)[0] if '/' in job.final_output_path else '') %}
     {% set conv_codec = conversion_meta.get('codec_name') if conversion_meta else None %}
@@ -356,8 +365,9 @@
     </section>
     {% endif %}
 
-    <!-- Process Logs Console -->
-    <details class="log-viewer-section mb-4 shadow-xl" {% if job.status.value != 'succeeded' %}open{% endif %}>
+    {# ── Process Logs ── #}
+    {% set open_logs = status == 'failed' or (status == 'cancelled' and job.error_message) %}
+    <details class="log-viewer-section mb-4 shadow-xl" {% if open_logs %}open{% endif %} id="log-viewer-details">
       <summary class="log-viewer-header flex items-center justify-between mb-3 px-1 cursor-pointer select-none list-none">
         <h3 class="font-headline-sm text-headline-sm flex items-center gap-2 text-paper font-semibold">
           <span class="material-symbols-outlined text-amber">terminal</span>
@@ -378,7 +388,8 @@
       </div>
     </details>
 
-    <div id="final-output-section" class="final-output-section mt-stack-md p-3 bg-panel rounded border border-panel-line" {% if job.status.value == 'succeeded' or not job.final_output_path %}style="display: none;"{% endif %}>
+    {# ── Final Output Section (hidden when success card renders it) ── #}
+    <div id="final-output-section" class="final-output-section mt-stack-md p-3 bg-panel rounded border border-panel-line"{% if status == 'succeeded' or not job.final_output_path %} style="display: none;"{% endif %}>
       <span class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">Final Output Path</span>
       <div class="font-code text-code text-paper break-all">{{ job.final_output_path | default('') | e }}</div>
       {% if job.output_file_size is not none %}
@@ -391,463 +402,366 @@
   </div>
 </main>
 
+{# ── Embedded initial job state for JS ── #}
+<script type="application/json" id="initial-job-state">
+{"status":{{ job.status.value | tojson }},"phase":{{ (job.phase or '') | tojson }},"progress":{{ job.progress | tojson }},"progress_percent":{{ job.progress_percent | tojson }},"progress_label":{{ (job.progress_label or '') | tojson }},"progress_eta":{{ job.progress_eta | tojson }},"progress_speed":{{ job.progress_speed | tojson }},"error_message":{{ (job.error_message or '') | tojson }}}
+</script>
+
 <script>
-  // Auto-scroll logs
-  const logViewer = document.getElementById('log-content');
-  if (logViewer) {
-    logViewer.scrollTop = logViewer.scrollHeight;
-  }
+// ═══ reeldock job-detail live update ═══
 
-  const activeStatuses = new Set(['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning']);
-  const terminalStatuses = new Set(['succeeded', 'failed', 'cancelled']);
-  const progressDetailStatuses = new Set(['downloading', 'converting']);
-  const allKnownStatuses = new Set([...activeStatuses, ...terminalStatuses]);
-  let currentStatus = '{{ job.status.value | e }}';
+const ACTIVE    = new Set(['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning']);
+const TERMINAL  = new Set(['succeeded', 'failed', 'cancelled']);
+const TIMELINE_ORDER = ['queued', 'download', 'convert', 'verify', 'save', 'scan', 'done'];
+const STAGE_NAMES    = ['Queued', 'Download', 'Convert', 'Verify', 'Save', 'Scan', 'Done'];
+const STEP_ICONS     = {
+  queued: 'schedule', download: 'download', convert: 'library_music',
+  verify: 'fact_check', save: 'save', scan: 'travel_explore', done: 'done_all'
+};
+const REEL_SVG = `<svg class="reel-spinner inline-block shrink-0 animate-spin-slow" width="14" height="9" viewBox="0 0 36 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="12" r="6"/><circle cx="28" cy="12" r="6"/><line x1="14" y1="12" x2="22" y2="12"/><line x1="8" y1="7" x2="8" y2="10"/><line x1="8" y1="14" x2="8" y2="17"/><line x1="4" y1="12" x2="7" y2="12"/><line x1="9" y1="12" x2="12" y2="12"/><line x1="28" y1="7" x2="28" y2="10"/><line x1="28" y1="14" x2="28" y2="17"/><line x1="24" y1="12" x2="27" y2="12"/><line x1="29" y1="12" x2="32" y2="12"/></svg>`;
 
-  const REEL_SVG = `<svg class="reel-spinner inline-block shrink-0 animate-spin-slow" width="14" height="9" viewBox="0 0 36 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="12" r="6"/><circle cx="28" cy="12" r="6"/><line x1="14" y1="12" x2="22" y2="12"/><line x1="8" y1="7" x2="8" y2="10"/><line x1="8" y1="14" x2="8" y2="17"/><line x1="4" y1="12" x2="7" y2="12"/><line x1="9" y1="12" x2="12" y2="12"/><line x1="28" y1="7" x2="28" y2="10"/><line x1="28" y1="14" x2="28" y2="17"/><line x1="24" y1="12" x2="27" y2="12"/><line x1="29" y1="12" x2="32" y2="12"/></svg>`;
+const JOB_ID = '{{ job.id | e }}';
+let _currentStatus = '{{ job.status.value | e }}';
+let _wasActive     = ACTIVE.has(_currentStatus);
+let _didReload     = false;
 
-  function safeJobStatus(status) {
-    return allKnownStatuses.has(status) ? status : 'unknown';
-  }
+// Auto-scroll logs on load
+const _logEl = document.getElementById('log-content');
+if (_logEl) _logEl.scrollTop = _logEl.scrollHeight;
 
-  function appendReelIcon(badge) {
-    const iconHost = document.createElement('span');
-    iconHost.innerHTML = REEL_SVG;
-    while (iconHost.firstChild) {
-      badge.appendChild(iconHost.firstChild);
-    }
-  }
+// ─── Timeline resolution ───────────────────────────────────────────────────
 
-  function setStatusBadge(container, status) {
-    if (!container) return;
-    const safe = safeJobStatus(status);
-    container.replaceChildren();
+function _stepIndex(status, phase) {
+  // Save phases before verifying status: commit keeps status=verifying.
+  if (status === 'queued') return 0;
+  if (['committing_output', 'output_committed'].includes(phase)) return 4;
+  if (status === 'downloading' || ['resolving_output', 'locating_artifact', 'download_complete', 'downloading'].includes(phase)) return 1;
+  if (['converting', 'postprocessing'].includes(status) || ['converting', 'conversion_complete'].includes(phase)) return 2;
+  if (status === 'verifying' || ['verifying', 'verified'].includes(phase)) return 3;
+  if (status === 'scanning' || ['scanning', 'cleanup'].includes(phase)) return 5;
+  if (status === 'succeeded') return 6;
+  if (status === 'running') return 1;
+  return 0;
+}
 
-    const badge = document.createElement('span');
-    badge.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-label-md text-label-md border';
-
-    if (activeStatuses.has(safe)) {
-      badge.classList.add('bg-amber-container/50', 'text-on-amber-container', 'border-amber/30');
-      appendReelIcon(badge);
-      badge.appendChild(document.createTextNode(' ' + safe));
-    } else if (safe === 'succeeded') {
-      badge.classList.add('bg-success-container/40', 'text-on-success-container', 'border-success/30');
-      const icon = document.createElement('span');
-      icon.className = 'material-symbols-outlined text-[13px]';
-      icon.textContent = 'check_circle';
-      badge.appendChild(icon);
-      badge.appendChild(document.createTextNode(' completed'));
+function resolveTimelineSteps(status, phase) {
+  const cur = _stepIndex(status, phase);
+  return Object.fromEntries(TIMELINE_ORDER.map((step, i) => {
+    let state;
+    if (status === 'succeeded') {
+      state = 'completed';
+    } else if (status === 'failed') {
+      state = i < cur ? 'completed' : (i === cur || i === 6) ? 'failed' : 'pending';
+    } else if (status === 'cancelled') {
+      state = i < cur ? 'completed' : i === cur ? 'failed' : 'pending';
     } else {
-      badge.classList.add('bg-error-container/40', 'text-error', 'border-error/30');
-      const icon = document.createElement('span');
-      icon.className = 'material-symbols-outlined text-[13px]';
-      icon.textContent = 'error';
-      badge.appendChild(icon);
-      badge.appendChild(document.createTextNode(' ' + safe));
+      state = i < cur ? 'completed' : i === cur ? 'active' : 'pending';
     }
+    return [step, state];
+  }));
+}
 
-    container.appendChild(badge);
-  }
+function resolveStageMeta(status, phase) {
+  const index = _stepIndex(status, phase);
+  return { index, name: STAGE_NAMES[index], determinate: index === 1 || index === 2 };
+}
 
-  function updateVuMeter(container, pct, failed) {
-    if (!container) return;
-    const meter = container.classList.contains('vu-meter') ? container : container.querySelector('.vu-meter');
-    if (!meter) return;
-    const segments = meter.querySelectorAll('.vu-seg');
-    const n = segments.length;
-    let lit = Math.floor((pct / 100) * n);
-    if (pct > 0 && lit < 1) lit = 1;
-    if (pct >= 100) lit = n;
-    meter.classList.toggle('vu-meter-failed', !!failed);
-    meter.setAttribute('aria-valuenow', String(Math.round(pct)));
-    segments.forEach((seg, i) => {
-      seg.classList.toggle('is-lit', i < lit);
-    });
-  }
-
-  function refreshLog() {
-    fetch('/api/jobs/{{ job.id }}/log')
-      .then(r => r.json())
-      .then(d => {
-        if (logViewer) {
-          const isAtBottom = logViewer.scrollHeight - logViewer.clientHeight <= logViewer.scrollTop + 60;
-          logViewer.textContent = d.log;
-          if (isAtBottom) {
-            logViewer.scrollTop = logViewer.scrollHeight;
-          }
-        }
-      });
-  }
-
-  if (activeStatuses.has(currentStatus)) {
-    const intervalId = setInterval(() => {
-      refreshLog();
-
-      fetch('/api/jobs/{{ job.id }}')
-        .then(r => r.json())
-        .then(d => {
-          // Update status badge
-          const badgeContainer = document.getElementById('status-badge-container');
-          if (badgeContainer) {
-            setStatusBadge(badgeContainer, d.status);
-          }
-
-          // Update duration and progress values
-          const durationLabel = document.getElementById('duration-label');
-          if (durationLabel && d.duration) {
-            // simple calculation from seconds to HH:MM:SS
-            const secs = d.duration;
-            const h = Math.floor(secs / 3600).toString().padStart(2, '0');
-            const m = Math.floor((secs % 3600) / 60).toString().padStart(2, '0');
-            const s = Math.floor(secs % 60).toString().padStart(2, '0');
-            durationLabel.textContent = `${h}:${m}:${s}`;
-          }
-
-          const progressRow = document.getElementById('progress-row');
-          const progressBar = document.getElementById('job-progress-bar');
-          const progressText = document.getElementById('job-progress-text');
-          const progressLabel = document.getElementById('job-progress-label');
-          const progressSpeed = document.getElementById('job-progress-speed');
-          const progressEta = document.getElementById('job-progress-eta');
-          const processingLabel = document.getElementById('processing-label');
-          const speedEtaRow = document.getElementById('speed-eta-row');
-
-          const hasProgress = (d.progress_percent !== null && d.progress_percent !== undefined) || (d.progress !== null && d.progress !== undefined);
-          const hasLabel = !!d.progress_label;
-          const isActive = activeStatuses.has(d.status);
-          const showDetail = progressDetailStatuses.has(d.status);
-
-          if (hasProgress || hasLabel || isActive) {
-            if (progressRow) progressRow.style.display = '';
-            if (progressRow) progressRow.classList.toggle('progress-live', isActive);
-
-            const pct = d.progress_percent !== null ? d.progress_percent : (d.progress !== null ? d.progress : 0);
-            const clampedPct = Math.max(0, Math.min(100, pct));
-            updateVuMeter(progressBar, clampedPct, d.status === 'failed' || d.status === 'cancelled');
-            if (progressText) {
-              // Show one decimal only when fractional progress is useful
-              if (pct < 100 && pct !== Math.floor(pct)) {
-                progressText.textContent = pct.toFixed(1) + '%';
-              } else {
-                progressText.textContent = Math.round(pct) + '%';
-              }
-            }
-
-            // Update processing label
-            if (processingLabel) {
-              if (d.status === 'succeeded') processingLabel.textContent = 'COMPLETE';
-              else if (d.status === 'failed') processingLabel.textContent = 'FAILED';
-              else if (d.status === 'cancelled') processingLabel.textContent = 'CANCELLED';
-              else processingLabel.textContent = 'PROCESSING';
-            }
-
-            // Show/hide speed and ETA based on phase
-            if (speedEtaRow) {
-              speedEtaRow.style.display = showDetail ? '' : 'none';
-            }
-
-            if (progressLabel) {
-              progressLabel.textContent = d.progress_label || `Stage: ${d.phase || d.status}`;
-            }
-            if (progressSpeed) {
-              progressSpeed.textContent = (showDetail && d.progress_speed) ? d.progress_speed : '—';
-            }
-            if (progressEta) {
-              progressEta.textContent = (showDetail && d.progress_eta) ? d.progress_eta : '—';
-            }
-          } else {
-            if (progressRow) {
-              progressRow.style.display = 'none';
-              progressRow.classList.remove('progress-live');
-            }
-          }
-
-          if (d.status !== currentStatus) {
-            clearInterval(intervalId);
-            window.location.reload();
-          }
-        })
-        .catch(err => console.error("Error polling job details:", err));
-    }, 2000);
-  }
-
-  function handleRetry(event, form) {
-    event.preventDefault();
-    const btn = document.getElementById('retry-btn');
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML = '<span class="inline-block animate-spin mr-2"><span class="material-symbols-outlined text-[16px]">sync</span></span> Retrying...';
-    }
-    fetch(form.action, { method: 'POST' })
-      .then(r => r.json())
-      .then(() => window.location.reload())
-      .catch(() => window.location.reload());
-  }
-
-  function handleCancel(event, form) {
-    event.preventDefault();
-    const btn = document.getElementById('cancel-btn');
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML = '<span class="inline-block animate-spin mr-2"><span class="material-symbols-outlined text-[16px]">sync</span></span> Cancelling...';
-    }
-    fetch(form.action, { method: 'POST' })
-      .then(r => r.json())
-      .then(() => window.location.reload())
-      .catch(() => window.location.reload());
-  }
-
-  function copyLog() {
-    const text = document.getElementById('log-content').innerText;
-    navigator.clipboard.writeText(text).then(() => {
-      const btn = document.getElementById('copy-log-btn');
-      const origText = btn.innerHTML;
-      btn.innerHTML = '<span class="material-symbols-outlined text-[16px]">done</span> Copied!';
-      setTimeout(() => {
-        btn.innerHTML = origText;
-      }, 2000);
-    }).catch(err => {
-      console.error('Copy failed: ', err);
-    });
-  }
-
-  function copyOutputPath() {
-    const el = document.getElementById('final-output-path');
+function renderTimeline(steps) {
+  Object.entries(steps).forEach(([step, state]) => {
+    const el = document.querySelector(`[data-timeline-step="${step}"]`);
     if (!el) return;
-    const text = el.textContent || '';
-    navigator.clipboard.writeText(text).then(() => {
-      const btn = document.getElementById('copy-path-btn');
-      if (!btn) return;
-      const origText = btn.innerHTML;
-      btn.innerHTML = '<span class="material-symbols-outlined text-[16px]">done</span> Copied';
-      setTimeout(() => {
-        btn.innerHTML = origText;
-      }, 2000);
-    }).catch(err => {
-      console.error('Copy failed: ', err);
-    });
+    el.classList.remove('timeline-step-pending', 'timeline-step-active', 'timeline-step-completed', 'timeline-step-failed');
+    el.classList.add(`timeline-step-${state}`);
+    const iconEl = el.querySelector('.tl-icon');
+    if (!iconEl) return;
+    if (state === 'active') {
+      iconEl.innerHTML = REEL_SVG;
+    } else {
+      iconEl.innerHTML = `<span class="material-symbols-outlined text-[16px]">${STEP_ICONS[step] || 'circle'}</span>`;
+    }
+  });
+}
+
+// ─── Status badge ──────────────────────────────────────────────────────────
+
+function _appendReelIcon(badge) {
+  const host = document.createElement('span');
+  host.innerHTML = REEL_SVG;
+  while (host.firstChild) badge.appendChild(host.firstChild);
+}
+
+function setStatusBadge(container, status) {
+  if (!container) return;
+  container.replaceChildren();
+  const badge = document.createElement('span');
+  badge.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-label-md text-label-md border';
+  if (ACTIVE.has(status)) {
+    badge.classList.add('bg-amber-container/50', 'text-on-amber-container', 'border-amber/30');
+    _appendReelIcon(badge);
+    badge.appendChild(document.createTextNode(' ' + status));
+  } else if (status === 'succeeded') {
+    badge.classList.add('bg-success-container/40', 'text-on-success-container', 'border-success/30');
+    const icon = document.createElement('span');
+    icon.className = 'material-symbols-outlined text-[13px]';
+    icon.textContent = 'check_circle';
+    badge.appendChild(icon);
+    badge.appendChild(document.createTextNode(' completed'));
+  } else {
+    badge.classList.add('bg-error-container/40', 'text-error', 'border-error/30');
+    const icon = document.createElement('span');
+    icon.className = 'material-symbols-outlined text-[13px]';
+    icon.textContent = 'error';
+    badge.appendChild(icon);
+    badge.appendChild(document.createTextNode(' ' + status));
   }
+  container.appendChild(badge);
+}
+
+// ─── VU meter ─────────────────────────────────────────────────────────────
+
+function updateVuMeter(container, pct, failed) {
+  if (!container) return;
+  const meter = container.classList.contains('vu-meter') ? container : container.querySelector('.vu-meter');
+  if (!meter) return;
+  const segs = meter.querySelectorAll('.vu-seg');
+  const n = segs.length;
+  let lit = Math.floor((pct / 100) * n);
+  if (pct > 0 && lit < 1) lit = 1;
+  if (pct >= 100) lit = n;
+  meter.classList.toggle('vu-meter-failed', !!failed);
+  meter.setAttribute('aria-valuenow', String(Math.round(pct)));
+  segs.forEach((seg, i) => seg.classList.toggle('is-lit', i < lit));
+}
+
+// ─── Main render ──────────────────────────────────────────────────────────
+
+function renderJobState(job) {
+  const status   = job.status;
+  const phase    = job.phase || '';
+  const isActive = ACTIVE.has(status);
+  const isTerm   = TERMINAL.has(status);
+
+  // On first transition from active → terminal, reload once so SSR cards appear
+  if (!isActive && isTerm && _wasActive && !_didReload) {
+    _didReload = true;
+    window.location.reload();
+    return;
+  }
+  if (isActive) _wasActive = true;
+
+  // Status badge
+  setStatusBadge(document.getElementById('status-badge-container'), status);
+
+  // Duration
+  if (job.duration) {
+    const el = document.getElementById('duration-label');
+    if (el) {
+      const secs = job.duration;
+      const h = String(Math.floor(secs / 3600)).padStart(2, '0');
+      const m = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
+      const s = String(Math.floor(secs % 60)).padStart(2, '0');
+      el.textContent = `${h}:${m}:${s}`;
+    }
+  }
+
+  const progressRow   = document.getElementById('progress-row');
+  const progressBar   = document.getElementById('job-progress-bar');
+  const progressText  = document.getElementById('job-progress-text');
+  const progressLabel = document.getElementById('job-progress-label');
+  const processingLbl = document.getElementById('processing-label');
+  const speedEtaRow   = document.getElementById('speed-eta-row');
+  const stepLabel     = document.getElementById('job-step-label');
+  const speedEl       = document.getElementById('job-progress-speed');
+  const etaEl         = document.getElementById('job-progress-eta');
+
+  const pct = (job.progress_percent !== null && job.progress_percent !== undefined)
+    ? job.progress_percent
+    : ((job.progress !== null && job.progress !== undefined) ? job.progress : null);
+
+  if (isActive) {
+    // Always show progress panel while active
+    if (progressRow) progressRow.style.display = '';
+
+    const meta = resolveStageMeta(status, phase);
+    if (stepLabel) stepLabel.textContent = `Step ${meta.index + 1} of 7 · ${meta.name}`;
+
+    // Show precise percent only for determinate stages (download/convert)
+    const showPct = pct !== null && meta.determinate;
+    if (progressText) {
+      if (showPct) {
+        progressText.textContent = (pct !== Math.floor(pct)) ? pct.toFixed(1) + '%' : Math.round(pct) + '%';
+      } else {
+        // Indeterminate — hide fake precision
+        progressText.textContent = '—';
+      }
+    }
+
+    updateVuMeter(progressBar, showPct ? Math.min(100, Math.max(0, pct)) : 0, false);
+    if (processingLbl) processingLbl.textContent = 'PROCESSING';
+    if (speedEtaRow) speedEtaRow.style.display = meta.determinate ? '' : 'none';
+    if (speedEl) speedEl.textContent = (meta.determinate && job.progress_speed) ? job.progress_speed : '—';
+    if (etaEl)   etaEl.textContent   = (meta.determinate && job.progress_eta)   ? job.progress_eta   : '—';
+    if (progressLabel) progressLabel.textContent = job.progress_label || `Stage: ${phase || status}`;
+
+  } else if (status === 'succeeded') {
+    if (progressRow) progressRow.style.display = '';
+    if (stepLabel)    stepLabel.textContent    = 'Step 7 of 7 · Done';
+    if (progressText) progressText.textContent = '100%';
+    if (processingLbl) processingLbl.textContent = 'COMPLETE';
+    updateVuMeter(progressBar, 100, false);
+    if (speedEtaRow) speedEtaRow.style.display = 'none';
+
+  } else {
+    // failed or cancelled
+    if (progressRow) progressRow.style.display = '';
+    const failedPct = pct !== null ? Math.min(100, Math.max(0, pct)) : 0;
+    updateVuMeter(progressBar, failedPct, true);
+    if (progressText) progressText.textContent = failedPct > 0 ? Math.round(failedPct) + '%' : '—';
+    if (processingLbl) processingLbl.textContent = status === 'failed' ? 'FAILED' : 'CANCELLED';
+    if (speedEtaRow) speedEtaRow.style.display = 'none';
+  }
+
+  // Timeline
+  renderTimeline(resolveTimelineSteps(status, phase));
+
+  // Error section
+  const errSect = document.getElementById('error-section');
+  const errPre  = document.getElementById('error-message-text');
+  if (errSect && errPre) {
+    if (job.error_message) {
+      errSect.style.display = '';
+      errPre.textContent = job.error_message;
+    } else {
+      errSect.style.display = 'none';
+    }
+  }
+
+  // Final output path section
+  const outSect   = document.getElementById('final-output-section');
+  const outPathEl = document.getElementById('final-output-path');
+  if (outSect && outPathEl && job.final_output_path) {
+    outSect.style.display  = '';
+    outPathEl.textContent  = job.final_output_path;
+  }
+
+  _currentStatus = status;
+}
+
+// ─── Log refresh ──────────────────────────────────────────────────────────
+
+function refreshLog() {
+  fetch(`/api/jobs/${JOB_ID}/log`)
+    .then(r => r.json())
+    .then(d => {
+      if (_logEl) {
+        const atBottom = _logEl.scrollHeight - _logEl.clientHeight <= _logEl.scrollTop + 60;
+        _logEl.textContent = d.log;
+        if (atBottom) _logEl.scrollTop = _logEl.scrollHeight;
+      }
+    })
+    .catch(() => {});
+}
+
+// ─── WebSocket with reconnect ──────────────────────────────────────────────
+
+let _ws        = null;
+let _wsTimeout = null;
+
+function _connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  _ws = new WebSocket(`${proto}//${location.host}/api/ws/jobs/${JOB_ID}`);
+
+  _ws.onopen = () => {
+    if (_wsTimeout) { clearTimeout(_wsTimeout); _wsTimeout = null; }
+  };
+
+  _ws.onmessage = (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      if (data.type === 'job_update') renderJobState(data.job);
+    } catch (e) { console.error('[reeldock] WS parse error', e); }
+  };
+
+  _ws.onerror = () => {};
+
+  _ws.onclose = () => {
+    if (ACTIVE.has(_currentStatus) && !_didReload) {
+      _wsTimeout = setTimeout(_connectWS, 5000);
+    }
+  };
+}
+
+// ─── Polling (always-on fallback while active) ────────────────────────────
+
+if (ACTIVE.has(_currentStatus)) {
+  _connectWS();
+  setInterval(() => {
+    refreshLog();
+    // Always poll for reconciliation; WS is preferred for low-latency updates.
+    fetch(`/api/jobs/${JOB_ID}`)
+      .then(r => r.json())
+      .then(renderJobState)
+      .catch(() => {});
+  }, 2000);
+}
+
+// ─── Action handlers ──────────────────────────────────────────────────────
+
+function handleRetry(event, form) {
+  event.preventDefault();
+  const btn = document.getElementById('retry-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="inline-block animate-spin mr-2"><span class="material-symbols-outlined text-[16px]">sync</span></span> Retrying...';
+  }
+  fetch(form.action, { method: 'POST' })
+    .then(r => r.json())
+    .then(() => location.reload())
+    .catch(() => location.reload());
+}
+
+function handleCancel(event, form) {
+  event.preventDefault();
+  const btn = document.getElementById('cancel-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="inline-block animate-spin mr-2"><span class="material-symbols-outlined text-[16px]">sync</span></span> Cancelling...';
+  }
+  fetch(form.action, { method: 'POST' })
+    .then(r => r.json())
+    .then(() => location.reload())
+    .catch(() => location.reload());
+}
+
+function copyLog() {
+  const text = (_logEl || document.getElementById('log-content')).innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-log-btn');
+    if (!btn) return;
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span class="material-symbols-outlined text-[16px]">done</span> Copied!';
+    setTimeout(() => { btn.innerHTML = orig; }, 2000);
+  }).catch(console.error);
+}
+
+function copyOutputPath() {
+  const el = document.getElementById('final-output-path');
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent || '').then(() => {
+    const btn = document.getElementById('copy-path-btn');
+    if (!btn) return;
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span class="material-symbols-outlined text-[16px]">done</span> Copied';
+    setTimeout(() => { btn.innerHTML = orig; }, 2000);
+  }).catch(console.error);
+}
+
+// ─── Initial render from embedded JSON ────────────────────────────────────
+
+const _initEl = document.getElementById('initial-job-state');
+if (_initEl) {
+  try { renderJobState(JSON.parse(_initEl.textContent)); } catch (e) {}
+}
 </script>
   {% block content_end %}{% endblock %}
 {% endblock %}
-
-<script>
-  (() => {
-  // WebSocket connection for real-time updates
-  let ws = null;
-  let wsReconnectTimeout = null;
-  let currentJobId = '{{ job.id | e }}';
-  const logViewer = document.getElementById('log-content');
-
-  function connectWebSocket() {
-    // Build WebSocket URL with optional token from current page
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/api/ws/jobs/${currentJobId}`;
-
-    ws = new WebSocket(wsUrl);
-
-    ws.onopen = function() {
-      console.log('WebSocket connected');
-      const wsStatus = document.getElementById('ws-status');
-      if (wsStatus) {
-        wsStatus.style.display = 'none';
-      }
-      // Clear any reconnect timeout
-      if (wsReconnectTimeout) {
-        clearTimeout(wsReconnectTimeout);
-        wsReconnectTimeout = null;
-      }
-    };
-
-    ws.onmessage = function(event) {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'job_update') {
-          // Update UI with WebSocket data
-          const job = data.job;
-
-          // Update status badge
-          const badgeContainer = document.getElementById('status-badge-container');
-          if (badgeContainer) {
-            setStatusBadge(badgeContainer, job.status);
-          }
-
-          // Update duration
-          const durationLabel = document.getElementById('duration-label');
-          if (durationLabel && job.duration) {
-            const secs = job.duration;
-            const h = Math.floor(secs / 3600).toString().padStart(2, '0');
-            const m = Math.floor((secs % 3600) / 60).toString().padStart(2, '0');
-            const s = Math.floor(secs % 60).toString().padStart(2, '0');
-            durationLabel.textContent = `${h}:${m}:${s}`;
-          }
-
-          // Update progress
-          const progressRow = document.getElementById('progress-row');
-          const progressBar = document.getElementById('job-progress-bar');
-          const progressText = document.getElementById('job-progress-text');
-          const progressLabel = document.getElementById('job-progress-label');
-          const progressSpeed = document.getElementById('job-progress-speed');
-          const progressEta = document.getElementById('job-progress-eta');
-          const processingLabel = document.getElementById('processing-label');
-          const speedEtaRow = document.getElementById('speed-eta-row');
-
-          const hasProgress = (job.progress_percent !== null && job.progress_percent !== undefined) || (job.progress !== null && job.progress !== undefined);
-          const hasLabel = !!job.progress_label;
-          const isActive = activeStatuses.has(job.status);
-          const showDetail = progressDetailStatuses.has(job.status);
-
-          if (hasProgress || hasLabel || isActive) {
-            if (progressRow) progressRow.style.display = '';
-            if (progressRow) progressRow.classList.toggle('progress-live', isActive);
-
-            const pct = job.progress_percent !== null ? job.progress_percent : (job.progress !== null ? job.progress : 0);
-            const clampedPct = Math.max(0, Math.min(100, pct));
-            updateVuMeter(progressBar, clampedPct, job.status === 'failed' || job.status === 'cancelled');
-            if (progressText) {
-              if (pct < 100 && pct !== Math.floor(pct)) {
-                progressText.textContent = pct.toFixed(1) + '%';
-              } else {
-                progressText.textContent = Math.round(pct) + '%';
-              }
-            }
-
-            if (processingLabel) {
-              if (job.status === 'succeeded') processingLabel.textContent = 'COMPLETE';
-              else if (job.status === 'failed') processingLabel.textContent = 'FAILED';
-              else if (job.status === 'cancelled') processingLabel.textContent = 'CANCELLED';
-              else processingLabel.textContent = 'PROCESSING';
-            }
-
-            if (speedEtaRow) {
-              speedEtaRow.style.display = showDetail ? '' : 'none';
-            }
-
-            if (progressLabel) {
-              progressLabel.textContent = job.progress_label || `Stage: ${job.phase || job.status}`;
-            }
-
-            if (progressSpeed) {
-              progressSpeed.textContent = (showDetail && job.progress_speed) ? job.progress_speed : '—';
-            }
-
-            if (progressEta) {
-              progressEta.textContent = (showDetail && job.progress_eta) ? job.progress_eta : '—';
-            }
-
-            // Reload page if status changed to terminal
-            if (job.status !== currentStatus) {
-              if (activeStatuses.has(job.status)) {
-                currentStatus = job.status;
-              } else {
-                window.location.reload();
-              }
-            }
-          } else {
-            if (progressRow) {
-              progressRow.style.display = 'none';
-              progressRow.classList.remove('progress-live');
-            }
-          }
-
-          // Update error message if present
-          const errorSection = document.getElementById('error-section');
-          const errorPre = document.getElementById('error-message-text');
-          const errorMessage = job.error_message;
-          if (errorSection && errorPre) {
-            if (errorMessage) {
-              errorSection.style.display = '';
-              errorPre.textContent = errorMessage;
-            } else {
-              errorPre.textContent = '';
-              errorSection.style.display = 'none';
-            }
-          }
-
-          // Update final output path if available
-          const outputPathSection = document.getElementById('final-output-section');
-          const outputPathElement = document.getElementById('final-output-path');
-          if (outputPathSection && outputPathElement) {
-            if (job.final_output_path) {
-              outputPathSection.style.display = '';
-              outputPathElement.textContent = job.final_output_path;
-            } else {
-              outputPathElement.textContent = '';
-              outputPathSection.style.display = 'none';
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
-
-    ws.onerror = function(error) {
-      console.error('WebSocket error:', error);
-      showWebSocketStatus('Connection failed');
-    };
-
-    ws.onclose = function(event) {
-      console.log('WebSocket closed:', event.code, event.reason);
-      showWebSocketStatus('Reconnecting...');
-      // Reconnect after 5 seconds
-      wsReconnectTimeout = setTimeout(connectWebSocket, 5000);
-    };
-  }
-
-  function showWebSocketStatus(message) {
-    const wsStatus = document.getElementById('ws-status');
-    if (wsStatus) {
-      wsStatus.textContent = message;
-      wsStatus.style.display = 'inline-flex';
-    }
-  }
-
-  // Initialize WebSocket connection
-  const activeStatuses = new Set(['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning']);
-  const progressDetailStatuses = new Set(['downloading', 'converting']);
-  let currentStatus = '{{ job.status.value | e }}';
-
-  // Start WebSocket connection
-  connectWebSocket();
-
-  // Keep existing HTTP polling as fallback
-  function refreshLog() {
-    fetch('/api/jobs/{{ job.id }}/log')
-      .then(r => r.json())
-      .then(d => {
-        if (logViewer) {
-          const isAtBottom = logViewer.scrollHeight - logViewer.clientHeight <= logViewer.scrollTop + 60;
-          logViewer.textContent = d.log;
-          if (isAtBottom) {
-            logViewer.scrollTop = logViewer.scrollHeight;
-          }
-        }
-      });
-  }
-
-  if (activeStatuses.has(currentStatus)) {
-    const intervalId = setInterval(() => {
-      // If WebSocket is not connected, refresh log
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        refreshLog();
-      }
-
-      // HTTP fallback for job details when WebSocket is not connected
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        fetch('/api/jobs/{{ job.id }}')
-          .then(r => r.json())
-          .then(d => {
-            // Update status badge
-            const badgeContainer = document.getElementById('status-badge-container');
-            if (badgeContainer) {
-              setStatusBadge(badgeContainer, d.status);
-            }
-          })
-          .catch(err => console.error("Error polling job details:", err));
-      }
-    }, 2000);
-  }
-  })();
-</script>

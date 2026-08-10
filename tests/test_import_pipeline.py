@@ -594,9 +594,9 @@ def test_map_range():
     assert ImportPipeline._map_range(0.5, 2.0, 70.0) == pytest.approx(36.0)
     assert ImportPipeline._map_range(1.0, 2.0, 70.0) == 70.0
 
-    # Clamping
-    assert ImportPipeline._map_range(-0.5, 2.0, 70.0) == 0.0
-    assert ImportPipeline._map_range(1.5, 2.0, 70.0) == 100.0
+    # Undershoot / overshoot clamp to range ends (never global 100 mid-job)
+    assert ImportPipeline._map_range(-0.5, 2.0, 70.0) == 2.0
+    assert ImportPipeline._map_range(1.5, 2.0, 70.0) == 70.0
 
     # Conversion range 72-90%
     assert ImportPipeline._map_range(0.0, 72.0, 90.0) == 72.0
@@ -605,29 +605,22 @@ def test_map_range():
 
 
 def test_download_progress_mapping():
-    """Verify yt-dlp percent maps into overall 2-70% range."""
-    # 0% -> 2%
-    assert ImportPipeline._map_range(0.0 / 100.0, 2.0, 70.0) == 2.0
-    # 50% -> 36%
-    assert ImportPipeline._map_range(50.0 / 100.0, 2.0, 70.0) == 36.0
-    # 100% -> 70%
-    assert ImportPipeline._map_range(100.0 / 100.0, 2.0, 70.0) == 70.0
+    """Download stage uses local 0-100 percent."""
+    assert ImportPipeline._map_range(0.0 / 100.0, 0.0, 100.0) == 0.0
+    assert ImportPipeline._map_range(50.0 / 100.0, 0.0, 100.0) == 50.0
+    assert ImportPipeline._map_range(100.0 / 100.0, 0.0, 100.0) == 100.0
 
 
 def test_conversion_progress_mapping_with_duration():
-    """Verify ffmpeg out_time maps into 72-90% when duration is known."""
-    # out_time=0, duration=100 -> 72% (ratio 0.0)
-    assert ImportPipeline._map_range(0.0 / 100.0, 72.0, 90.0) == 72.0
-    # out_time=50, duration=100 -> 81% (ratio 0.5)
-    assert ImportPipeline._map_range(50.0 / 100.0, 72.0, 90.0) == 81.0
-    # out_time=100, duration=100 -> 90% (ratio 1.0)
-    assert ImportPipeline._map_range(100.0 / 100.0, 72.0, 90.0) == 90.0
-    # out_time=200, duration=100 -> 90% clamped
-    assert ImportPipeline._map_range(200.0 / 100.0, 72.0, 90.0) == 100.0  # clamped by _map_range
+    """Convert stage maps media time into local 0-100; overshoot stays at 100."""
+    assert ImportPipeline._map_range(0.0 / 100.0, 0.0, 100.0) == 0.0
+    assert ImportPipeline._map_range(50.0 / 100.0, 0.0, 100.0) == 50.0
+    assert ImportPipeline._map_range(100.0 / 100.0, 0.0, 100.0) == 100.0
+    assert ImportPipeline._map_range(200.0 / 100.0, 0.0, 100.0) == 100.0
 
 
 def test_set_progress_clamping(test_db, mock_settings):
-    """Verify _set_progress clamps percent to 0-100."""
+    """Verify _set_progress clamps percent to 0-100 and can clear percent."""
     job = Job(
         id="job-clamp",
         url="https://youtube.com/watch?v=123",
@@ -658,11 +651,94 @@ def test_set_progress_clamping(test_db, mock_settings):
     assert job.progress_percent == 100.0
     assert job.progress_label == "Overflow"
 
-    # Label-only update
+    # Indeterminate stage clears percent
+    pipeline._set_progress(
+        job, clear_percent=True, label="Saving audiobook to library…", force=True
+    )
+    test_db.refresh(job)
+    assert job.progress_percent is None
+    assert job.progress_label == "Saving audiobook to library…"
+
+    # Label-only update leaves cleared percent
     pipeline._set_progress(job, label="Label only", force=True)
     test_db.refresh(job)
-    assert job.progress_percent == 100.0  # unchanged
+    assert job.progress_percent is None
     assert job.progress_label == "Label only"
+
+
+def test_download_stage_100_is_not_complete(test_db, mock_settings):
+    """Stage-local download 100% must not use the job-complete Complete label."""
+    job = Job(
+        id="job-dl100",
+        url="https://youtube.com/watch?v=123",
+        status=JobStatus.downloading,
+        output_title="DL 100",
+        destination_folder="Show",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    pipeline = ImportPipeline(test_db, mock_settings, "job-dl100")
+    pipeline._set_progress(
+        job, percent=100.0, label="Download complete", eta="", speed="", force=True
+    )
+    test_db.refresh(job)
+    assert job.progress_percent == 100.0
+    assert job.progress_label == "Download complete"
+    assert job.progress_label != "Complete"
+    assert job.status == JobStatus.downloading
+
+
+def test_save_stage_clears_percent_and_sets_label(test_db, mock_settings):
+    """Commit/Save stages are indeterminate with product labels."""
+    job = Job(
+        id="job-save",
+        url="https://youtube.com/watch?v=123",
+        status=JobStatus.verifying,
+        phase="verified",
+        output_title="Save Test",
+        destination_folder="Show",
+        progress=90,
+        progress_percent=90.0,
+        progress_label="Convert complete",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    pipeline = ImportPipeline(test_db, mock_settings, "job-save")
+    pipeline._set_progress(
+        job,
+        clear_percent=True,
+        label="Saving audiobook to library…",
+        eta="",
+        speed="",
+        force=True,
+    )
+    test_db.refresh(job)
+    assert job.progress_percent is None
+    assert job.progress is None
+    assert job.progress_label == "Saving audiobook to library…"
+
+
+def test_success_sets_complete_100(test_db, mock_settings):
+    """Only the success Complete path should pair 100 with Complete."""
+    job = Job(
+        id="job-done",
+        url="https://youtube.com/watch?v=123",
+        status=JobStatus.scanning,
+        output_title="Done",
+        destination_folder="Show",
+    )
+    test_db.add(job)
+    test_db.commit()
+
+    pipeline = ImportPipeline(test_db, mock_settings, "job-done")
+    pipeline._set_progress(
+        job, percent=ImportPipeline._M_COMPLETE, label="Complete", eta="", speed="", force=True
+    )
+    test_db.refresh(job)
+    assert job.progress_percent == 100.0
+    assert job.progress_label == "Complete"
 
 
 @patch("app.services.process_runner.subprocess.Popen")

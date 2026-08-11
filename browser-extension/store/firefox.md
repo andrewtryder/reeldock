@@ -27,8 +27,12 @@ Requires **Firefox 140** or newer (built-in data-collection consent). Configure
 the ReelDock origin and extension API token in Options. Localhost may use
 HTTP; any other host must use HTTPS.
 
-Do not enable Firefox for Android on the AMO listing. The extension is
-desktop-only; `gecko_android` is omitted on purpose.
+Desktop Firefox only for this initial store release. Keep
+`browser_specific_settings.gecko_android` omitted — AMO treats that as
+not Android-compatible, so you do not need to mark Android incompatible
+in the listing unless AMO later asks. `web-ext lint` may warn that
+data-collection consent on Android starts at 142 while desktop min is
+140; that warning is expected and non-blocking.
 
 The extension communicates only with the ReelDock server you configure. There
 is no Mozilla- or developer-operated cloud relay.
@@ -52,9 +56,10 @@ scraping, or technical telemetry).
 
 ## Firefox ID
 
-The packaged gecko id is `reeldock@local`. **Change this before the first AMO
-submission if you want a different permanent ID** — AMO treats the id as
-stable after listing.
+Permanent gecko id: `@reeldock.andrewtryder`
+
+AMO checks uniqueness on first signing and treats the id as stable after
+listing. Do not change it after the first AMO submission.
 
 ## Reviewer setup
 

@@ -50,9 +50,14 @@ if (JSON.stringify(optional) !== JSON.stringify(['https://*/*'])) {
 }
 
 const gecko = firefoxOverride.browser_specific_settings?.gecko;
-if (!gecko?.id) fail('Firefox gecko.id is required');
+if (gecko?.id !== '@reeldock.andrewtryder') {
+  fail(`Firefox gecko.id must be @reeldock.andrewtryder, got ${gecko?.id}`);
+}
 if (gecko.strict_min_version !== '140.0') {
   fail(`Firefox strict_min_version must be 140.0, got ${gecko.strict_min_version}`);
+}
+if (firefoxOverride.browser_specific_settings?.gecko_android) {
+  fail('gecko_android must stay omitted (desktop Firefox only)');
 }
 const requiredTypes = gecko.data_collection_permissions?.required || [];
 for (const type of ['browsingActivity', 'authenticationInfo']) {

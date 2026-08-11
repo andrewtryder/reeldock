@@ -34,12 +34,6 @@ export const STORAGE_KEYS = SETTINGS_KEYS;
 
 export { RECENT_JOBS_KEY };
 
-export const SMOKE_VIDEO_IDS = Object.freeze([
-  'reeldockSmoke01',
-  'reeldockSmokeFail01',
-  'reeldockSmokeSlow01',
-]);
-
 export const HTTPS_REQUIRED_ERROR =
   'HTTPS is required for ReelDock servers other than localhost.';
 
@@ -194,13 +188,11 @@ export async function saveRecentJobs(jobs) {
 
 export function isAllowedVideoId(id) {
   if (!id) return false;
-  if (SMOKE_VIDEO_IDS.includes(id)) return true;
   return /^[A-Za-z0-9_-]{11,12}$/.test(id);
 }
 
 // Return true if the URL points to a single YouTube video.
-// Matches youtube.com/watch?v=ID and youtu.be/ID (11-12 char IDs),
-// plus reserved ReelDock smoke fixture IDs used by E2E.
+// Matches youtube.com/watch?v=ID and youtu.be/ID (11-12 char IDs).
 export function isYouTubeWatchUrl(url) {
   if (!url) return false;
   let parsed;

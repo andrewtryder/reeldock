@@ -153,9 +153,9 @@ Issue [#118](https://github.com/andrewtryder/reeldock/issues/118): run the **shi
 
 Fixtures live in `tests/fixtures/release_smoke/`. When `RELEASE_SMOKE_FIXTURE=true`, the worker stages canned audio instead of calling yt-dlp, then runs the normal remux/verify/commit path. Reserved watch IDs:
 
-- `reeldockSmoke01` — happy path
-- `reeldockSmokeFail01` — fail once (`attempts == 1`), succeed on retry
-- `reeldockSmokeSlow01` — short sleep after staging so Cancel can win
+- `rdSmoke01001` — happy path
+- `rdSmokeFail1` — fail once (`attempts == 1`), succeed on retry
+- `rdSmokeSlow1` — short sleep after staging so Cancel can win
 
 Local run (Docker + host `ffprobe` required):
 

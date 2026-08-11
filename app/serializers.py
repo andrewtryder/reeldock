@@ -69,6 +69,7 @@ def extension_job_dict(job: Job) -> dict[str, Any]:
         "progress_speed": job.progress_speed,
         "progress_label": job.progress_label,
         "error_message": job.error_message,
+        "destination_folder": job.destination_folder or "",
         "job_url": f"/jobs/{job.id}",
         "created_at": job.created_at.isoformat() if job.created_at else None,
     }

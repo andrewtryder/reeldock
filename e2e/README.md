@@ -14,12 +14,14 @@ Playwright suites against a Compose stack. They never hit live YouTube.
 starts Compose with **both** Basic Auth and the extension API enabled (host
 `.env` is not inherited), and runs `--project=extension`.
 
-YouTube watch pages for `reeldockSmoke*` are fulfilled locally via
-`page.route`. The unpacked Chrome extension is loaded with
-`--disable-extensions-except` / `--load-extension` on a persistent
-Chromium context. The suite opens `popup.html?url=…` because `activeTab`
-does not reveal a YouTube tab URL when the popup is loaded as its own
-page (no YouTube host permission).
+YouTube watch pages for `rdSmoke*` are fulfilled locally via `page.route`.
+The unpacked Chrome extension is loaded with `--disable-extensions-except` /
+`--load-extension` on a persistent Chromium context.
+
+Automated scenarios queue through the service worker (`action: "queue"`).
+Opening `popup.html` as a tab does **not** activate `activeTab`, and
+`chrome.action.openPopup()` is not reliable on Playwright’s pinned Chromium,
+so this suite does **not** cover the real toolbar icon path.
 
 Headless MV3 extension load is unreliable on Playwright’s pinned Chromium,
 so the compose script runs **headed** Chromium. In CI (no `DISPLAY`) it
@@ -33,6 +35,17 @@ are **skipped** here. Origin-permission rules are covered by
 
 Firefox has no second Playwright suite. Keep `npm --prefix browser-extension run lint`,
 `web-ext`, package checks, and the shared JS tests.
+
+## Mandatory manual smoke (toolbar / activeTab)
+
+E2E does not replace clicking the toolbar icon. Before merge, on a desktop
+browser with the unpacked extension loaded:
+
+1. Chrome: load `browser-extension/dist/chrome` unpacked.
+2. Open a real YouTube watch page.
+3. Click the **toolbar icon** (not a `popup.html` tab).
+4. Confirm the current video title is detected and Create Audiobook queues.
+5. Repeat in Firefox with `browser-extension/dist/firefox`.
 
 ## Manual matrix
 

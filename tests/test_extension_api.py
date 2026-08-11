@@ -157,7 +157,6 @@ def _get_job_row(job_id: str):
 def _queue_job(client: TestClient, extra: dict | None = None) -> str:
     payload = {
         "url": "https://www.youtube.com/watch?v=test123",
-        "destination_folder": "",
         "output_title": "",
         "embed_metadata": True,
         "embed_thumbnail": True,
@@ -618,6 +617,75 @@ def test_extension_destinations_strips_traversal_names(extension_enabled_client,
     assert response.status_code == 200
     assert response.json()["folders"] == ["Theology", "Lectures"]
     assert response.json()["default"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Queue destination three-state
+# ---------------------------------------------------------------------------
+
+
+def _theology_queue_client(tmp_path, monkeypatch):
+    output_root = tmp_path / "library"
+    output_root.mkdir()
+    (output_root / "Theology").mkdir()
+    monkeypatch.setenv("EXTENSION_API_ENABLED", "true")
+    monkeypatch.setenv("EXTENSION_API_TOKEN", "test-token-12345")
+    monkeypatch.setenv("OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("DEFAULT_DESTINATION_FOLDER", "Theology")
+    import app.config as cfg_module
+
+    cfg_module._settings = None
+    return TestClient(create_app())
+
+
+def _queue_payload(**extra):
+    payload = {
+        "url": "https://www.youtube.com/watch?v=test123",
+        "output_title": "",
+        "embed_metadata": True,
+        "embed_thumbnail": True,
+        "embed_chapters": True,
+        "trigger_abs_scan": False,
+    }
+    payload.update(extra)
+    return payload
+
+
+def test_queue_omit_uses_server_default(tmp_path, monkeypatch, mocked_ytdlp, mocked_enqueue):
+    with _theology_queue_client(tmp_path, monkeypatch) as client:
+        response = client.post("/api/extension/queue", headers=EXT_AUTH, json=_queue_payload())
+        assert response.status_code == 201, response.text
+        job_id = response.json()["job_id"]
+        job = client.get(f"/api/extension/jobs/{job_id}", headers=EXT_AUTH)
+        assert job.json()["destination_folder"] == "Theology"
+        assert _get_job_row(job_id).destination_folder == "Theology"
+
+
+def test_queue_empty_string_is_root(tmp_path, monkeypatch, mocked_ytdlp, mocked_enqueue):
+    with _theology_queue_client(tmp_path, monkeypatch) as client:
+        response = client.post(
+            "/api/extension/queue",
+            headers=EXT_AUTH,
+            json=_queue_payload(destination_folder=""),
+        )
+        assert response.status_code == 201, response.text
+        job_id = response.json()["job_id"]
+        job = client.get(f"/api/extension/jobs/{job_id}", headers=EXT_AUTH)
+        assert job.json()["destination_folder"] == ""
+        assert _get_job_row(job_id).destination_folder is None
+
+
+def test_queue_named_folder_theology(tmp_path, monkeypatch, mocked_ytdlp, mocked_enqueue):
+    with _theology_queue_client(tmp_path, monkeypatch) as client:
+        response = client.post(
+            "/api/extension/queue",
+            headers=EXT_AUTH,
+            json=_queue_payload(destination_folder="Theology"),
+        )
+        assert response.status_code == 201, response.text
+        job_id = response.json()["job_id"]
+        job = client.get(f"/api/extension/jobs/{job_id}", headers=EXT_AUTH)
+        assert job.json()["destination_folder"] == "Theology"
 
 
 # ---------------------------------------------------------------------------

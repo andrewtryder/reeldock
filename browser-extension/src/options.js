@@ -94,8 +94,8 @@ function applyCapabilities(payload) {
       option.textContent = choice.label;
       select.appendChild(option);
     }
-    select.value = destinations.selected || '';
-    $('defaultDestinationFolder').value = destinations.selected || '';
+    select.value = destinations.selected ?? '';
+    $('defaultDestinationFolder').value = destinations.selected ?? '';
   }
 }
 
@@ -142,11 +142,14 @@ async function onTest() {
     setStatus('API token is required.', false);
     return;
   }
-  await saveSettings(collect());
   setStatus('Testing connection…', true);
   $('status-panel').style.display = 'none';
   try {
-    const res = await chrome.runtime.sendMessage({ action: 'testConnection' });
+    const res = await chrome.runtime.sendMessage({
+      action: 'testConnection',
+      serverUrl,
+      apiToken,
+    });
     if (!res?.ok) throw new Error(res?.error || 'Connection failed');
     applyCapabilities(res);
     if (res.status && !res.status.ok) {

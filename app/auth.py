@@ -101,7 +101,9 @@ def attach_basic_auth(app: FastAPI, settings: Settings) -> None:
             # ExtensionAuthDep / validate_websocket_token. Do not exempt
             # /api/jobs/* or / — those stay behind Basic when AUTH_ENABLED.
             path = request.url.path
-            if path in ("/health", "/ready") or path.startswith(("/api/extension/", "/api/ws/")):
+            upgrade = request.headers.get("upgrade", "").lower()
+            ws_upgrade = path.startswith("/api/ws/") and upgrade == "websocket"
+            if path in ("/health", "/ready") or path.startswith("/api/extension/") or ws_upgrade:
                 return await call_next(request)
 
             auth_header = request.headers.get("Authorization", "")

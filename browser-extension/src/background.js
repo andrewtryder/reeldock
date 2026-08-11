@@ -7,6 +7,8 @@ import { formatApiError, formatCaughtError } from './errors.js';
 import {
   parseNotificationJobId,
   queuedNotificationSpec,
+  releaseTerminalNotificationClaim,
+  claimTerminalNotification,
   terminalNotificationSpec,
 } from './notifications.js';
 import {
@@ -14,6 +16,7 @@ import {
   displayRecentJobs,
   droppedJobIds,
   isTerminalStatus,
+  jobMatchesServerOrigin,
   mergeJobFromServer,
   resetJobForRetry,
   upsertRecentJob,
@@ -53,10 +56,10 @@ const RECONCILE_INTERVAL_MS = 2000;
 let reconcileTimer = null;
 let reconcileInFlight = false;
 
-function authHeaders() {
+function authHeaders(token = settings.apiToken) {
   const headers = { 'Content-Type': 'application/json' };
-  if (settings.apiToken) {
-    headers.Authorization = `Bearer ${settings.apiToken}`;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
   }
   return headers;
 }
@@ -66,6 +69,14 @@ function configuredServerOrigin() {
     throw new Error('Server URL not configured. Open the extension options to set it.');
   }
   return requireValidatedServerOrigin(settings.serverUrl);
+}
+
+function currentServerOrigin() {
+  try {
+    return configuredServerOrigin();
+  } catch {
+    return '';
+  }
 }
 
 async function persistJobs(next) {
@@ -82,7 +93,7 @@ async function refreshSettings() {
   settings = await loadSettings();
   recentJobs = await loadRecentJobs();
   if (previousOrigin && settings.serverUrl && previousOrigin !== settings.serverUrl) {
-    closeAllWebSockets('Server URL changed');
+    stopSocketsForOtherOrigins();
   }
 }
 
@@ -102,10 +113,11 @@ async function parseErrorResponse(response) {
 }
 
 async function apiFetch(path, options = {}) {
-  const base = configuredServerOrigin();
+  const { serverOrigin, apiToken, ...fetchOptions } = options;
+  const base = serverOrigin || configuredServerOrigin();
   const response = await fetch(`${base}${path}`, {
-    ...options,
-    headers: { ...authHeaders(), ...(options.headers || {}) },
+    ...fetchOptions,
+    headers: { ...authHeaders(apiToken), ...(fetchOptions.headers || {}) },
   });
   if (!response.ok) {
     throw await parseErrorResponse(response);
@@ -181,8 +193,9 @@ async function maybeNotifyTerminal(jobId) {
   const job = recentJobs.find((item) => item.jobId === jobId);
   const spec = terminalNotificationSpec(job);
   if (!spec) return;
-  notifySpec(spec);
+  if (!claimTerminalNotification(jobId)) return;
   await persistJobs(applyJobPatch(recentJobs, jobId, { terminalNotificationSent: true }));
+  notifySpec(spec);
 }
 
 async function openAbsoluteOrJobUrl(jobUrl, serverOrigin) {
@@ -221,7 +234,7 @@ async function fetchStatus() {
   return lastStatus;
 }
 
-async function fetchDestinations() {
+async function fetchDestinations(fetchOptions = {}) {
   if (!capabilities.supports.destinations) {
     destinationState = {
       folders: [],
@@ -232,19 +245,20 @@ async function fetchDestinations() {
     };
     return destinationState;
   }
-  const data = await apiFetch('/api/extension/destinations');
+  const data = await apiFetch('/api/extension/destinations', fetchOptions);
   const folders = Array.isArray(data.folders) ? data.folders : [];
+  const serverDefault = data.default || '';
   const resolved = resolveSavedDestination(
     settings.defaultDestinationFolder || '',
     folders,
-    data.default || '',
+    serverDefault,
   );
   destinationState = {
     folders,
-    default: data.default || '',
+    default: serverDefault,
     selected: resolved.value,
     banner: resolved.banner,
-    choices: destinationChoices(folders),
+    choices: destinationChoices(folders, serverDefault),
   };
   return destinationState;
 }
@@ -253,8 +267,16 @@ async function fetchJob(jobId) {
   return apiFetch(`/api/extension/jobs/${encodeURIComponent(jobId)}`);
 }
 
+function jobsOnCurrentServer() {
+  const origin = currentServerOrigin();
+  return recentJobs.filter((job) => jobMatchesServerOrigin(job, origin));
+}
+
 async function reconcileActiveJobs() {
-  const active = recentJobs.filter((job) => !isTerminalStatus(job.status));
+  const origin = currentServerOrigin();
+  const active = recentJobs.filter(
+    (job) => !isTerminalStatus(job.status) && jobMatchesServerOrigin(job, origin),
+  );
   let changed = false;
   for (const job of active) {
     try {
@@ -279,7 +301,7 @@ async function reconcileActiveJobs() {
 }
 
 function hasActiveJobs() {
-  return recentJobs.some((job) => !isTerminalStatus(job.status));
+  return jobsOnCurrentServer().some((job) => !isTerminalStatus(job.status));
 }
 
 function stopReconcileLoop() {
@@ -313,7 +335,22 @@ async function tickReconcile() {
   }
 }
 
-async function handleTestConnection() {
+async function handleTestConnection(message = {}) {
+  const ephemeralUrl = typeof message.serverUrl === 'string' ? message.serverUrl.trim() : '';
+  const hasEphemeralToken = typeof message.apiToken === 'string';
+  if (ephemeralUrl || hasEphemeralToken) {
+    const origin = requireValidatedServerOrigin(ephemeralUrl || settings.serverUrl);
+    const token = hasEphemeralToken ? message.apiToken : settings.apiToken;
+    const fetchOptions = { serverOrigin: origin, apiToken: token };
+    lastStatus = await apiFetch('/api/extension/status', fetchOptions);
+    capabilities = parseCapabilities(lastStatus);
+    try {
+      await fetchDestinations(fetchOptions);
+    } catch (err) {
+      console.warn('Destinations unavailable:', formatCaughtError(err));
+    }
+    return { ok: true, status: lastStatus, capabilities, destinations: destinationState };
+  }
   await refreshSettings();
   const status = await fetchStatus();
   try {
@@ -386,7 +423,7 @@ async function handleQueue(message) {
     uploader: data.uploader || '',
     status: data.status || 'queued',
     phase: 'queued',
-    progressPercent: 0,
+    progressPercent: null,
     progressLabel: 'Queued',
     jobUrl: data.job_url || `/jobs/${data.job_id}`,
     serverOrigin: origin,
@@ -431,6 +468,7 @@ async function handleRetry(jobId) {
     method: 'POST',
   });
   const existing = recentJobs.find((job) => job.jobId === jobId);
+  releaseTerminalNotificationClaim(jobId);
   const reset = resetJobForRetry(existing || { jobId });
   await persistJobs(upsertRecentJob(recentJobs, reset));
   startJobWebSocket(jobId);
@@ -481,8 +519,21 @@ function closeAllWebSockets(reason) {
   }
 }
 
+function stopSocketsForOtherOrigins() {
+  const origin = currentServerOrigin();
+  for (const job of recentJobs) {
+    if (!jobMatchesServerOrigin(job, origin)) {
+      stopJobWebSocket(job.jobId, 'Server origin changed');
+    }
+  }
+}
+
 function startJobWebSocket(jobId) {
   if (!settings.serverUrl) return null;
+  const job = recentJobs.find((item) => item.jobId === jobId);
+  if (job && !jobMatchesServerOrigin(job, currentServerOrigin())) {
+    return null;
+  }
   const existing = activeWebSockets.get(jobId);
   if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
     return existing;
@@ -610,7 +661,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return replyAsync(sendResponse, handleLoadDestinations());
   }
   if (message.action === 'testConnection') {
-    return replyAsync(sendResponse, handleTestConnection());
+    return replyAsync(sendResponse, handleTestConnection(message));
   }
   if (message.action === 'getNotificationIds') {
     return replyAsync(sendResponse, listedNotificationIds().then((ids) => ({ ok: true, ids })));
@@ -646,7 +697,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (key in changes) settings[key] = changes[key].newValue;
   }
   if (changes.serverUrl) {
-    closeAllWebSockets('Server URL changed');
+    stopSocketsForOtherOrigins();
   }
 });
 

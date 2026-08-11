@@ -70,16 +70,7 @@ function startPopupPoll() {
   }, 2000);
 }
 
-function overrideFromQuery() {
-  const params = new URLSearchParams(window.location.search);
-  const url = params.get('url') || '';
-  if (!isYouTubeWatchUrl(url)) return null;
-  return { url, title: params.get('title') || url };
-}
-
 async function getActiveTabInfo() {
-  const override = overrideFromQuery();
-  if (override) return override;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return { url: tab?.url || '', title: tab?.title || '' };
 }
@@ -108,7 +99,7 @@ function fillDestinationSelect() {
   field.classList.toggle('hidden', !supports);
   if (!supports) return;
   select.replaceChildren();
-  for (const choice of publicState.destinations?.choices || [{ value: '', label: 'Library root' }]) {
+  for (const choice of publicState.destinations?.choices || [{ value: '', label: 'Server default' }]) {
     const option = document.createElement('option');
     option.value = choice.value;
     option.textContent = choice.label;
@@ -174,7 +165,11 @@ function renderRecent() {
       bar.className = 'progress-bar';
       const fill = document.createElement('div');
       fill.className = 'progress-fill';
-      fill.style.width = `${Math.max(0, Math.min(100, job.progressPercent || 0))}%`;
+      if (job.progressPercent == null) {
+        bar.classList.add('indeterminate');
+      } else {
+        fill.style.width = `${Math.max(0, Math.min(100, job.progressPercent))}%`;
+      }
       bar.appendChild(fill);
       card.appendChild(bar);
     }
@@ -262,7 +257,7 @@ async function onQueue(event) {
       action: 'queue',
       source: 'popup',
       url: activeTab.url,
-      destinationFolder: $('destination')?.value || '',
+      destinationFolder: $('destination')?.value,
       quality: selectedQuality,
       embedMetadata: $('embed-metadata').checked,
       embedThumbnail: $('embed-thumbnail').checked,

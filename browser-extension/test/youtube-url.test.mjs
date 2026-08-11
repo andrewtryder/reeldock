@@ -6,18 +6,18 @@ import { isYouTubeVideoUrl } from '../src/ui.js';
 import { formatApiError } from '../src/errors.js';
 
 describe('YouTube URL check', () => {
-  it('accepts real 11-12 character ids and reserved smoke ids', () => {
+  it('accepts real 11-12 character ids including smoke fixtures', () => {
     assert.equal(isYouTubeWatchUrl('https://www.youtube.com/watch?v=jNQXAC9IVRw'), true);
     assert.equal(isYouTubeWatchUrl('https://youtu.be/jNQXAC9IVRw'), true);
-    assert.equal(isYouTubeWatchUrl('https://www.youtube.com/watch?v=reeldockSmoke01'), true);
-    assert.equal(isYouTubeWatchUrl('https://www.youtube.com/watch?v=reeldockSmokeFail01'), true);
-    assert.equal(isYouTubeWatchUrl('https://www.youtube.com/watch?v=reeldockSmokeSlow01'), true);
-    assert.equal(isYouTubeVideoUrl('https://www.youtube.com/watch?v=reeldockSmoke01'), true);
+    assert.equal(isYouTubeWatchUrl('https://www.youtube.com/watch?v=rdSmoke01001'), true);
+    assert.equal(isYouTubeWatchUrl('https://www.youtube.com/watch?v=rdSmokeFail1'), true);
+    assert.equal(isYouTubeWatchUrl('https://www.youtube.com/watch?v=rdSmokeSlow1'), true);
+    assert.equal(isYouTubeVideoUrl('https://www.youtube.com/watch?v=rdSmoke01001'), true);
   });
 
   it('rejects playlists and random strings', () => {
     assert.equal(isYouTubeWatchUrl('https://www.youtube.com/playlist?list=PLtest'), false);
-    assert.equal(isYouTubeWatchUrl('https://example.com/watch?v=reeldockSmoke01'), false);
+    assert.equal(isYouTubeWatchUrl('https://example.com/watch?v=rdSmoke01001'), false);
   });
 });
 

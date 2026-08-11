@@ -1,10 +1,17 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import {
   configureOptions,
   expect,
   extensionToken,
+  libraryDir,
   notificationIds,
-  popupQuery,
+  queueViaWorker,
   serverOrigin,
+  SMOKE_FAIL,
+  SMOKE_OK,
+  SMOKE_SLOW,
   storageSnapshot,
   test,
 } from "./fixtures";
@@ -37,22 +44,25 @@ test("options save, test connection, persist, and mask the token", async ({
   await options.close();
 });
 
-test("queue Standard smoke video to Complete and notify once", async ({
-  extensionPage,
-  openSmokeTab,
-}) => {
-  await openSmokeTab("reeldockSmoke01");
+async function ensureConnected(
+  extensionPage: (name: "popup" | "options") => Promise<import("@playwright/test").Page>,
+) {
   const options = await extensionPage("options");
   await configureOptions(options);
   await expect(options.locator("#status")).toContainText(/Connected successfully/i, {
     timeout: 30_000,
   });
+  return options;
+}
+
+test("queue Standard smoke video to Complete and notify once", async ({
+  extensionPage,
+}) => {
+  const options = await ensureConnected(extensionPage);
+  await queueViaWorker(options, SMOKE_OK);
   await options.close();
 
-  const popup = await extensionPage("popup", popupQuery("reeldockSmoke01"));
-  await expect(popup.locator("#video")).toContainText("ReelDock Release Smoke");
-  await expect(popup.locator("#queue")).toBeEnabled();
-  await popup.locator("#queue").click();
+  const popup = await extensionPage("popup");
   await expect(popup.locator("#recent-list")).toContainText(/Complete/i, { timeout: 120_000 });
 
   await expect
@@ -71,34 +81,18 @@ test("queue Standard smoke video to Complete and notify once", async ({
   await popup.close();
 });
 
-async function ensureConnected(
-  extensionPage: (
-    name: "popup" | "options",
-    query?: string,
-  ) => Promise<import("@playwright/test").Page>,
-) {
-  const options = await extensionPage("options");
-  await configureOptions(options);
-  await expect(options.locator("#status")).toContainText(/Connected successfully/i, {
-    timeout: 30_000,
-  });
-  await options.close();
-}
-
 test("close and reopen popup mid-job then reach Complete", async ({
   extensionPage,
-  openSmokeTab,
 }) => {
-  await ensureConnected(extensionPage);
-  await openSmokeTab("reeldockSmokeSlow01");
-  const popup = await extensionPage("popup", popupQuery("reeldockSmokeSlow01"));
-  await expect(popup.locator("#video")).toContainText("ReelDock Smoke Slow");
-  await expect(popup.locator("#queue")).toBeEnabled();
-  await popup.locator("#queue").click();
-  await expect(popup.locator("#recent-list")).toContainText(/ReelDock Smoke Slow/);
+  const options = await ensureConnected(extensionPage);
+  await queueViaWorker(options, SMOKE_SLOW);
+  await options.close();
+
+  const popup = await extensionPage("popup");
+  await expect(popup.locator("#recent-list")).toContainText("ReelDock Smoke Slow");
   await popup.close();
 
-  const again = await extensionPage("popup", popupQuery("reeldockSmokeSlow01"));
+  const again = await extensionPage("popup");
   await expect(again.locator("#recent-list")).toContainText("ReelDock Smoke Slow");
   await expect(again.locator("#recent-list")).toContainText(/Complete/i, { timeout: 120_000 });
   await again.close();
@@ -124,26 +118,24 @@ test("wrong token is actionable and recovering the token works", async ({ extens
   await popup.close();
 });
 
-test("slow fixture can be cancelled", async ({ extensionPage, openSmokeTab }) => {
-  await ensureConnected(extensionPage);
-  await openSmokeTab("reeldockSmokeSlow01");
-  const popup = await extensionPage("popup", popupQuery("reeldockSmokeSlow01"));
-  await expect(popup.locator("#video")).toContainText("ReelDock Smoke Slow");
-  await expect(popup.locator("#queue")).toBeEnabled();
-  await popup.locator("#queue").click();
+test("slow fixture can be cancelled", async ({ extensionPage }) => {
+  const options = await ensureConnected(extensionPage);
+  await queueViaWorker(options, SMOKE_SLOW);
+  await options.close();
+
+  const popup = await extensionPage("popup");
   await expect(popup.locator("#recent-list")).toContainText("ReelDock Smoke Slow");
   await popup.getByRole("button", { name: "Cancel" }).first().click();
   await expect(popup.locator("#recent-list")).toContainText(/Cancelled/i, { timeout: 30_000 });
   await popup.close();
 });
 
-test("fail fixture can be retried to Complete", async ({ extensionPage, openSmokeTab }) => {
-  await ensureConnected(extensionPage);
-  await openSmokeTab("reeldockSmokeFail01");
-  const popup = await extensionPage("popup", popupQuery("reeldockSmokeFail01"));
-  await expect(popup.locator("#video")).toContainText("ReelDock Smoke Fail");
-  await expect(popup.locator("#queue")).toBeEnabled();
-  await popup.locator("#queue").click();
+test("fail fixture can be retried to Complete", async ({ extensionPage }) => {
+  const options = await ensureConnected(extensionPage);
+  await queueViaWorker(options, SMOKE_FAIL);
+  await options.close();
+
+  const popup = await extensionPage("popup");
   await expect(popup.locator("#recent-list")).toContainText(/Failed/i, { timeout: 120_000 });
 
   const before = await notificationIds(popup);
@@ -162,4 +154,42 @@ test("fail fixture can be retried to Complete", async ({ extensionPage, openSmok
     )
     .toBeGreaterThan(beforeDone.length);
   await popup.close();
+});
+
+test("Library root queues beside Theology instead of into it", async ({
+  extensionPage,
+  request,
+}) => {
+  const options = await ensureConnected(extensionPage);
+  const dest = options.locator("#destinationSelect");
+  await expect(dest).toBeVisible({ timeout: 15_000 });
+  await dest.selectOption("__root__");
+  await options.locator("#save").click();
+  await expect(options.locator("#status")).toContainText(/Connected successfully/i, {
+    timeout: 30_000,
+  });
+
+  const queued = await queueViaWorker(options, SMOKE_OK, {
+    outputTitle: "Library Root Smoke",
+  });
+  const jobId = queued.job_id || queued.jobId;
+  expect(jobId).toBeTruthy();
+
+  const job = await request.get(`${serverOrigin()}/api/extension/jobs/${jobId}`, {
+    headers: { Authorization: `Bearer ${extensionToken()}` },
+  });
+  expect(job.ok()).toBeTruthy();
+  expect((await job.json()).destination_folder).toBe("");
+
+  const popup = await extensionPage("popup");
+  await expect(popup.locator("#recent-list")).toContainText(/Complete/i, { timeout: 120_000 });
+  await popup.close();
+  await options.close();
+
+  const root = libraryDir();
+  expect(root, "REELDOCK_LIBRARY_DIR must point at the Compose library bind").not.toBe("");
+  const rootM4b = path.join(root, "Library Root Smoke.m4b");
+  const theologyM4b = path.join(root, "Theology", "Library Root Smoke.m4b");
+  await expect.poll(() => fs.existsSync(rootM4b), { timeout: 15_000 }).toBe(true);
+  expect(fs.existsSync(theologyM4b)).toBe(false);
 });

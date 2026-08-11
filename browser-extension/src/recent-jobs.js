@@ -17,7 +17,7 @@ export function createJobRecord(partial = {}) {
     uploader: '',
     status: 'queued',
     phase: '',
-    progressPercent: 0,
+    progressPercent: null,
     progressLabel: '',
     jobUrl: '',
     serverOrigin: '',
@@ -48,7 +48,7 @@ export function resetJobForRetry(job) {
     ...job,
     status: 'queued',
     phase: 'queued',
-    progressPercent: 0,
+    progressPercent: null,
     progressLabel: 'Queued',
     errorMessage: '',
     terminalNotificationSent: false,
@@ -60,10 +60,30 @@ export function droppedJobIds(previousJobs, nextJobs) {
   return (previousJobs || []).filter((job) => !keep.has(job.jobId)).map((job) => job.jobId);
 }
 
+function coerceProgressPercent(value) {
+  if (value == null) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function jobMatchesServerOrigin(job, origin) {
+  const want = String(origin || '').replace(/\/$/, '');
+  const have = String(job?.serverOrigin || '').replace(/\/$/, '');
+  return !have || have === want;
+}
+
 export function mergeJobFromServer(apiJob, existing = {}) {
   if (!apiJob || typeof apiJob !== 'object') return createJobRecord(existing);
   const jobId = apiJob.id || apiJob.job_id || existing.jobId || '';
-  const progress = apiJob.progress_percent ?? apiJob.progress ?? existing.progressPercent ?? 0;
+  let progressPercent;
+  if (Object.prototype.hasOwnProperty.call(apiJob, 'progress_percent')) {
+    progressPercent = coerceProgressPercent(apiJob.progress_percent);
+  } else if (Object.prototype.hasOwnProperty.call(apiJob, 'progress')) {
+    progressPercent = coerceProgressPercent(apiJob.progress);
+  } else {
+    progressPercent = existing.progressPercent ?? null;
+  }
   return createJobRecord({
     ...existing,
     jobId,
@@ -71,10 +91,11 @@ export function mergeJobFromServer(apiJob, existing = {}) {
     uploader: apiJob.uploader ?? existing.uploader ?? '',
     status: apiJob.status || existing.status || 'queued',
     phase: apiJob.phase || existing.phase || '',
-    progressPercent: typeof progress === 'number' ? progress : Number(progress) || 0,
+    progressPercent,
     progressLabel: apiJob.progress_label || existing.progressLabel || '',
     jobUrl: apiJob.job_url || existing.jobUrl || (jobId ? `/jobs/${jobId}` : ''),
     errorMessage: apiJob.error_message || existing.errorMessage || '',
     createdAt: apiJob.created_at || existing.createdAt || '',
+    terminalNotificationSent: existing.terminalNotificationSent === true,
   });
 }

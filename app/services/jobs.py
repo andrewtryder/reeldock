@@ -215,7 +215,7 @@ async def submit_job(
         FilesystemService(settings).create_folder(new_folder)
     destination_folder = resolve_destination_folder(
         new_folder=params.new_folder or "",
-        destination_folder=params.destination_folder or "",
+        destination_folder=params.destination_folder,
         default_destination_folder=settings.default_destination_folder,
     )
 
@@ -286,7 +286,7 @@ async def submit_batch(
         FilesystemService(settings).create_folder(new_folder)
     destination_folder = resolve_destination_folder(
         new_folder=params.new_folder or "",
-        destination_folder=params.destination_folder or "",
+        destination_folder=params.destination_folder,
         default_destination_folder=settings.default_destination_folder,
     )
     resolved_destination = _or_none(destination_folder)
@@ -428,7 +428,7 @@ async def create_job(
         thumbnail_url=thumbnail_url,
         chapter_count=chapter_count,
         output_title=output_title or source_title,
-        destination_folder=destination_folder or settings.default_destination_folder,
+        destination_folder=destination_folder or None,
         embed_metadata=embed_metadata,
         embed_thumbnail=embed_thumbnail,
         embed_chapters=embed_chapters,

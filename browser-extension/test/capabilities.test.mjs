@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  EXTENSION_UPDATE_MESSAGE,
   LEGACY_UPDATE_MESSAGE,
   parseCapabilities,
   shouldHideV2Controls,
@@ -26,5 +27,18 @@ describe('capabilities', () => {
     assert.equal(shouldHideV2Controls(caps), false);
     assert.equal(caps.supports.destinations, true);
     assert.equal(caps.legacyMessage, '');
+  });
+
+  it('asks to update the extension when api_version is newer than 1', () => {
+    const caps = parseCapabilities({
+      api_version: 2,
+      supports: { destinations: true, cancel: true, retry: true },
+    });
+    assert.equal(caps.ready, false);
+    assert.equal(caps.apiVersion, 2);
+    assert.equal(caps.legacyMessage, EXTENSION_UPDATE_MESSAGE);
+    assert.notEqual(caps.legacyMessage, LEGACY_UPDATE_MESSAGE);
+    assert.equal(shouldHideV2Controls(caps), true);
+    assert.equal(caps.supports.destinations, false);
   });
 });

@@ -13,9 +13,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-SMOKE_URL="https://www.youtube.com/watch?v=reeldockSmoke01"
+SMOKE_URL="https://www.youtube.com/watch?v=rdSmoke01001"
 SMOKE_TITLE="ReelDock Release Smoke"
-SMOKE_VIDEO_ID="reeldockSmoke01"
+SMOKE_VIDEO_ID="rdSmoke01001"
 PORT="${RELEASE_SMOKE_PORT:-18081}"
 BASE="http://127.0.0.1:${PORT}"
 

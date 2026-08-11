@@ -132,3 +132,5 @@ def test_basic_auth_and_extension_token_coexist(monkeypatch: pytest.MonkeyPatch)
         assert status.json()["ok"] is True
         assert client.get("/api/folders").status_code == 401
         assert client.get("/api/folders", headers=bearer).status_code == 401
+        # HTTP on /api/ws/ is not a WebSocket upgrade, so Basic still applies.
+        assert client.get("/api/ws/jobs/example").status_code == 401

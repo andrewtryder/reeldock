@@ -1,4 +1,30 @@
-/** Notification ids and copy. Dedupes terminal alerts via terminalNotificationSent. */
+/** Notification ids and copy. Dedupes terminal alerts via an in-memory claim. */
+
+const claimedTerminalNotifications = new Set();
+
+export function claimTerminalNotification(jobId) {
+  if (!jobId) return false;
+  if (claimedTerminalNotifications.has(jobId)) return false;
+  claimedTerminalNotifications.add(jobId);
+  return true;
+}
+
+export function releaseTerminalNotificationClaim(jobId) {
+  if (!jobId) return;
+  claimedTerminalNotifications.delete(jobId);
+}
+
+export function resetTerminalNotificationClaims() {
+  claimedTerminalNotifications.clear();
+}
+
+export async function notifyTerminalOnce(job, createNotification) {
+  const spec = terminalNotificationSpec(job);
+  if (!spec) return false;
+  if (!claimTerminalNotification(job.jobId)) return false;
+  await createNotification(spec);
+  return true;
+}
 
 export function queuedNotificationId(jobId) {
   return `reeldock-queue-${jobId}`;

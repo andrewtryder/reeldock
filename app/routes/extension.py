@@ -45,7 +45,7 @@ class ExtensionQueueRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     url: str
-    destination_folder: str = ""
+    destination_folder: str | None = None
     output_title: str = ""
     embed_metadata: bool = True
     embed_thumbnail: bool = True
@@ -184,7 +184,7 @@ async def api_extension_queue(
         thumbnail_url=meta.thumbnail,
         chapter_count=meta.chapter_count,
         output_title=body.output_title or meta.title,
-        destination_folder=body.destination_folder or cfg.default_destination_folder,
+        destination_folder=body.destination_folder,
         embed_metadata=body.embed_metadata,
         embed_thumbnail=body.embed_thumbnail,
         embed_chapters=body.embed_chapters,

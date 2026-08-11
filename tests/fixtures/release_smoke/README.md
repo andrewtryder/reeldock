@@ -19,4 +19,4 @@ ffmpeg -y -f lavfi -i "color=c=0xE8A33D:s=64x64:d=1" -frames:v 1 -update 1 \
 Reserved smoke URL (valid allowlist host; metadata/download come from the fixture shim when
 `RELEASE_SMOKE_FIXTURE=1`):
 
-`https://www.youtube.com/watch?v=reeldockSmoke01`
+`https://www.youtube.com/watch?v=rdSmoke01001`

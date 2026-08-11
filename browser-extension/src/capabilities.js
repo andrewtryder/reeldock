@@ -1,6 +1,8 @@
 /** Feature detection for extension control-plane 2.0. */
 
 export const LEGACY_UPDATE_MESSAGE = 'Update ReelDock to enable all extension features.';
+export const EXTENSION_UPDATE_MESSAGE =
+  'Update the ReelDock extension to enable all features.';
 
 const DEFAULT_SUPPORTS = Object.freeze({
   destinations: false,
@@ -21,17 +23,25 @@ export function parseCapabilities(status) {
       legacyMessage: LEGACY_UPDATE_MESSAGE,
     };
   }
+  if (version === 1) {
+    return {
+      ready: true,
+      apiVersion: 1,
+      supports: {
+        destinations: Boolean(supports.destinations),
+        quality_presets: Boolean(supports.quality_presets),
+        sponsorblock: Boolean(supports.sponsorblock),
+        cancel: Boolean(supports.cancel),
+        retry: Boolean(supports.retry),
+      },
+      legacyMessage: '',
+    };
+  }
   return {
-    ready: true,
+    ready: false,
     apiVersion: version,
-    supports: {
-      destinations: Boolean(supports.destinations),
-      quality_presets: Boolean(supports.quality_presets),
-      sponsorblock: Boolean(supports.sponsorblock),
-      cancel: Boolean(supports.cancel),
-      retry: Boolean(supports.retry),
-    },
-    legacyMessage: '',
+    supports: { ...DEFAULT_SUPPORTS },
+    legacyMessage: version > 1 ? EXTENSION_UPDATE_MESSAGE : LEGACY_UPDATE_MESSAGE,
   };
 }
 

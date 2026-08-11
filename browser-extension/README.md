@@ -92,7 +92,7 @@ Click the extension icon → Options (or the gear icon on the popup) and set:
 
 - **Server URL**: e.g. `http://127.0.0.1:8080` or `https://reeldock.example.com`
 - **API token**: must match `EXTENSION_API_TOKEN`
-- **Default destination**: Library root or a folder from your ReelDock library
+- **Default destination**: server default, library root, or a folder from your ReelDock library
 - **Default quality**: Standard / High / Best
 - **Embed metadata / thumbnail / chapters** and optional SponsorBlock
 - **Trigger Audiobookshelf scan after success**: shown only when ABS is configured

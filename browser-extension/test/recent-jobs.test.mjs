@@ -9,6 +9,7 @@ import {
   displayRecentJobs,
   droppedJobIds,
   isTerminalStatus,
+  jobMatchesServerOrigin,
   mergeJobFromServer,
   resetJobForRetry,
   upsertRecentJob,
@@ -67,7 +68,48 @@ describe('recent job ledger', () => {
     assert.equal(reset.phase, 'queued');
     assert.equal(reset.errorMessage, '');
     assert.equal(reset.terminalNotificationSent, false);
-    assert.equal(reset.progressPercent, 0);
+    assert.equal(reset.progressPercent, null);
+  });
+
+  it('honors explicit null progress_percent after convert 100', () => {
+    const afterConvert = mergeJobFromServer(
+      {
+        id: 'abc',
+        status: 'converting',
+        progress_percent: 100,
+        progress_label: 'Converting',
+      },
+      job('abc', { progressPercent: 40 }),
+    );
+    assert.equal(afterConvert.progressPercent, 100);
+    const afterVerify = mergeJobFromServer(
+      {
+        id: 'abc',
+        status: 'verifying',
+        progress_percent: null,
+        progress_label: 'Verifying',
+      },
+      afterConvert,
+    );
+    assert.equal(afterVerify.progressPercent, null);
+    assert.equal(afterVerify.progressLabel, 'Verifying');
+  });
+
+  it('never copies terminalNotificationSent from the server payload', () => {
+    const merged = mergeJobFromServer(
+      { id: 'abc', status: 'succeeded', terminalNotificationSent: false },
+      job('abc', { terminalNotificationSent: true }),
+    );
+    assert.equal(merged.terminalNotificationSent, true);
+  });
+
+  it('scopes jobs to the current server origin', () => {
+    const local = job('a', { serverOrigin: 'http://127.0.0.1:8080' });
+    const other = job('b', { serverOrigin: 'https://other.example' });
+    const legacy = job('c', { serverOrigin: '' });
+    assert.equal(jobMatchesServerOrigin(local, 'http://127.0.0.1:8080'), true);
+    assert.equal(jobMatchesServerOrigin(other, 'http://127.0.0.1:8080'), false);
+    assert.equal(jobMatchesServerOrigin(legacy, 'http://127.0.0.1:8080'), true);
   });
 
   it('merges slim and web-UI job payloads', () => {

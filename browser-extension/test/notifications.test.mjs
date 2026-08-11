@@ -4,9 +4,11 @@ import { describe, it } from 'node:test';
 import {
   doneNotificationId,
   failNotificationId,
+  notifyTerminalOnce,
   parseNotificationJobId,
   queuedNotificationId,
   queuedNotificationSpec,
+  resetTerminalNotificationClaims,
   shouldSendTerminalNotification,
   terminalNotificationSpec,
 } from '../src/notifications.js';
@@ -50,5 +52,21 @@ describe('notifications', () => {
     assert.equal(spec.id, 'reeldock-fail-j2');
     assert.equal(spec.title, 'Audiobook failed');
     assert.equal(spec.message, 'yt-dlp failed');
+  });
+
+  it('creates only one notification for two overlapping terminal updates', async () => {
+    resetTerminalNotificationClaims();
+    const created = [];
+    const job = {
+      jobId: 'overlap-1',
+      title: 'Sermon',
+      status: 'succeeded',
+      terminalNotificationSent: false,
+    };
+    const create = async (spec) => {
+      created.push(spec.id);
+    };
+    await Promise.all([notifyTerminalOnce(job, create), notifyTerminalOnce(job, create)]);
+    assert.deepEqual(created, ['reeldock-done-overlap-1']);
   });
 });

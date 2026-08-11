@@ -3,20 +3,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+export const SMOKE_OK = "rdSmoke01001";
+export const SMOKE_FAIL = "rdSmokeFail1";
+export const SMOKE_SLOW = "rdSmokeSlow1";
+
 export const SMOKE_TITLES: Record<string, string> = {
-  reeldockSmoke01: "ReelDock Release Smoke",
-  reeldockSmokeFail01: "ReelDock Smoke Fail",
-  reeldockSmokeSlow01: "ReelDock Smoke Slow",
+  [SMOKE_OK]: "ReelDock Release Smoke",
+  [SMOKE_FAIL]: "ReelDock Smoke Fail",
+  [SMOKE_SLOW]: "ReelDock Smoke Slow",
 };
 
 export function smokeUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${videoId}`;
-}
-
-export function popupQuery(videoId: string): string {
-  const url = smokeUrl(videoId);
-  const title = SMOKE_TITLES[videoId] || videoId;
-  return `url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
 }
 
 export function extensionDist(): string {
@@ -42,10 +40,14 @@ export function extensionToken(): string {
   return process.env.REELDOCK_EXTENSION_TOKEN || "e2e-extension-token";
 }
 
+export function libraryDir(): string {
+  return process.env.REELDOCK_LIBRARY_DIR || "";
+}
+
 async function installYouTubeMock(context: BrowserContext): Promise<void> {
-  await context.route("https://www.youtube.com/watch?v=reeldockSmoke*", async (route) => {
+  await context.route("https://www.youtube.com/watch?v=rdSmoke*", async (route) => {
     const url = new URL(route.request().url());
-    const id = url.searchParams.get("v") || "reeldockSmoke01";
+    const id = url.searchParams.get("v") || SMOKE_OK;
     const title = SMOKE_TITLES[id] || id;
     await route.fulfill({
       contentType: "text/html",
@@ -57,7 +59,7 @@ async function installYouTubeMock(context: BrowserContext): Promise<void> {
 export const test = base.extend<{
   context: BrowserContext;
   extensionId: string;
-  extensionPage: (name: "popup" | "options", query?: string) => Promise<Page>;
+  extensionPage: (name: "popup" | "options") => Promise<Page>;
   openSmokeTab: (videoId: string) => Promise<Page>;
 }>({
   context: async ({}, use) => {
@@ -84,10 +86,9 @@ export const test = base.extend<{
     await use(extensionId);
   },
   extensionPage: async ({ context, extensionId }, use) => {
-    await use(async (name, query = "") => {
+    await use(async (name) => {
       const page = await context.newPage();
-      const suffix = query ? `?${query}` : "";
-      await page.goto(`chrome-extension://${extensionId}/${name}.html${suffix}`);
+      await page.goto(`chrome-extension://${extensionId}/${name}.html`);
       return page;
     });
   },
@@ -113,6 +114,47 @@ export async function configureOptions(
     const api = (globalThis as unknown as { chrome?: { storage: { local: { set: (v: object) => Promise<void> } } } }).chrome;
     if (api) await api.storage.local.set({ allowReimport: true });
   });
+}
+
+type QueueResult = {
+  ok?: boolean;
+  error?: string;
+  job_id?: string;
+  jobId?: string;
+  title?: string;
+};
+
+export async function queueViaWorker(
+  page: Page,
+  videoId: string,
+  extra: Record<string, unknown> = {},
+): Promise<QueueResult> {
+  const result = await page.evaluate(
+    async ({ url, extra }) => {
+      const api = (
+        globalThis as unknown as {
+          chrome?: {
+            runtime: {
+              sendMessage: (msg: Record<string, unknown>) => Promise<QueueResult>;
+            };
+          };
+        }
+      ).chrome;
+      if (!api) return { ok: false, error: "chrome.runtime unavailable" };
+      return api.runtime.sendMessage({
+        action: "queue",
+        source: "popup",
+        url,
+        allowReimport: true,
+        ...extra,
+      });
+    },
+    { url: smokeUrl(videoId), extra },
+  );
+  if (!result?.ok) {
+    throw new Error(result?.error || "Queue via service worker failed");
+  }
+  return result;
 }
 
 type ChromeStorage = {

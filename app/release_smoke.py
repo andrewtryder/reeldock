@@ -9,9 +9,9 @@ import shutil
 from pathlib import Path
 
 # Reserved allowlisted YouTube URLs — never fetched when the fixture shim is on.
-SMOKE_VIDEO_ID = "reeldockSmoke01"
-SMOKE_FAIL_VIDEO_ID = "reeldockSmokeFail01"
-SMOKE_SLOW_VIDEO_ID = "reeldockSmokeSlow01"
+SMOKE_VIDEO_ID = "rdSmoke01001"
+SMOKE_FAIL_VIDEO_ID = "rdSmokeFail1"
+SMOKE_SLOW_VIDEO_ID = "rdSmokeSlow1"
 # Longer ids first so prefix checks stay unambiguous.
 SMOKE_VIDEO_IDS: tuple[str, ...] = (
     SMOKE_FAIL_VIDEO_ID,

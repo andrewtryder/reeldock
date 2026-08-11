@@ -72,7 +72,7 @@ async def api_create_job(
         thumbnail_url=thumbnail_url,
         chapter_count=chapter_count,
         output_title=output_title,
-        destination_folder=destination_folder,
+        destination_folder=destination_folder.strip() or None,
         new_folder=new_folder,
         embed_metadata=embed_metadata,
         embed_thumbnail=embed_thumbnail,

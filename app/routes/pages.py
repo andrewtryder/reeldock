@@ -239,7 +239,7 @@ async def page_preview(
         )
         dest_preview = preview_audiobook_destination(
             cfg,
-            destination_folder=initial_dest,
+            destination_folder=initial_dest or None,
             summary_kind="batch",
         )
         return templates.TemplateResponse(
@@ -286,7 +286,7 @@ async def page_preview(
     )
     dest_preview = preview_audiobook_destination(
         cfg,
-        destination_folder=initial_dest,
+        destination_folder=initial_dest or None,
         output_title=getattr(video_meta, "title", "") or "",
         video_id=getattr(video_meta, "id", "") or "",
         uploader=getattr(video_meta, "uploader", None),
@@ -331,7 +331,7 @@ async def preview_destination(
         preview = preview_audiobook_destination(
             cfg,
             new_folder=new_folder,
-            destination_folder=destination_folder,
+            destination_folder=destination_folder.strip() or None,
             output_title=output_title,
             video_id=video_id,
             filename_template=filename_template or None,
@@ -428,7 +428,7 @@ async def page_create_job(
         thumbnail_url=thumbnail_url,
         chapter_count=chapter_count,
         output_title=output_title,
-        destination_folder=destination_folder,
+        destination_folder=destination_folder.strip() or None,
         new_folder=new_folder,
         embed_metadata=embed_metadata,
         embed_thumbnail=embed_thumbnail,
@@ -542,7 +542,7 @@ async def page_create_batch(
         source_type=source_type,
         batch_title=batch_title or None,
         entries=entries,
-        destination_folder=destination_folder,
+        destination_folder=destination_folder.strip() or None,
         new_folder=new_folder,
         embed_metadata=_bool_field("embed_metadata", True),
         embed_thumbnail=_bool_field("embed_thumbnail", True),

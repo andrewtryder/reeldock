@@ -131,6 +131,7 @@ services:
       RELEASE_SMOKE_FIXTURE: "true"
       RELEASE_SMOKE_FIXTURE_DIR: /fixtures/release_smoke
       RELEASE_SMOKE_FAIL_ONCE: "false"
+      DEFAULT_DESTINATION_FOLDER: Theology
     volumes:
       - $TMP/data:/data
       - type: bind
@@ -169,6 +170,7 @@ export REELDOCK_AUTH_USERNAME="$AUTH_USER"
 export REELDOCK_AUTH_PASSWORD="$AUTH_PASS"
 export EXTENSION_DIST="$ROOT/browser-extension/dist/chrome"
 export EXTENSION_E2E_HEADED="${EXTENSION_E2E_HEADED:-1}"
+export REELDOCK_LIBRARY_DIR="$TMP/podcasts"
 
 run_pw() {
   npm --prefix e2e run test:extension

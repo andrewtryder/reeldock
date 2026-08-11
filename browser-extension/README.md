@@ -1,25 +1,35 @@
-# Browser extension for reeldock
+# Browser extension for ReelDock
 
-An unpacked WebExtension (Manifest V3) that lets you queue the YouTube video open in
-your browser into a local `reeldock` instance. Works with Chrome and Firefox
-development builds. Nothing is published to a browser store.
+A Manifest V3 extension that queues the YouTube video open in your browser
+into **your** ReelDock server. It works in Chrome and in Firefox 140+.
 
-## Privacy
+Nothing is published to the Chrome Web Store or Firefox AMO yet. Use an
+unpacked build or the GitHub release zips for sideload / review.
 
-Configuration (server URL, API token, embed defaults) is stored only in
-`chrome.storage.local` / Firefox local extension storage on your device. The
-extension does not upload settings to any third party. The API token is sent
-only to the ReelDock base URL you configure.
+Privacy policy: [PRIVACY.md](PRIVACY.md). Store listing drafts:
+[store/chrome.md](store/chrome.md), [store/firefox.md](store/firefox.md).
 
 ## Features
 
-- **Popup** on YouTube video pages with a one-click "Queue video" button.
-- **Context menu** "Send to reeldock" on YouTube pages and links.
-- **Options page** to configure the server URL, API token, default destination
-  folder, embed flags, the "trigger Audiobookshelf scan" toggle, and a default
-  "allow re-import" toggle.
-- **Localhost by default**; for a LAN hostname/IP, the options page requests
-  optional host permission when you save.
+- **Popup** on YouTube watch / Shorts pages with **Queue video**.
+- **Job status** in the popup (progress, Finalize / Done) via a WebSocket to
+  your ReelDock server. The job page on the server may also open.
+- **Context menu** “Send to ReelDock” on YouTube pages and links.
+- **Options** for server URL, API token, destination folder, embed flags,
+  Audiobookshelf scan, and allow re-import.
+
+## Server URL rules
+
+- `http://localhost`, `http://127.0.0.1`, and `http://[::1]` (any port) are
+  allowed.
+- Any other host must be `https://…`. LAN HTTP is rejected; it is not upgraded
+  to HTTPS.
+- The extension stores the normalized origin only (no path, query, fragment,
+  or embedded credentials).
+
+Localhost / loopback origins are covered by required host permissions.
+A non-loopback HTTPS origin is requested **only when you save** that specific
+server in Options (`https://your-host/*`), not as a blanket grant.
 
 ## 1. Enable the extension API on the backend
 
@@ -50,6 +60,7 @@ Requires Node.js 18+.
 
 ```bash
 cd browser-extension
+npm ci
 npm run build        # builds both Chrome and Firefox into dist/
 ```
 
@@ -60,20 +71,20 @@ npm run build        # builds both Chrome and Firefox into dist/
 3. Click **Load unpacked**
 4. Select `browser-extension/dist/chrome/`
 
-**Firefox**
+**Firefox 140+**
 
 1. Open `about:debugging#/runtime/this-firefox`
 2. Click **Load Temporary Add-on**
 3. Select `browser-extension/dist/firefox/manifest.json`
 
-> Temporary add-ons in Firefox are removed on restart. For a persistent
-> install, use `web-ext sign` with a Mozilla developer account.
+Temporary add-ons in Firefox are removed on restart. Store listing is not
+available yet.
 
 ## 3. Configure the extension
 
 Click the extension icon → Options (or the gear icon on the popup) and set:
 
-- **Server URL**: e.g. `http://127.0.0.1:8080` or `http://192.168.1.50:8080`
+- **Server URL**: e.g. `http://127.0.0.1:8080` or `https://reeldock.example.com`
 - **API token**: must match `EXTENSION_API_TOKEN`
 - **Default destination folder**: subfolder under `OUTPUT_ROOT` (optional)
 - **Embed metadata / thumbnail / chapters**: passed through to the job
@@ -82,7 +93,7 @@ Click the extension icon → Options (or the gear icon on the popup) and set:
   queue requests unless overridden in the popup
 
 Use **Test connection** to verify the server is reachable and the token is
-accepted. Non-localhost URLs prompt for optional host permission once.
+accepted. Non-localhost HTTPS URLs prompt for optional host permission once.
 
 ## Endpoints used by the extension
 
@@ -90,27 +101,30 @@ accepted. Non-localhost URLs prompt for optional host permission once.
 |--------|---------------------------|------------------------------------------|
 | GET    | `/api/extension/status`   | Health / capability check (options page) |
 | POST   | `/api/extension/queue`    | Queue a video; returns `job_id` + `job_url` |
+| WS     | `/api/ws/jobs/{job_id}`   | Job progress while the popup is open     |
 
-Both endpoints return `404` when `EXTENSION_API_ENABLED=false`, and `401` when
+HTTP endpoints return `404` when `EXTENSION_API_ENABLED=false`, and `401` when
 the token is missing/wrong. See [docs/configuration.md](../docs/configuration.md).
 
 ## Security notes
 
-- Treat the extension API token like any other secret. It lives in local extension
-  storage and is sent as `Authorization: Bearer …` or `X-REELDOCK-Token`.
-- Default host permissions cover YouTube plus `localhost` / `127.0.0.1`. Other
-  origins use optional host permissions requested when you save a non-localhost
-  server URL.
-- The backend re-validates the YouTube URL with `yt-dlp` server-side.
-- WebSocket job updates use the same token via `?token=` (custom headers are
+- Treat the extension API token like any other secret. It lives in local
+  extension storage and is sent as `Authorization: Bearer …` to your configured
+  origin. Job WebSockets use the same token as `?token=` (custom headers are
   unreliable for WebSockets from extensions).
+- Required host permissions cover loopback ReelDock only. Other origins use
+  optional host permission for the saved HTTPS origin.
+- The backend re-validates the YouTube URL with `yt-dlp` server-side.
 
 ## Development
 
 ```bash
-npm run lint          # syntax-check JS + verify manifest entry points exist
+npm run lint          # syntax, store-readiness, and URL tests
+npm run test          # server URL validation tests
+npm run lint:firefox  # web-ext lint on the Firefox build
 npm run build:chrome  # build only Chrome
 npm run build:firefox # build only Firefox
+npm run package       # zip artifacts (not uploaded to any store)
 ```
 
 ## Known limitations
@@ -118,5 +132,4 @@ npm run build:firefox # build only Firefox
 - The extension queues **single** YouTube video URLs (`/watch?v=…`, `/shorts/…`,
   `youtu.be/<id>`). Playlist/channel batch selection is available in the web UI
   when `ALLOW_PLAYLISTS` / `ALLOW_CHANNELS` are enabled.
-- Job progress is not surfaced in the extension; open the returned `job_url`
-  in the web UI to track it.
+- Firefox Android is not supported.

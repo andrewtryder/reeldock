@@ -2,7 +2,13 @@
 // Owns the in-memory settings cache, the context menu, the API call to queue videos,
 // and WebSocket connections for real-time job status updates.
 
-import { DEFAULT_SETTINGS, STORAGE_KEYS, isYouTubeWatchUrl, loadSettings } from './settings.js';
+import {
+  DEFAULT_SETTINGS,
+  STORAGE_KEYS,
+  isYouTubeWatchUrl,
+  loadSettings,
+  requireValidatedServerOrigin,
+} from './settings.js';
 
 const CONTEXT_MENU_ID = 'reeldock-queue-video';
 
@@ -38,11 +44,20 @@ function authHeaders() {
   return headers;
 }
 
-async function queueVideo(url, options = {}) {
+function configuredServerOrigin() {
   if (!settings.serverUrl) {
     throw new Error('Server URL not configured. Open the extension options to set it.');
   }
-  const base = settings.serverUrl.replace(/\/+$/, '');
+  return requireValidatedServerOrigin(settings.serverUrl);
+}
+
+function publicSettings() {
+  const { apiToken: _omit, ...rest } = settings;
+  return rest;
+}
+
+async function queueVideo(url, options = {}) {
+  const base = configuredServerOrigin();
   const response = await fetch(`${base}/api/extension/queue`, {
     method: 'POST',
     headers: authHeaders(),
@@ -75,7 +90,7 @@ function notify(message, title = 'ReelDock') {
 
 async function openJobPage(jobUrl) {
   if (!jobUrl) return;
-  const base = settings.serverUrl.replace(/\/+$/, '');
+  const base = configuredServerOrigin();
   await chrome.tabs.create({ url: `${base}${jobUrl}` });
 }
 
@@ -98,7 +113,7 @@ async function handleQueue(url, options = {}) {
       title: data.title || null,
       uploader: data.uploader || null,
       job_url: data.job_url || null,
-      serverUrl: settings.serverUrl,
+      serverUrl: configuredServerOrigin(),
     };
 
     notify(`Queued successfully: ${responsePayload.title || responsePayload.job_id}`);
@@ -119,7 +134,7 @@ async function handleQueue(url, options = {}) {
       progressLabel: 'Queued',
       jobUrl: responsePayload.job_url,
       job_url: responsePayload.job_url,
-      serverUrl: settings.serverUrl,
+      serverUrl: responsePayload.serverUrl,
     }).catch(err => {
       console.error('Failed to send queue success message to popup:', err);
     });
@@ -183,8 +198,7 @@ async function refreshSettings() {
 
 // WebSocket connection manager
 function buildJobWebSocketUrl(jobId) {
-  const baseUrl = settings.serverUrl.replace(/\/+$/, '');
-  const base = new URL(baseUrl);
+  const base = new URL(configuredServerOrigin());
   const wsProtocol = base.protocol === 'http:' ? 'ws:' : 'wss:';
   const wsUrl = new URL(`${wsProtocol}//${base.host}/api/ws/jobs/${encodeURIComponent(jobId)}`);
   if (settings.apiToken) {
@@ -305,7 +319,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.action === 'getSettings') {
-    sendResponse({ ok: true, settings });
+    sendResponse({ ok: true, settings: publicSettings() });
     return false;
   }
 

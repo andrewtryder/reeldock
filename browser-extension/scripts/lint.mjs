@@ -45,4 +45,9 @@ for (const name of entryPoints) {
   if (name.endsWith('.js')) await checkSyntax(src);
 }
 
+const sharedModules = ['settings.js', 'ui.js', 'browser-api.js'];
+for (const name of sharedModules) {
+  await checkSyntax(resolve(ROOT, 'src', name));
+}
+
 console.log('lint: OK');

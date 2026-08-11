@@ -61,24 +61,9 @@ export function formatError(error) {
   }
 }
 
-/**
- * Normalize server URL from various input formats
- * @param {string} url - Server URL to normalize
- * @returns {string} Normalized URL
- */
-export function normalizeServerUrl(url) {
-  if (!url) return '';
-
-  // Remove trailing slashes
-  let normalized = url.replace(/\/+$/, '');
-
-  // Ensure it starts with http:// or https://
-  if (!/^https?:\/\//i.test(normalized)) {
-    normalized = `http://${normalized}`;
-  }
-
-  return normalized;
-}
+export {
+  normalizeAndValidateServerUrl as normalizeServerUrl,
+} from './settings.js';
 
 /**
  * Check if URL is a valid YouTube video URL

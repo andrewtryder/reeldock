@@ -85,6 +85,9 @@ jobs:
       - name: Lint extension
         run: npm --prefix browser-extension run lint
 
+      - name: Test extension URL validation
+        run: npm --prefix browser-extension test
+
       - name: Check extension version consistency
         run: npm --prefix browser-extension run check:version
 
@@ -93,3 +96,9 @@ jobs:
 
       - name: Package extension
         run: npm --prefix browser-extension run package
+
+      - name: Check packaged zip contents
+        run: npm --prefix browser-extension run check:package
+
+      - name: Lint Firefox package with web-ext
+        run: npm --prefix browser-extension run lint:firefox

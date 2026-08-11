@@ -184,3 +184,107 @@ def test_connectivity_auth_error():
 
     assert result.success is False
     assert "401" in result.error  # type: ignore[operator]
+
+
+# ── list_libraries / items / matcher ───────────────────────────────────────────
+
+
+def _fixture(name: str) -> dict:
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).parent / "fixtures" / "abs" / name
+    return json.loads(path.read_text())
+
+
+def test_list_libraries_includes_media_type():
+    client = make_client(base_url="http://abs:13378", api_token="token", library_id="lib-books")
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = _fixture("libraries.json")
+
+    with patch("app.services.audiobookshelf.httpx.get", return_value=mock_response) as mock_get:
+        libraries, error = client.list_libraries()
+
+    assert error is None
+    assert libraries[0] == {"id": "lib-books", "name": "Audiobooks", "mediaType": "book"}
+    assert libraries[1]["mediaType"] == "podcast"
+    assert mock_get.call_args.args[0].endswith("/api/libraries")
+
+
+def test_list_libraries_auth_errors():
+    client = make_client(base_url="http://abs:13378", api_token="bad")
+    for status in (401, 403):
+        mock_response = MagicMock()
+        mock_response.status_code = status
+        err = httpx.HTTPStatusError("denied", request=MagicMock(), response=mock_response)
+        mock_response.raise_for_status.side_effect = err
+        with patch("app.services.audiobookshelf.httpx.get", return_value=mock_response):
+            libraries, error = client.list_libraries()
+        assert libraries == []
+        assert error is not None
+        assert str(status) in error
+
+
+def test_get_library_items_missing_library():
+    client = make_client(base_url="http://abs:13378", api_token="token", library_id="gone")
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    err = httpx.HTTPStatusError("missing", request=MagicMock(), response=mock_response)
+    mock_response.raise_for_status.side_effect = err
+    with patch("app.services.audiobookshelf.httpx.get", return_value=mock_response):
+        items, error = client.get_library_items("gone")
+    assert items == []
+    assert error == "Library not found"
+
+
+def test_find_item_exact_rel_path():
+    client = make_client(base_url="http://abs:13378", api_token="token", library_id="lib-books")
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = _fixture("library_items_relpath.json")
+    with patch("app.services.audiobookshelf.httpx.get", return_value=mock_response):
+        item = client.find_item_by_relative_path("lib-books", "Theology/Scan Video.m4b")
+    assert item is not None
+    assert item["id"] == "li-file-1"
+
+
+def test_find_item_folder_audio_rel_path():
+    client = make_client(base_url="http://abs:13378", api_token="token", library_id="lib-books")
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = _fixture("library_items_relpath.json")
+    with patch("app.services.audiobookshelf.httpx.get", return_value=mock_response):
+        item = client.find_item_by_relative_path("lib-books", r"Series\Book One\chapter01.m4b")
+    assert item is not None
+    assert item["id"] == "li-folder-1"
+
+
+def test_find_item_no_match():
+    client = make_client(base_url="http://abs:13378", api_token="token", library_id="lib-books")
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = _fixture("library_items_relpath.json")
+    with patch("app.services.audiobookshelf.httpx.get", return_value=mock_response):
+        item = client.find_item_by_relative_path("lib-books", "Missing/Nope.m4b")
+    assert item is None
+
+
+def test_find_item_ambiguous_title_returns_none():
+    client = make_client(base_url="http://abs:13378", api_token="token", library_id="lib-books")
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = _fixture("library_items_relpath.json")
+    with patch("app.services.audiobookshelf.httpx.get", return_value=mock_response):
+        item = client.find_item_by_relative_path(
+            "lib-books",
+            "Missing/Nope.m4b",
+            title_hint="Ambiguous Title",
+        )
+    assert item is None
+
+
+def test_item_open_url():
+    from app.services.audiobookshelf import item_open_url
+
+    assert item_open_url("http://abs:13378/", "li-1") == "http://abs:13378/#/item/li-1"

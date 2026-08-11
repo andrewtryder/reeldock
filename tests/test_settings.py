@@ -374,3 +374,43 @@ def test_password_confirm_match_saves(settings_env: Path, tmp_path: Path) -> Non
     assert settings.auth_enabled is True
     assert settings.auth_username == "admin"
     assert settings.auth_password == "new-pass-1"
+
+
+def test_abs_test_does_not_persist(settings_env: Path, monkeypatch: pytest.MonkeyPatch):
+    from unittest.mock import patch
+
+    monkeypatch.setenv("ABS_BASE_URL", "http://stored-abs:13378")
+    monkeypatch.setenv("ABS_API_TOKEN", "stored-token")
+    monkeypatch.setenv("ABS_LIBRARY_ID", "stored-lib")
+    reload_settings()
+    libraries = [
+        {"id": "lib-books", "name": "Audiobooks", "mediaType": "book"},
+        {"id": "lib-pods", "name": "Podcasts", "mediaType": "podcast"},
+    ]
+    with TestClient(create_app()) as client:
+        with patch(
+            "app.services.audiobookshelf.AudiobookshelfClient.list_libraries",
+            return_value=(libraries, None),
+        ):
+            response = client.post(
+                "/settings/abs/test",
+                data={
+                    "csrf_token": _csrf(client),
+                    "abs_base_url": "http://candidate-abs:13378",
+                    "abs_api_token": "",
+                    "abs_library_id": "gone-lib",
+                },
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert body["libraries"][0]["mediaType"] == "book"
+        assert "lib-books" in body["preferred_library_ids"]
+        assert body["library_missing"] is True
+        assert body["warning"]
+        assert "stored-token" not in response.text
+
+    settings = reload_settings()
+    assert settings.abs_base_url == "http://stored-abs:13378"
+    assert settings.abs_api_token == "stored-token"
+    assert settings.abs_library_id == "stored-lib"

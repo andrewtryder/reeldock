@@ -76,6 +76,15 @@ class BatchSourceType(enum.StrEnum):
     channel = "channel"
 
 
+# Audiobookshelf library-index status (not JobStatus)
+ABS_INDEX_NOT_REQUESTED = "not_requested"
+ABS_INDEX_SCAN_PENDING = "scan_pending"
+ABS_INDEX_SCAN_REQUESTED = "scan_requested"
+ABS_INDEX_INDEXING = "indexing"
+ABS_INDEX_INDEXED = "indexed"
+ABS_INDEX_FAILED = "failed"
+
+
 # ---------------------------------------------------------------------------
 # ImportBatch — groups jobs created from one playlist/channel submission
 # ---------------------------------------------------------------------------
@@ -175,6 +184,17 @@ class Job(Base):
     allow_reimport: Mapped[bool] = mapped_column(Boolean, default=False)
     owned_import: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     sponsorblock_remove: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    # Audiobookshelf indexing (independent of JobStatus)
+    abs_library_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    abs_library_item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    abs_index_status: Mapped[str] = mapped_column(
+        String(32), default=ABS_INDEX_NOT_REQUESTED, nullable=False
+    )
+    abs_indexed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    abs_index_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    abs_last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    abs_index_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Status
     status: Mapped[str] = mapped_column(

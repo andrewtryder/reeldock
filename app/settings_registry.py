@@ -334,25 +334,16 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         ),
     ),
     SettingSpec(
-        key="abs_scan_after_success",
-        env_alias="ABS_SCAN_AFTER_SUCCESS",
-        label="Default ABS Scan After Success",
-        group="abs",
-        type=SettingType.BOOL,
-        default="false",
-        help_text=(
-            'Pre-checks the per-job "scan after success" checkbox. '
-            "Each job's submitted value controls whether that job triggers a scan."
-        ),
-    ),
-    SettingSpec(
         key="abs_base_url",
         env_alias="ABS_BASE_URL",
         label="Audiobookshelf URL",
         group="abs",
         type=SettingType.STR,
         default="",
-        help_text="Base URL of your Audiobookshelf server (for example http://abs:13378).",
+        help_text=(
+            "Base URL of your Audiobookshelf server (for example http://abs:13378). "
+            "Use Test Connection, then pick a library by name."
+        ),
     ),
     SettingSpec(
         key="abs_api_token",
@@ -371,7 +362,22 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         group="abs",
         type=SettingType.STR,
         default="",
-        help_text="Library ID to scan after a successful import. Use Test Connection to pick one.",
+        help_text=(
+            "Select a library after Test Connection. Audiobook (book) libraries are listed first. "
+            "Save to persist the selection."
+        ),
+    ),
+    SettingSpec(
+        key="abs_scan_after_success",
+        env_alias="ABS_SCAN_AFTER_SUCCESS",
+        label="Default ABS scan after success",
+        group="abs",
+        type=SettingType.BOOL,
+        default="false",
+        help_text=(
+            'Pre-checks the per-job "scan after success" checkbox. '
+            "Each job's submitted value controls whether that job triggers a scan."
+        ),
     ),
     SettingSpec(
         key="extension_api_enabled",

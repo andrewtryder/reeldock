@@ -236,6 +236,13 @@
                   {% if job.uploader %}
                   <span class="font-label-md text-label-md text-paper-muted opacity-75 block mt-0.5 truncate">{{ job.uploader | e }}</span>
                   {% endif %}
+                  {% if settings.abs_configured and job.abs_index_status and job.abs_index_status != 'not_requested' %}
+                  <span class="font-label-md text-label-md text-paper-muted opacity-80 block mt-1">
+                    {% if job.abs_index_status == 'indexed' %}ABS indexed
+                    {% elif job.abs_index_status == 'failed' %}ABS scan failed
+                    {% else %}ABS waiting{% endif %}
+                  </span>
+                  {% endif %}
                 </td>
                 <td data-label="Destination" class="px-6 py-4 font-code text-code text-paper-muted truncate max-w-[150px]">
                   {{ job.destination_folder | default('—') | e }}
@@ -274,6 +281,13 @@
                   </a>
                   {% if job.uploader %}
                   <span class="font-label-md text-label-md text-paper-muted opacity-75 block mt-0.5 truncate">{{ job.uploader | e }}</span>
+                  {% endif %}
+                  {% if settings.abs_configured and job.abs_index_status and job.abs_index_status != 'not_requested' %}
+                  <span class="font-label-md text-label-md text-paper-muted opacity-80 block mt-1">
+                    {% if job.abs_index_status == 'indexed' %}ABS indexed
+                    {% elif job.abs_index_status == 'failed' %}ABS scan failed
+                    {% else %}ABS waiting{% endif %}
+                  </span>
                   {% endif %}
                 </td>
                 <td data-label="Destination" class="px-6 py-4 font-code text-code text-paper-muted truncate max-w-[150px]">

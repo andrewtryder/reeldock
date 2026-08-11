@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models import ImportedVideo, Job, JobStatus
+from app.services.abs_index import request_scan_and_reconcile
 from app.services.audiobookshelf import AudiobookshelfClient
 from app.services.batch_abs import note_batch_child_finished
 from app.services.ffmpeg import FfmpegProgress, FfmpegService
@@ -841,7 +842,10 @@ class ImportPipeline:
                 )
                 self.db.commit()
                 log("[scan] Triggering Audiobookshelf scan")
-                scan_result = abs_client.trigger_scan()
+                scan_result = request_scan_and_reconcile(
+                    self.db, job, self.settings, client=abs_client
+                )
+                self.db.commit()
                 if scan_result.skipped:
                     log("[scan] ABS scan skipped (not configured)")
                     self._set_progress(

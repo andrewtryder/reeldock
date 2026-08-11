@@ -261,6 +261,51 @@
       {% endif %}
     </details>
 
+    {# ── Audiobookshelf index card ── #}
+    {% set abs_status = job.abs_index_status or 'not_requested' %}
+    {% if settings.abs_configured and (job.trigger_abs_scan or abs_status != 'not_requested') %}
+    <section id="abs-index-card" class="bg-panel border border-panel-line rounded-xl p-stack-md mb-stack-lg panel-edge section-entrance section-entrance-2" data-abs-status="{{ abs_status | e }}">
+      <h3 class="font-headline-sm text-headline-sm text-paper mb-3 flex items-center gap-2 uppercase tracking-wide">
+        <span class="material-symbols-outlined text-amber">headphones</span>
+        Audiobookshelf
+      </h3>
+      <div id="abs-index-body" class="space-y-3">
+        {% if abs_status == 'indexed' %}
+        <p id="abs-index-headline" class="font-body-md text-body-md text-paper">Added to Audiobookshelf</p>
+        {% elif abs_status == 'failed' %}
+        <p id="abs-index-headline" class="font-body-md text-body-md text-error">Audiobookshelf scan failed</p>
+        {% if job.abs_index_error %}
+        <p id="abs-index-detail" class="font-code text-code text-paper-muted">{{ job.abs_index_error | e }}</p>
+        {% endif %}
+        {% elif abs_status in ['scan_requested', 'indexing', 'scan_pending'] %}
+        <p id="abs-index-headline" class="font-body-md text-body-md text-paper-muted">Waiting for Audiobookshelf…</p>
+        <p id="abs-index-detail" class="font-label-md text-label-md text-paper-muted">Looking for this file in your library after the scan.</p>
+        {% else %}
+        <p id="abs-index-headline" class="font-body-md text-body-md text-paper-muted">Not yet in Audiobookshelf</p>
+        {% endif %}
+        {% if abs_open_url %}
+        <p>
+          <a id="abs-open-link" href="{{ abs_open_url | e }}" target="_blank" rel="noopener" class="font-label-md text-label-md text-amber uppercase hover:underline {% if abs_status != 'indexed' and not job.abs_library_item_id %}opacity-80{% endif %}">
+            Open in Audiobookshelf
+          </a>
+        </p>
+        {% endif %}
+        {% if status == 'succeeded' %}
+        <div class="flex flex-wrap gap-3 pt-1">
+          <form method="POST" action="/jobs/{{ job.id }}/abs-scan">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <button type="submit" class="font-label-md text-label-md text-amber uppercase hover:underline">Retry Scan</button>
+          </form>
+          <form method="POST" action="/jobs/{{ job.id }}/abs-check">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <button type="submit" class="font-label-md text-label-md text-amber uppercase hover:underline">Check Again</button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+
     {# ── Progress Card ── #}
     <div class="progress-card bg-panel rounded-xl border border-panel-line p-stack-lg mb-stack-lg relative overflow-hidden panel-edge section-entrance section-entrance-3" id="progress-row"{% if not show_progress %} style="display: none;"{% endif %}>
       <p id="job-step-label" class="font-label-md text-label-md text-paper-muted uppercase tracking-wider mb-2">Step {{ _cur + 1 }} of 7 · {{ _stage_names[_cur] }}</p>
@@ -427,6 +472,75 @@ const JOB_ID = '{{ job.id | e }}';
 let _currentStatus = '{{ job.status.value | e }}';
 let _wasActive     = ACTIVE.has(_currentStatus);
 let _didReload     = false;
+let _absPollTimer  = null;
+const ABS_BASE_URL = {{ (settings.abs_base_url or '') | tojson }};
+const ABS_LIBRARY_FALLBACK = {{ (settings.abs_library_id or '') | tojson }};
+
+function absOpenHref(job) {
+  if (!ABS_BASE_URL) return null;
+  const base = ABS_BASE_URL.replace(/\/$/, '');
+  if (job.abs_library_item_id) return `${base}/#/item/${job.abs_library_item_id}`;
+  const lid = job.abs_library_id || ABS_LIBRARY_FALLBACK;
+  if (lid) return `${base}/#/library/${lid}`;
+  return null;
+}
+
+function renderAbsCard(job) {
+  const card = document.getElementById('abs-index-card');
+  if (!card) return;
+  const status = job.abs_index_status || 'not_requested';
+  card.dataset.absStatus = status;
+  const headline = document.getElementById('abs-index-headline');
+  const detail = document.getElementById('abs-index-detail');
+  if (headline) {
+    if (status === 'indexed') headline.textContent = 'Added to Audiobookshelf';
+    else if (status === 'failed') headline.textContent = 'Audiobookshelf scan failed';
+    else if (['scan_requested', 'indexing', 'scan_pending'].includes(status)) {
+      headline.textContent = 'Waiting for Audiobookshelf…';
+    } else headline.textContent = 'Not yet in Audiobookshelf';
+    headline.classList.toggle('text-error', status === 'failed');
+    headline.classList.toggle('text-paper-muted', status !== 'indexed' && status !== 'failed');
+    headline.classList.toggle('text-paper', status === 'indexed' || status === 'failed');
+  }
+  if (detail) {
+    if (status === 'failed' && job.abs_index_error) {
+      detail.textContent = job.abs_index_error;
+      detail.style.display = '';
+    } else if (['scan_requested', 'indexing', 'scan_pending'].includes(status)) {
+      detail.textContent = 'Looking for this file in your library after the scan.';
+      detail.style.display = '';
+    } else {
+      detail.style.display = 'none';
+    }
+  }
+  const link = document.getElementById('abs-open-link');
+  const href = absOpenHref(job);
+  if (link && href) {
+    link.href = href;
+    link.style.display = '';
+  }
+}
+
+function startAbsIndexPoll() {
+  if (_absPollTimer) return;
+  const card = document.getElementById('abs-index-card');
+  if (!card) return;
+  const pending = new Set(['scan_requested', 'indexing', 'scan_pending']);
+  _absPollTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/jobs/${JOB_ID}`);
+      if (!res.ok) return;
+      const job = await res.json();
+      renderAbsCard(job);
+      if (!pending.has(job.abs_index_status || '')) {
+        clearInterval(_absPollTimer);
+        _absPollTimer = null;
+      }
+    } catch {
+      /* ignore transient poll errors */
+    }
+  }, 2000);
+}
 
 // Auto-scroll logs on load
 const _logEl = document.getElementById('log-content');
@@ -637,6 +751,10 @@ function renderJobState(job) {
     if (processingLbl) processingLbl.textContent = 'COMPLETE';
     updateVuMeter(progressBar, 100, false, false);
     if (speedEtaRow) speedEtaRow.style.display = 'none';
+    renderAbsCard(job);
+    if (['scan_requested', 'indexing', 'scan_pending'].includes(job.abs_index_status || '')) {
+      startAbsIndexPoll();
+    }
 
   } else {
     // failed or cancelled
@@ -699,6 +817,11 @@ if (ACTIVE.has(_currentStatus)) {
       .then(renderJobState)
       .catch(() => {});
   }, 2000);
+} else if (_currentStatus === 'succeeded') {
+  const initialAbs = {{ (job.abs_index_status or 'not_requested') | tojson }};
+  if (['scan_requested', 'indexing', 'scan_pending'].includes(initialAbs)) {
+    startAbsIndexPoll();
+  }
 }
 
 // ─── Action handlers ──────────────────────────────────────────────────────

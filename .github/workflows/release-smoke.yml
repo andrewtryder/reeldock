@@ -25,6 +25,11 @@ on:
       - "scripts/compose-release-smoke.sh"
       - "scripts/compose-playwright-smoke.sh"
       - "scripts/compose-extension-e2e.sh"
+      - "scripts/compose-abs-e2e.sh"
+      - "app/services/audiobookshelf.py"
+      - "app/services/abs_index.py"
+      - "app/services/batch_abs.py"
+      - "alembic/versions/0004_abs_job_index.py"
       - "tests/fixtures/release_smoke/**"
       - "e2e/**"
       - "browser-extension/**"
@@ -110,3 +115,30 @@ jobs:
 
       - name: Run extension E2E against Compose
         run: ./scripts/compose-extension-e2e.sh
+
+  abs-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: extension-e2e
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903  # v6.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run ABS integration e2e against Compose
+        run: ./scripts/compose-abs-e2e.sh

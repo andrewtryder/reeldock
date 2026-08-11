@@ -289,18 +289,31 @@ def check_cookies(settings: Settings) -> DiagnosticCheck:
 
 
 def check_abs_api(settings: Settings) -> DiagnosticCheck:
-    client = AudiobookshelfClient(settings)
-    result = client.check_connectivity()
-
-    if result.skipped:
-        return DiagnosticCheck(
-            id="abs_api",
-            label="Audiobookshelf API",
-            status="skipped",
-            summary="Not configured",
-            detail=result.error,
-        )
-    if result.success:
+    """Backward-compatible single ABS summary (prefer check_abs_integration)."""
+    checks = check_abs_integration(settings)
+    by_id = {c.id: c for c in checks}
+    for key in ("abs_connection", "abs_auth", "abs_library", "abs_scan"):
+        check = by_id.get(key)
+        if check and check.status == "error":
+            return DiagnosticCheck(
+                id="abs_api",
+                label="Audiobookshelf API",
+                status="error",
+                summary=check.summary,
+                detail=check.detail,
+            )
+    for key in ("abs_connection", "abs_auth", "abs_library", "abs_scan"):
+        check = by_id.get(key)
+        if check and check.status == "warn":
+            return DiagnosticCheck(
+                id="abs_api",
+                label="Audiobookshelf API",
+                status="warn",
+                summary=check.summary,
+                detail=check.detail,
+            )
+    connection = by_id.get("abs_connection")
+    if connection and connection.status == "ok":
         base_url = (settings.abs_base_url or "").rstrip("/")
         return DiagnosticCheck(
             id="abs_api",
@@ -309,14 +322,169 @@ def check_abs_api(settings: Settings) -> DiagnosticCheck:
             summary="Connected",
             detail=base_url,
         )
-
     return DiagnosticCheck(
         id="abs_api",
         label="Audiobookshelf API",
-        status="error",
-        summary="Connection failed",
-        detail=result.error,
+        status="skipped",
+        summary="Not configured",
     )
+
+
+def check_abs_integration(settings: Settings) -> list[DiagnosticCheck]:
+    """Split ABS diagnostics: connection, auth, library, and scan permission."""
+    base_url = (settings.abs_base_url or "").strip().rstrip("/")
+    token = (settings.abs_api_token or "").strip()
+    library_id = (settings.abs_library_id or "").strip()
+
+    def _skipped(check_id: str, label: str, summary: str = "Not configured") -> DiagnosticCheck:
+        return DiagnosticCheck(id=check_id, label=label, status="skipped", summary=summary)
+
+    if not base_url:
+        return [
+            _skipped("abs_connection", "ABS connection"),
+            _skipped("abs_auth", "ABS authentication"),
+            _skipped("abs_library", "ABS library"),
+            _skipped("abs_scan", "ABS library scan"),
+        ]
+
+    if not token:
+        return [
+            DiagnosticCheck(
+                id="abs_connection",
+                label="ABS connection",
+                status="warn",
+                summary="URL set; API token required",
+                detail=base_url,
+            ),
+            _skipped("abs_auth", "ABS authentication", "Token required"),
+            _skipped("abs_library", "ABS library", "Token required"),
+            _skipped("abs_scan", "ABS library scan", "Token required"),
+        ]
+
+    client = AudiobookshelfClient(settings)
+    libraries, error = client.list_libraries(base_url=base_url, api_token=token)
+
+    if error and "Authentication failed" in error:
+        return [
+            DiagnosticCheck(
+                id="abs_connection",
+                label="ABS connection",
+                status="ok",
+                summary="Reachable",
+                detail=base_url,
+            ),
+            DiagnosticCheck(
+                id="abs_auth",
+                label="ABS authentication",
+                status="error",
+                summary="Authentication failed",
+                detail=error,
+            ),
+            _skipped("abs_library", "ABS library", "Authenticate first"),
+            _skipped("abs_scan", "ABS library scan", "Authenticate first"),
+        ]
+
+    if error and ("connection error" in error.lower() or "Could not parse" in error):
+        return [
+            DiagnosticCheck(
+                id="abs_connection",
+                label="ABS connection",
+                status="error",
+                summary="Unreachable",
+                detail=error,
+            ),
+            _skipped("abs_auth", "ABS authentication", "Connect first"),
+            _skipped("abs_library", "ABS library", "Connect first"),
+            _skipped("abs_scan", "ABS library scan", "Connect first"),
+        ]
+
+    if error:
+        return [
+            DiagnosticCheck(
+                id="abs_connection",
+                label="ABS connection",
+                status="error",
+                summary="Request failed",
+                detail=error,
+            ),
+            _skipped("abs_auth", "ABS authentication", "Connect first"),
+            _skipped("abs_library", "ABS library", "Connect first"),
+            _skipped("abs_scan", "ABS library scan", "Connect first"),
+        ]
+
+    connection = DiagnosticCheck(
+        id="abs_connection",
+        label="ABS connection",
+        status="ok",
+        summary="Reachable",
+        detail=base_url,
+    )
+    auth = DiagnosticCheck(
+        id="abs_auth",
+        label="ABS authentication",
+        status="ok",
+        summary="Authenticated",
+    )
+
+    known = {lib["id"]: lib for lib in libraries}
+    if not library_id:
+        library = DiagnosticCheck(
+            id="abs_library",
+            label="ABS library",
+            status="warn",
+            summary="No library selected",
+            detail="Pick a library in Settings after Test Connection",
+        )
+        scan = _skipped("abs_scan", "ABS library scan", "Select a library first")
+        return [connection, auth, library, scan]
+
+    if library_id not in known:
+        library = DiagnosticCheck(
+            id="abs_library",
+            label="ABS library",
+            status="error",
+            summary="Saved library missing",
+            detail="The configured library ID is not on this server",
+        )
+        scan = _skipped("abs_scan", "ABS library scan", "Fix library selection first")
+        return [connection, auth, library, scan]
+
+    lib = known[library_id]
+    library = DiagnosticCheck(
+        id="abs_library",
+        label="ABS library",
+        status="ok",
+        summary=str(lib.get("name") or library_id),
+        detail=f"mediaType={lib.get('mediaType') or 'unknown'}",
+    )
+
+    scan_result = client.trigger_scan(library_id=library_id)
+    if scan_result.skipped:
+        scan = _skipped("abs_scan", "ABS library scan", scan_result.error or "Skipped")
+    elif scan_result.success:
+        scan = DiagnosticCheck(
+            id="abs_scan",
+            label="ABS library scan",
+            status="ok",
+            summary="Scan permitted",
+        )
+    elif scan_result.error and "403" in scan_result.error:
+        scan = DiagnosticCheck(
+            id="abs_scan",
+            label="ABS library scan",
+            status="warn",
+            summary="Scan permission denied",
+            detail="Connection is valid; this token cannot trigger library scans",
+        )
+    else:
+        scan = DiagnosticCheck(
+            id="abs_scan",
+            label="ABS library scan",
+            status="error",
+            summary="Scan failed",
+            detail=scan_result.error,
+        )
+    return [connection, auth, library, scan]
 
 
 @dataclass(frozen=True)
@@ -331,7 +499,12 @@ _DIAGNOSTIC_GROUP_SPECS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     ("tools", "External tools", "build", ("ytdlp", "ffmpeg", "ffprobe")),
     ("infrastructure", "Infrastructure", "dns", ("redis", "database")),
     ("paths", "Paths & storage", "folder", ("output_root", "work_dir")),
-    ("integrations", "Integrations", "hub", ("cookies", "abs_api")),
+    (
+        "integrations",
+        "Integrations",
+        "hub",
+        ("cookies", "abs_connection", "abs_auth", "abs_library", "abs_scan"),
+    ),
 )
 
 
@@ -342,7 +515,7 @@ def diagnostic_groups(checks: list[DiagnosticCheck]) -> list[DiagnosticGroup]:
             id=group_id,
             label=label,
             icon=icon,
-            checks=tuple(by_id[check_id] for check_id in check_ids),
+            checks=tuple(by_id[check_id] for check_id in check_ids if check_id in by_id),
         )
         for group_id, label, icon, check_ids in _DIAGNOSTIC_GROUP_SPECS
     ]
@@ -384,7 +557,7 @@ def run_diagnostics(settings: Settings) -> list[DiagnosticCheck]:
             create=True,
         ),
         check_cookies(settings),
-        check_abs_api(settings),
+        *check_abs_integration(settings),
         check_archive_unused(settings),
     ]
 

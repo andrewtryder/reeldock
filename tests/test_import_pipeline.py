@@ -234,7 +234,10 @@ def test_pipeline_happy_path_with_abs_scan(
     )
 
     # Mock ABS scan success
-    with patch("app.services.import_pipeline.AudiobookshelfClient.trigger_scan") as mock_scan:
+    with (
+        patch("app.services.import_pipeline.AudiobookshelfClient.trigger_scan") as mock_scan,
+        patch("app.services.abs_index.enqueue_reconcile") as mock_enq,
+    ):
         from app.services.audiobookshelf import ScanResult
 
         mock_scan.return_value = ScanResult(success=True, skipped=False)
@@ -247,6 +250,8 @@ def test_pipeline_happy_path_with_abs_scan(
     assert job.progress_percent == 100.0
     assert job.progress_label == "Complete"
     mock_scan.assert_called_once()
+    mock_enq.assert_called_once_with("job-scan", attempt=0)
+    assert job.abs_index_status == "scan_requested"
 
 
 @patch("app.services.process_runner.subprocess.Popen")
@@ -304,6 +309,7 @@ def test_pipeline_batch_child_does_not_scan_immediately(
     with (
         patch("app.services.import_pipeline.AudiobookshelfClient.trigger_scan") as mock_scan,
         patch("app.services.batch_abs.AudiobookshelfClient.trigger_scan") as mock_batch_scan,
+        patch("app.services.abs_index.enqueue_reconcile") as mock_enq,
     ):
         from app.services.audiobookshelf import ScanResult
 
@@ -315,6 +321,7 @@ def test_pipeline_batch_child_does_not_scan_immediately(
     assert job.status == JobStatus.succeeded
     mock_scan.assert_not_called()
     mock_batch_scan.assert_called_once()
+    mock_enq.assert_called_once_with("job-batch-scan", attempt=0)
     batch = test_db.get(ImportBatch, "batch-scan")
     assert batch is not None
     assert batch.abs_scan_status == "succeeded"

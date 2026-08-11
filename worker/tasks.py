@@ -13,12 +13,16 @@ from datetime import UTC, datetime
 from app.config import reload_settings
 from app.db import get_sync_db
 from app.models import JobStatus
+from app.services.abs_index import reconcile_abs_index, resume_pending_abs_index
 from app.services.batch_abs import recover_stale_abs_leases
 from app.services.import_ledger import reconcile_import_state, release_claim_sync
 from app.services.import_pipeline import ImportPipeline
 from app.services.jobs import sync_get_job, sync_record_attempt, sync_update_job
 
 logger = logging.getLogger(__name__)
+
+# Re-export for RQ job registration / enqueue_in targets.
+__all__ = ["reconcile_abs_index", "run_import_job"]
 
 
 def run_import_job(job_id: str) -> None:
@@ -32,6 +36,7 @@ def run_import_job(job_id: str) -> None:
     try:
         reconcile_import_state(db)
         recover_stale_abs_leases(db)
+        resume_pending_abs_index(db, settings)
         db.commit()
         job = sync_get_job(db, job_id)
         if job is None:

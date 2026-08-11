@@ -161,30 +161,68 @@ def test_check_abs_api_skipped(default_settings: Settings):
     assert check.status == "skipped"
 
 
-def test_check_abs_api_ok(default_settings: Settings):
+def test_check_abs_integration_ok(default_settings: Settings):
+    from app.diagnostics import check_abs_integration
+
+    default_settings.abs_base_url = "http://abs:13378"
+    default_settings.abs_api_token = "token"
+    default_settings.abs_library_id = "lib-001"
+    libraries = [{"id": "lib-001", "name": "Books", "mediaType": "book"}]
+    with (
+        patch(
+            "app.diagnostics.AudiobookshelfClient.list_libraries",
+            return_value=(libraries, None),
+        ),
+        patch(
+            "app.diagnostics.AudiobookshelfClient.trigger_scan",
+            return_value=ScanResult(success=True),
+        ),
+    ):
+        checks = {c.id: c for c in check_abs_integration(default_settings)}
+        assert checks["abs_connection"].status == "ok"
+        assert checks["abs_auth"].status == "ok"
+        assert checks["abs_library"].status == "ok"
+        assert checks["abs_scan"].status == "ok"
+        assert check_abs_api(default_settings).status == "ok"
+
+
+def test_check_abs_scan_403_is_warning(default_settings: Settings):
+    from app.diagnostics import check_abs_integration
+
+    default_settings.abs_base_url = "http://abs:13378"
+    default_settings.abs_api_token = "token"
+    default_settings.abs_library_id = "lib-001"
+    libraries = [{"id": "lib-001", "name": "Books", "mediaType": "book"}]
+    with (
+        patch(
+            "app.diagnostics.AudiobookshelfClient.list_libraries",
+            return_value=(libraries, None),
+        ),
+        patch(
+            "app.diagnostics.AudiobookshelfClient.trigger_scan",
+            return_value=ScanResult(success=False, error="ABS API returned 403"),
+        ),
+    ):
+        checks = {c.id: c for c in check_abs_integration(default_settings)}
+    assert checks["abs_connection"].status == "ok"
+    assert checks["abs_auth"].status == "ok"
+    assert checks["abs_scan"].status == "warn"
+
+
+def test_check_abs_auth_error(default_settings: Settings):
+    from app.diagnostics import check_abs_integration
+
     default_settings.abs_base_url = "http://abs:13378"
     default_settings.abs_api_token = "token"
     default_settings.abs_library_id = "lib-001"
     with patch(
-        "app.diagnostics.AudiobookshelfClient.check_connectivity",
-        return_value=ScanResult(success=True),
+        "app.diagnostics.AudiobookshelfClient.list_libraries",
+        return_value=([], "Authentication failed (HTTP 401)"),
     ):
-        check = check_abs_api(default_settings)
-
-    assert check.status == "ok"
-
-
-def test_check_abs_api_error(default_settings: Settings):
-    default_settings.abs_base_url = "http://abs:13378"
-    default_settings.abs_api_token = "token"
-    default_settings.abs_library_id = "lib-001"
-    with patch(
-        "app.diagnostics.AudiobookshelfClient.check_connectivity",
-        return_value=ScanResult(success=False, error="Authentication failed (HTTP 401)"),
-    ):
-        check = check_abs_api(default_settings)
-
-    assert check.status == "error"
+        checks = {c.id: c for c in check_abs_integration(default_settings)}
+        assert checks["abs_connection"].status == "ok"
+        assert checks["abs_auth"].status == "error"
+        assert check_abs_api(default_settings).status == "error"
 
 
 def test_diagnostic_groups_cover_all_checks():
@@ -197,7 +235,10 @@ def test_diagnostic_groups_cover_all_checks():
         DiagnosticCheck("output_root", "Output root", "ok", "Writable"),
         DiagnosticCheck("work_dir", "Work directory", "ok", "Writable"),
         DiagnosticCheck("cookies", "Cookies file", "warn", "Not configured"),
-        DiagnosticCheck("abs_api", "Audiobookshelf API", "skipped", "Not configured"),
+        DiagnosticCheck("abs_connection", "ABS connection", "skipped", "Not configured"),
+        DiagnosticCheck("abs_auth", "ABS authentication", "skipped", "Not configured"),
+        DiagnosticCheck("abs_library", "ABS library", "skipped", "Not configured"),
+        DiagnosticCheck("abs_scan", "ABS library scan", "skipped", "Not configured"),
     ]
     groups = diagnostic_groups(checks)
     grouped_ids = {check.id for group in groups for check in group.checks}
@@ -215,14 +256,17 @@ def test_diagnostics_page_returns_checks(mock_run: MagicMock, client: TestClient
         DiagnosticCheck("output_root", "Output root", "ok", "Writable"),
         DiagnosticCheck("work_dir", "Work directory", "ok", "Writable"),
         DiagnosticCheck("cookies", "Cookies file", "warn", "Not configured"),
-        DiagnosticCheck("abs_api", "Audiobookshelf API", "skipped", "Not configured"),
+        DiagnosticCheck("abs_connection", "ABS connection", "skipped", "Not configured"),
+        DiagnosticCheck("abs_auth", "ABS authentication", "skipped", "Not configured"),
+        DiagnosticCheck("abs_library", "ABS library", "skipped", "Not configured"),
+        DiagnosticCheck("abs_scan", "ABS library scan", "skipped", "Not configured"),
     ]
 
     response = client.get("/diagnostics")
     assert response.status_code == 200
     assert "Diagnostics" in response.text
     assert "yt-dlp" in response.text
-    assert "Audiobookshelf API" in response.text
+    assert "ABS connection" in response.text
 
 
 @patch("app.routes.diagnostics.run_diagnostics")

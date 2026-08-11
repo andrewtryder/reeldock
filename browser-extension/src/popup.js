@@ -41,20 +41,46 @@ let publicState = {
 
 let selectedQuality = 'standard';
 let activeTab = { url: '', title: '' };
+let pollTimer = null;
+
+function hasActiveJobs(jobs = publicState.jobs) {
+  return (jobs || []).some((job) => !isTerminalStatus(job.status));
+}
+
+function stopPopupPoll() {
+  if (!pollTimer) return;
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
+
+function startPopupPoll() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    if (!hasActiveJobs()) {
+      stopPopupPoll();
+      return;
+    }
+    try {
+      await refreshState();
+      renderRecent();
+      if (!hasActiveJobs()) stopPopupPoll();
+    } catch {
+      // Keep the last rendered ledger if the worker is asleep or the server is down.
+    }
+  }, 2000);
+}
+
+function overrideFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  const url = params.get('url') || '';
+  if (!isYouTubeWatchUrl(url)) return null;
+  return { url, title: params.get('title') || url };
+}
 
 async function getActiveTabInfo() {
+  const override = overrideFromQuery();
+  if (override) return override;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (isYouTubeWatchUrl(tab?.url || '')) {
-    return { url: tab.url || '', title: tab.title || '' };
-  }
-  // Popup opened as its own tab (E2E / docked) still prefers an open watch page.
-  const youtubeTabs = await chrome.tabs.query({
-    url: ['https://www.youtube.com/watch*', 'https://m.youtube.com/watch*', 'https://youtu.be/*'],
-  });
-  const watch = youtubeTabs.find((candidate) => isYouTubeWatchUrl(candidate.url || ''));
-  if (watch) {
-    return { url: watch.url || '', title: watch.title || '' };
-  }
   return { url: tab?.url || '', title: tab?.title || '' };
 }
 
@@ -248,6 +274,7 @@ async function onQueue(event) {
     setStatus(`Queued: ${res.title || res.job_id}`, 'ok');
     await refreshState();
     renderState();
+    startPopupPoll();
   } catch (err) {
     setStatus(err.message || 'Queue failed', 'err');
   } finally {
@@ -273,6 +300,7 @@ async function onRetry(jobId) {
     if (!res?.ok) throw new Error(res?.error || 'Retry failed');
     await refreshState();
     renderState();
+    startPopupPoll();
   } catch (err) {
     setStatus(err.message || 'Retry failed', 'err');
   }
@@ -295,6 +323,8 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.action === 'jobUpdate' || message.action === 'jobsChanged') {
     if (Array.isArray(message.jobs)) publicState.jobs = message.jobs;
     renderRecent();
+    if (hasActiveJobs()) startPopupPoll();
+    else stopPopupPoll();
   }
 });
 
@@ -310,6 +340,7 @@ setExtensionVersionLabel();
   try {
     await refreshState();
     renderState();
+    if (hasActiveJobs()) startPopupPoll();
   } catch (err) {
     setStatus(err.message || 'Failed to load extension state', 'err');
   }

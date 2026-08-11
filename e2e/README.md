@@ -17,7 +17,9 @@ starts Compose with **both** Basic Auth and the extension API enabled (host
 YouTube watch pages for `reeldockSmoke*` are fulfilled locally via
 `page.route`. The unpacked Chrome extension is loaded with
 `--disable-extensions-except` / `--load-extension` on a persistent
-Chromium context.
+Chromium context. The suite opens `popup.html?url=…` because `activeTab`
+does not reveal a YouTube tab URL when the popup is loaded as its own
+page (no YouTube host permission).
 
 Headless MV3 extension load is unreliable on Playwright’s pinned Chromium,
 so the compose script runs **headed** Chromium. In CI (no `DISPLAY`) it

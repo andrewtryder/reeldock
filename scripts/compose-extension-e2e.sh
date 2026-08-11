@@ -154,6 +154,14 @@ for _ in $(seq 1 90); do
 done
 curl -fsS "$BASE/ready" >/dev/null
 
+echo "==> Waiting for RQ worker..."
+for _ in $(seq 1 30); do
+  if docker logs reeldock-worker 2>/dev/null | grep -q "Listening on reeldock"; then
+    break
+  fi
+  sleep 1
+done
+
 echo "==> Running Playwright extension suite..."
 export REELDOCK_BASE_URL="$BASE"
 export REELDOCK_EXTENSION_TOKEN="$TOKEN"

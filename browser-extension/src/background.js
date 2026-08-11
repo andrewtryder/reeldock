@@ -49,6 +49,9 @@ let destinationState = {
 };
 
 const activeWebSockets = new Map();
+const RECONCILE_INTERVAL_MS = 2000;
+let reconcileTimer = null;
+let reconcileInFlight = false;
 
 function authHeaders() {
   const headers = { 'Content-Type': 'application/json' };
@@ -111,18 +114,67 @@ async function apiFetch(path, options = {}) {
   return response.json();
 }
 
+const CREATED_NOTIFICATION_IDS_KEY = 'createdNotificationIds';
+
+async function rememberNotificationId(id) {
+  if (!id) return;
+  try {
+    const stored = await chrome.storage.local.get(CREATED_NOTIFICATION_IDS_KEY);
+    const current = Array.isArray(stored[CREATED_NOTIFICATION_IDS_KEY])
+      ? stored[CREATED_NOTIFICATION_IDS_KEY]
+      : [];
+    if (current.includes(id)) return;
+    await chrome.storage.local.set({
+      [CREATED_NOTIFICATION_IDS_KEY]: [...current, id].slice(-20),
+    });
+  } catch (err) {
+    console.warn('Could not persist notification id:', err);
+  }
+}
+
 function notifySpec(spec) {
   if (!spec) return;
+  rememberNotificationId(spec.id).catch((err) => {
+    console.warn('Notification id persist failed:', err);
+  });
   try {
-    chrome.notifications?.create(spec.id, {
-      type: 'basic',
-      iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
-      title: spec.title,
-      message: String(spec.message || ''),
-    });
+    chrome.notifications?.create(
+      spec.id,
+      {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+        title: spec.title,
+        message: String(spec.message || ''),
+      },
+      () => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          console.error('Notification failed:', lastError.message);
+        }
+      },
+    );
   } catch (err) {
     console.error('Notification failed:', err);
   }
+}
+
+async function listedNotificationIds() {
+  let live = [];
+  try {
+    live = Object.keys((await chrome.notifications?.getAll?.()) || {});
+  } catch {
+    live = [];
+  }
+  let stored = [];
+  try {
+    const data = await chrome.storage.local.get(CREATED_NOTIFICATION_IDS_KEY);
+    stored = Array.isArray(data[CREATED_NOTIFICATION_IDS_KEY])
+      ? data[CREATED_NOTIFICATION_IDS_KEY]
+      : [];
+  } catch {
+    stored = [];
+  }
+  return [...new Set([...live, ...stored])];
 }
 
 async function maybeNotifyTerminal(jobId) {
@@ -203,11 +255,15 @@ async function fetchJob(jobId) {
 
 async function reconcileActiveJobs() {
   const active = recentJobs.filter((job) => !isTerminalStatus(job.status));
+  let changed = false;
   for (const job of active) {
     try {
       const fresh = await fetchJob(job.jobId);
       const merged = mergeJobFromServer(fresh, job);
+      const snapshot = `${job.status}:${job.phase}:${job.progressPercent}:${job.progressLabel}`;
+      const nextSnap = `${merged.status}:${merged.phase}:${merged.progressPercent}:${merged.progressLabel}`;
       await persistJobs(upsertRecentJob(recentJobs, merged));
+      if (snapshot !== nextSnap) changed = true;
       if (isTerminalStatus(merged.status)) {
         stopJobWebSocket(job.jobId, 'Job finished');
         await maybeNotifyTerminal(job.jobId);
@@ -218,6 +274,42 @@ async function reconcileActiveJobs() {
       // Keep the local record. Do not mark the job failed if the server is down.
       console.warn(`Reconcile skipped for ${job.jobId}:`, formatCaughtError(err));
     }
+  }
+  return changed;
+}
+
+function hasActiveJobs() {
+  return recentJobs.some((job) => !isTerminalStatus(job.status));
+}
+
+function stopReconcileLoop() {
+  if (!reconcileTimer) return;
+  clearInterval(reconcileTimer);
+  reconcileTimer = null;
+}
+
+function startReconcileLoop() {
+  if (reconcileTimer) return;
+  reconcileTimer = setInterval(() => {
+    tickReconcile().catch((err) => console.warn('Reconcile tick failed:', err));
+  }, RECONCILE_INTERVAL_MS);
+}
+
+async function tickReconcile() {
+  if (reconcileInFlight) return;
+  if (!hasActiveJobs()) {
+    stopReconcileLoop();
+    return;
+  }
+  reconcileInFlight = true;
+  try {
+    const changed = await reconcileActiveJobs();
+    if (changed) {
+      broadcast({ action: 'jobsChanged', jobs: displayRecentJobs(recentJobs) });
+    }
+    if (!hasActiveJobs()) stopReconcileLoop();
+  } finally {
+    reconcileInFlight = false;
   }
 }
 
@@ -255,6 +347,7 @@ async function handleGetPublicState() {
       console.warn('Public state status/destinations failed:', connectionError);
     }
     await reconcileActiveJobs();
+    if (hasActiveJobs()) startReconcileLoop();
   }
   return publicState();
 }
@@ -307,6 +400,7 @@ async function handleQueue(message) {
     await openAbsoluteOrJobUrl(record.jobUrl, origin);
   }
   startJobWebSocket(record.jobId);
+  startReconcileLoop();
   broadcast({ action: 'jobsChanged', jobs: displayRecentJobs(recentJobs) });
   return {
     ok: true,
@@ -340,6 +434,7 @@ async function handleRetry(jobId) {
   const reset = resetJobForRetry(existing || { jobId });
   await persistJobs(upsertRecentJob(recentJobs, reset));
   startJobWebSocket(jobId);
+  startReconcileLoop();
   broadcast({ action: 'jobsChanged', jobs: displayRecentJobs(recentJobs) });
   return { ok: true, jobId, status: 'queued', rq_job_id: data?.rq_job_id || null };
 }
@@ -417,11 +512,11 @@ function startJobWebSocket(jobId) {
       const current = recentJobs.find((job) => job.jobId === jobId) || { jobId };
       const merged = mergeJobFromServer(data.job, current);
       await persistJobs(upsertRecentJob(recentJobs, merged));
-      broadcast({ action: 'jobUpdate', job: merged, jobs: displayRecentJobs(recentJobs) });
       if (isTerminalStatus(merged.status)) {
         stopJobWebSocket(jobId, 'Job finished');
         await maybeNotifyTerminal(jobId);
       }
+      broadcast({ action: 'jobUpdate', job: merged, jobs: displayRecentJobs(recentJobs) });
     } catch (error) {
       console.error('Error parsing WebSocket message:', error);
     }
@@ -517,6 +612,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'testConnection') {
     return replyAsync(sendResponse, handleTestConnection());
   }
+  if (message.action === 'getNotificationIds') {
+    return replyAsync(sendResponse, listedNotificationIds().then((ids) => ({ ok: true, ids })));
+  }
 
   sendResponse({ ok: false, error: `Unknown action: ${message.action}` });
   return false;
@@ -562,6 +660,7 @@ async function boot() {
       console.warn('Startup status failed:', formatCaughtError(err));
     }
     await reconcileActiveJobs();
+    if (hasActiveJobs()) startReconcileLoop();
   }
 }
 

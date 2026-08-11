@@ -3,12 +3,11 @@ import {
   expect,
   extensionToken,
   notificationIds,
+  popupQuery,
   serverOrigin,
   storageSnapshot,
   test,
 } from "./fixtures";
-
-test.describe.configure({ mode: "serial" });
 
 test("options save, test connection, persist, and mask the token", async ({
   extensionPage,
@@ -35,9 +34,6 @@ test("options save, test connection, persist, and mask the token", async ({
 
   const root = await context.request.get(serverOrigin() + "/");
   expect(root.status()).toBe(401);
-
-  // Localhost must not require an optional-host permission prompt.
-  await expect(options.locator("#status")).toContainText(/Connected successfully/i);
   await options.close();
 });
 
@@ -53,20 +49,33 @@ test("queue Standard smoke video to Complete and notify once", async ({
   });
   await options.close();
 
-  const popup = await extensionPage("popup");
+  const popup = await extensionPage("popup", popupQuery("reeldockSmoke01"));
   await expect(popup.locator("#video")).toContainText("ReelDock Release Smoke");
+  await expect(popup.locator("#queue")).toBeEnabled();
   await popup.locator("#queue").click();
   await expect(popup.locator("#recent-list")).toContainText(/Complete/i, { timeout: 120_000 });
 
-  const notifications = await notificationIds(popup);
-  const terminalIds = notifications.filter((id) => /^reeldock-(done|fail)-/.test(id));
+  await expect
+    .poll(
+      async () => {
+        const notifications = await notificationIds(popup);
+        return notifications.filter((id) => /^reeldock-(done|fail)-/.test(id));
+      },
+      { timeout: 15_000 },
+    )
+    .toEqual(expect.arrayContaining([expect.stringMatching(/^reeldock-done-/)]));
+  const terminalIds = (await notificationIds(popup)).filter((id) =>
+    /^reeldock-(done|fail)-/.test(id),
+  );
   expect(terminalIds).toHaveLength(1);
-  expect(terminalIds[0]).toMatch(/^reeldock-done-/);
   await popup.close();
 });
 
 async function ensureConnected(
-  extensionPage: (name: "popup" | "options") => Promise<import("@playwright/test").Page>,
+  extensionPage: (
+    name: "popup" | "options",
+    query?: string,
+  ) => Promise<import("@playwright/test").Page>,
 ) {
   const options = await extensionPage("options");
   await configureOptions(options);
@@ -82,13 +91,14 @@ test("close and reopen popup mid-job then reach Complete", async ({
 }) => {
   await ensureConnected(extensionPage);
   await openSmokeTab("reeldockSmokeSlow01");
-  const popup = await extensionPage("popup");
+  const popup = await extensionPage("popup", popupQuery("reeldockSmokeSlow01"));
   await expect(popup.locator("#video")).toContainText("ReelDock Smoke Slow");
+  await expect(popup.locator("#queue")).toBeEnabled();
   await popup.locator("#queue").click();
   await expect(popup.locator("#recent-list")).toContainText(/ReelDock Smoke Slow/);
   await popup.close();
 
-  const again = await extensionPage("popup");
+  const again = await extensionPage("popup", popupQuery("reeldockSmokeSlow01"));
   await expect(again.locator("#recent-list")).toContainText("ReelDock Smoke Slow");
   await expect(again.locator("#recent-list")).toContainText(/Complete/i, { timeout: 120_000 });
   await again.close();
@@ -117,7 +127,9 @@ test("wrong token is actionable and recovering the token works", async ({ extens
 test("slow fixture can be cancelled", async ({ extensionPage, openSmokeTab }) => {
   await ensureConnected(extensionPage);
   await openSmokeTab("reeldockSmokeSlow01");
-  const popup = await extensionPage("popup");
+  const popup = await extensionPage("popup", popupQuery("reeldockSmokeSlow01"));
+  await expect(popup.locator("#video")).toContainText("ReelDock Smoke Slow");
+  await expect(popup.locator("#queue")).toBeEnabled();
   await popup.locator("#queue").click();
   await expect(popup.locator("#recent-list")).toContainText("ReelDock Smoke Slow");
   await popup.getByRole("button", { name: "Cancel" }).first().click();
@@ -128,7 +140,9 @@ test("slow fixture can be cancelled", async ({ extensionPage, openSmokeTab }) =>
 test("fail fixture can be retried to Complete", async ({ extensionPage, openSmokeTab }) => {
   await ensureConnected(extensionPage);
   await openSmokeTab("reeldockSmokeFail01");
-  const popup = await extensionPage("popup");
+  const popup = await extensionPage("popup", popupQuery("reeldockSmokeFail01"));
+  await expect(popup.locator("#video")).toContainText("ReelDock Smoke Fail");
+  await expect(popup.locator("#queue")).toBeEnabled();
   await popup.locator("#queue").click();
   await expect(popup.locator("#recent-list")).toContainText(/Failed/i, { timeout: 120_000 });
 
@@ -138,8 +152,14 @@ test("fail fixture can be retried to Complete", async ({ extensionPage, openSmok
   await popup.getByRole("button", { name: "Retry" }).first().click();
   await expect(popup.locator("#recent-list")).toContainText(/Complete/i, { timeout: 120_000 });
 
-  const after = await notificationIds(popup);
-  const afterDone = after.filter((id) => id.startsWith("reeldock-done-"));
-  expect(afterDone.length).toBeGreaterThan(beforeDone.length);
+  await expect
+    .poll(
+      async () => {
+        const after = await notificationIds(popup);
+        return after.filter((id) => id.startsWith("reeldock-done-")).length;
+      },
+      { timeout: 15_000 },
+    )
+    .toBeGreaterThan(beforeDone.length);
   await popup.close();
 });

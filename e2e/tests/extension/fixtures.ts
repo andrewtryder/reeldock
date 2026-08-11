@@ -2,9 +2,6 @@ import { test as base, chromium, type BrowserContext, type Page } from "@playwri
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const here = path.dirname(fileURLToPath(import.meta.url));
 
 export const SMOKE_TITLES: Record<string, string> = {
   reeldockSmoke01: "ReelDock Release Smoke",
@@ -16,17 +13,25 @@ export function smokeUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${videoId}`;
 }
 
+export function popupQuery(videoId: string): string {
+  const url = smokeUrl(videoId);
+  const title = SMOKE_TITLES[videoId] || videoId;
+  return `url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
+}
+
 export function extensionDist(): string {
-  const configured = process.env.EXTENSION_DIST;
-  const dist = configured
-    ? path.resolve(configured)
-    : path.resolve(here, "../../../browser-extension/dist/chrome");
-  if (!fs.existsSync(path.join(dist, "manifest.json"))) {
-    throw new Error(
-      `Unpacked Chrome extension not found at ${dist}. Run npm --prefix browser-extension run build:chrome`,
-    );
+  const candidates = [
+    process.env.EXTENSION_DIST,
+    path.resolve(process.cwd(), "../browser-extension/dist/chrome"),
+    path.resolve(process.cwd(), "browser-extension/dist/chrome"),
+  ].filter((value): value is string => Boolean(value));
+  for (const candidate of candidates) {
+    const dist = path.resolve(candidate);
+    if (fs.existsSync(path.join(dist, "manifest.json"))) return dist;
   }
-  return dist;
+  throw new Error(
+    `Unpacked Chrome extension not found. Run npm --prefix browser-extension run build:chrome`,
+  );
 }
 
 export function serverOrigin(): string {
@@ -52,43 +57,37 @@ async function installYouTubeMock(context: BrowserContext): Promise<void> {
 export const test = base.extend<{
   context: BrowserContext;
   extensionId: string;
-  extensionPage: (name: "popup" | "options") => Promise<Page>;
+  extensionPage: (name: "popup" | "options", query?: string) => Promise<Page>;
   openSmokeTab: (videoId: string) => Promise<Page>;
 }>({
-  context: [
-    // Shared profile so Options persist across the serial extension suite.
-    async ({}, use) => {
-      const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "reeldock-ext-"));
-      const headed = process.env.EXTENSION_E2E_HEADED === "1";
-      const context = await chromium.launchPersistentContext(userDataDir, {
-        channel: "chromium",
-        headless: !headed,
-        args: [
-          `--disable-extensions-except=${extensionDist()}`,
-          `--load-extension=${extensionDist()}`,
-        ],
-      });
-      await installYouTubeMock(context);
-      await use(context);
-      await context.close();
-    },
-    { scope: "worker" },
-  ],
-  extensionId: [
-    async ({ context }, use) => {
-      let [serviceWorker] = context.serviceWorkers();
-      if (!serviceWorker) {
-        serviceWorker = await context.waitForEvent("serviceworker");
-      }
-      const extensionId = new URL(serviceWorker.url()).host;
-      await use(extensionId);
-    },
-    { scope: "worker" },
-  ],
+  context: async ({}, use) => {
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "reeldock-ext-"));
+    const headed = process.env.EXTENSION_E2E_HEADED === "1";
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: !headed,
+      args: [
+        `--disable-extensions-except=${extensionDist()}`,
+        `--load-extension=${extensionDist()}`,
+      ],
+    });
+    await installYouTubeMock(context);
+    await use(context);
+    await context.close();
+  },
+  extensionId: async ({ context }, use) => {
+    let [serviceWorker] = context.serviceWorkers();
+    if (!serviceWorker) {
+      serviceWorker = await context.waitForEvent("serviceworker");
+    }
+    const extensionId = new URL(serviceWorker.url()).host;
+    await use(extensionId);
+  },
   extensionPage: async ({ context, extensionId }, use) => {
-    await use(async (name) => {
+    await use(async (name, query = "") => {
       const page = await context.newPage();
-      await page.goto(`chrome-extension://${extensionId}/${name}.html`);
+      const suffix = query ? `?${query}` : "";
+      await page.goto(`chrome-extension://${extensionId}/${name}.html${suffix}`);
       return page;
     });
   },
@@ -110,6 +109,10 @@ export async function configureOptions(
   await page.locator("#serverUrl").fill(options.serverUrl ?? serverOrigin());
   await page.locator("#apiToken").fill(options.token ?? extensionToken());
   await page.locator("#save").click();
+  await page.evaluate(async () => {
+    const api = (globalThis as unknown as { chrome?: { storage: { local: { set: (v: object) => Promise<void> } } } }).chrome;
+    if (api) await api.storage.local.set({ allowReimport: true });
+  });
 }
 
 type ChromeStorage = {
@@ -129,9 +132,24 @@ type ChromeNotifications = {
 };
 
 export async function notificationIds(page: Page): Promise<string[]> {
-  return page.evaluate(async () => {
+  const fromApi = await page.evaluate(async () => {
     const api = (globalThis as unknown as { chrome?: ChromeNotifications }).chrome;
-    if (!api) return [];
+    if (!api?.notifications?.getAll) return [];
     return Object.keys(await api.notifications.getAll());
   });
+  const fromWorker = await page.evaluate(async () => {
+    const runtime = (
+      globalThis as unknown as {
+        chrome?: {
+          runtime: {
+            sendMessage: (msg: { action: string }) => Promise<{ ids?: string[] }>;
+          };
+        };
+      }
+    ).chrome;
+    if (!runtime) return [];
+    const res = await runtime.runtime.sendMessage({ action: "getNotificationIds" });
+    return Array.isArray(res?.ids) ? res.ids : [];
+  });
+  return [...new Set([...fromApi, ...fromWorker])];
 }

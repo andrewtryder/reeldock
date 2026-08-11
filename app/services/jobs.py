@@ -486,6 +486,7 @@ async def get_job(session: AsyncSession, job_id: str) -> Job | None:
         select(Job)
         .options(selectinload(Job.batch), selectinload(Job.attempts_log))
         .where(Job.id == job_id)
+        .execution_options(populate_existing=True)
     )
     return result.scalar_one_or_none()
 

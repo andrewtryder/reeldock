@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.11.0...browser-extension-v1.12.0) (2026-08-11)
+
+
+### Features
+
+* **settings:** add UI-managed configuration and browser pairing ([5c3c7cc](https://github.com/andrewtryder/reeldock/commit/5c3c7cc48063d19832eab80450f053505a77da30))
+
 ## [1.11.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.10.1...browser-extension-v1.11.0) (2026-08-11)
 
 

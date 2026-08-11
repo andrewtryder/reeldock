@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.0](https://github.com/andrewtryder/reeldock/compare/v1.11.0...v1.12.0) (2026-08-11)
+
+
+### Features
+
+* **settings:** add UI-managed configuration and browser pairing ([5c3c7cc](https://github.com/andrewtryder/reeldock/commit/5c3c7cc48063d19832eab80450f053505a77da30))
+
+
+### Bug Fixes
+
+* **imports:** make ReelDock ledger authoritative and coalesce ABS scans ([3759509](https://github.com/andrewtryder/reeldock/commit/3759509d49a42d8a3277f8a8bb4603b614873cac))
+
 ## [1.11.0](https://github.com/andrewtryder/reeldock/compare/v1.10.2...v1.11.0) (2026-08-11)
 
 

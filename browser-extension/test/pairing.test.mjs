@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { DEFAULT_DEVICE_NAME, isDeviceToken, normalizePairingCode, pairWithOrigin } from '../src/pairing.js';
+import {
+  DEFAULT_DEVICE_NAME,
+  applyDeviceRevoke,
+  isDeviceToken,
+  normalizePairingCode,
+  pairWithOrigin,
+} from '../src/pairing.js';
 
 describe('pairing helpers', () => {
   it('normalizes compact pairing codes', () => {
@@ -41,5 +47,37 @@ describe('pairing helpers', () => {
     assert.equal(body.pairing_code, 'RDK-AB2D-EFGH');
     assert.equal(body.device_name, 'Office Chrome');
     assert.equal(DEFAULT_DEVICE_NAME, 'This browser');
+  });
+
+  it('does not clear the device token when server revoke fails', async () => {
+    let cleared = false;
+    await assert.rejects(
+      () =>
+        applyDeviceRevoke({
+          isDevice: true,
+          revokeRemote: async () => {
+            throw new Error('HTTP 503');
+          },
+          clearLocal: async () => {
+            cleared = true;
+          },
+        }),
+      /HTTP 503/,
+    );
+    assert.equal(cleared, false);
+  });
+
+  it('clears local credentials after a successful revoke', async () => {
+    let cleared = false;
+    const result = await applyDeviceRevoke({
+      isDevice: true,
+      revokeRemote: async () => {},
+      clearLocal: async () => {
+        cleared = true;
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'revoked');
+    assert.equal(cleared, true);
   });
 });

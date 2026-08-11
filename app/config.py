@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.path_checks import check_writable_directory
@@ -528,6 +528,52 @@ def get_setting_sources() -> dict[str, dict[str, Any]]:
     return sources
 
 
+def _merge_setting_layers(
+    bootstrap: dict[str, Any],
+    db_map: dict[str, Any],
+    pinned: dict[str, str],
+) -> dict[str, Any]:
+    from app.settings_registry import SETTINGS_BY_KEY
+
+    if _config_mode() == "locked":
+        return {**db_map, **bootstrap}
+    merged = {**bootstrap, **db_map}
+    for spec in SETTINGS_BY_KEY.values():
+        if spec.env_alias in pinned and spec.key in db_map and spec.key in bootstrap:
+            merged[spec.key] = bootstrap[spec.key]
+    return merged
+
+
+def preview_merged_settings(
+    overrides: dict[str, str],
+    *,
+    clear_keys: set[str] | None = None,
+) -> Settings:
+    """Build the Settings object that would result from a save, without writing."""
+    from app.settings_registry import SETTINGS_BY_KEY
+
+    get_settings()
+    db_map = dict(_load_db_override_map())
+    pinned = _collect_pinned_sources()
+    for key in clear_keys or set():
+        spec = SETTINGS_BY_KEY.get(key)
+        if spec is None or not spec.mutable or spec.env_alias in pinned:
+            continue
+        db_map.pop(key, None)
+    for key, value in overrides.items():
+        spec = SETTINGS_BY_KEY.get(key)
+        if spec is None or not spec.mutable or spec.env_alias in pinned:
+            continue
+        if spec.secret and value == "":
+            continue
+        db_map[key] = value
+    merged = _merge_setting_layers(_bootstrap_values, db_map, pinned)
+    try:
+        return _settings_from_mapping(merged)
+    except (ValidationError, ValueError) as exc:
+        raise ValueError(str(exc)) from exc
+
+
 def save_settings(overrides: dict[str, str], *, clear_keys: set[str] | None = None) -> None:
     """Persist UI overrides. Secrets are encrypted. Blank secrets are omitted."""
     from app.models import AppSetting
@@ -536,6 +582,7 @@ def save_settings(overrides: dict[str, str], *, clear_keys: set[str] | None = No
 
     pinned = _collect_pinned_sources()
     to_clear = clear_keys or set()
+    preview_merged_settings(overrides, clear_keys=to_clear)
     try:
         from app.db import get_sync_session_factory
 
@@ -600,17 +647,7 @@ def get_settings() -> Settings:
         _settings = _settings_from_mapping(bootstrap)
         db_map = _load_db_override_map()
         _pinned_sources = _collect_pinned_sources()
-        if _config_mode() == "locked":
-            merged = {**db_map, **bootstrap}
-        else:
-            merged = {**bootstrap, **db_map}
-            for spec in SETTINGS_BY_KEY.values():
-                if (
-                    spec.env_alias in _pinned_sources
-                    and spec.key in db_map
-                    and spec.key in bootstrap
-                ):
-                    merged[spec.key] = bootstrap[spec.key]
+        merged = _merge_setting_layers(bootstrap, db_map, _pinned_sources)
         _db_overrides = {
             key: value
             for key, value in db_map.items()

@@ -163,6 +163,18 @@ async function onDisconnect() {
   }
 }
 
+async function onDisconnectLocal() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'disconnectLocal' });
+    if (!res?.ok) throw new Error(res?.error || 'Local disconnect failed');
+    $('apiToken').value = '';
+    if ($('pairingCode')) $('pairingCode').value = '';
+    setStatus('Disconnected locally. The server device token was not revoked.', true);
+  } catch (err) {
+    setStatus(err.message || 'Local disconnect failed', false);
+  }
+}
+
 async function onSave() {
   try {
     const settings = collect();
@@ -253,6 +265,7 @@ for (const button of document.querySelectorAll('[data-quality]')) {
   $('test').addEventListener('click', onTest);
   $('pair')?.addEventListener('click', onPair);
   $('disconnect')?.addEventListener('click', onDisconnect);
+  $('disconnectLocal')?.addEventListener('click', onDisconnectLocal);
 
   const initial = await loadSettings();
   if (normalizeAndValidateServerUrl(initial.serverUrl).ok && initial.apiToken) {

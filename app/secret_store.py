@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +81,23 @@ def get_fernet(*, allow_create: bool = True) -> Fernet:
         ) from exc
 
 
+PAIRING_HMAC_INFO = b"reeldock-pairing-hmac"
+CSRF_HMAC_INFO = b"reeldock-csrf"
+
+
+def derive_hmac_key(info: bytes) -> bytes:
+    """HKDF-SHA256 subkey from the instance Fernet key. Fernet stays for secrets only."""
+    return HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=info,
+    ).derive(_load_or_create_key(allow_create=True))
+
+
 def hmac_key() -> bytes:
-    """Key material for pairing-code HMACs (derived from the Fernet key)."""
-    return _load_or_create_key(allow_create=True)
+    """Pairing-code HMAC key (HKDF from the instance Fernet key)."""
+    return derive_hmac_key(PAIRING_HMAC_INFO)
 
 
 def encrypt_secret(plaintext: str) -> str:

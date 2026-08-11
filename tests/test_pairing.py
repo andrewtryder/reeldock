@@ -32,6 +32,9 @@ class FakeRedis:
     def get(self, key: str) -> object | None:
         return self.data.get(key)
 
+    def getdel(self, key: str) -> object | None:
+        return self.data.pop(key, None)
+
     def setex(self, key: str, _ttl: int, value: object) -> None:
         self.data[key] = value
 
@@ -230,6 +233,45 @@ def test_expired_code_rejected(pairing_env: FakeRedis) -> None:
         session.commit()
         with pytest.raises(PairingError, match="expired"):
             consume_pairing_code(session, pairing_code=code, device_name="Late")
+
+
+def test_concurrent_consume_creates_one_device(pairing_env: FakeRedis) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.db import get_sync_session_factory
+    from app.models import ExtensionDevice
+    from app.services.pairing import PairingError
+    from sqlalchemy import func, select
+
+    factory = get_sync_session_factory()
+    with factory() as session:
+        _row, code = create_pairing_code(session)
+
+    def attempt() -> str:
+        with factory() as session:
+            try:
+                _device, token = consume_pairing_code(
+                    session, pairing_code=code, device_name="Race"
+                )
+                return token
+            except PairingError:
+                return ""
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        tokens = [future.result() for future in (pool.submit(attempt), pool.submit(attempt))]
+
+    winners = [token for token in tokens if token]
+    assert len(winners) == 1
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(ExtensionDevice)) == 1
+
+
+def test_ws_ticket_getdel_is_single_use(pairing_env: FakeRedis) -> None:
+    from app.services.ws_tickets import issue_ws_ticket, redeem_ws_ticket
+
+    ticket = issue_ws_ticket(pairing_env, job_id="job-1", device_id="dev-1")
+    assert redeem_ws_ticket(pairing_env, ticket) == ("job-1", "dev-1")
+    assert redeem_ws_ticket(pairing_env, ticket) is None
 
 
 def test_ws_ticket_for_device(pairing_env: FakeRedis) -> None:

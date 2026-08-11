@@ -132,6 +132,9 @@
                   <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-paper transition-transform peer-checked:translate-x-5"></span>
                 </span>
               </label>
+              {% if not field.locked and spec.mutable %}
+              <button type="submit" form="reset-{{ spec.key | e }}" class="mt-2 font-label-md text-label-md text-amber uppercase hover:underline">Reset</button>
+              {% endif %}
               {% elif spec.key == 'auth_enabled' %}
               <label class="flex items-center justify-between gap-3 rounded-lg border border-panel-line/40 bg-panel-raised px-4 py-3 {% if field.locked %}opacity-60 cursor-not-allowed{% else %}cursor-pointer{% endif %}">
                 <div class="flex flex-col gap-1">
@@ -155,6 +158,9 @@
                 <input type="checkbox" name="confirm_disable_auth" />
                 Confirm disable Web UI sign-in
               </label>
+              {% endif %}
+              {% if not field.locked and spec.mutable %}
+              <button type="submit" form="reset-{{ spec.key | e }}" class="mt-2 font-label-md text-label-md text-amber uppercase hover:underline">Reset</button>
               {% endif %}
               {% else %}
               <div class="flex flex-col gap-2">
@@ -189,7 +195,7 @@
                   {% if field.locked %}disabled readonly{% endif %}
                 />
                 {% if spec.key == 'auth_password' and not field.locked %}
-                <input id="auth_password_confirm" type="password" autocomplete="new-password" placeholder="Confirm new password" class="w-full px-4 py-2 bg-panel-raised border border-panel-line rounded-lg font-code text-code text-paper focus:ring-2 focus:ring-amber focus:border-amber transition-all outline-none" />
+                <input id="auth_password_confirm" name="auth_password_confirm" type="password" autocomplete="new-password" placeholder="Confirm new password" class="w-full px-4 py-2 bg-panel-raised border border-panel-line rounded-lg font-code text-code text-paper focus:ring-2 focus:ring-amber focus:border-amber transition-all outline-none" />
                 {% endif %}
                 {% elif spec.type.value == 'int' %}
                 <input
@@ -233,10 +239,7 @@
                 <p class="font-label-md text-label-md text-warning">{{ field.warning | e }}</p>
                 {% endif %}
                 {% if not field.locked and spec.mutable %}
-                <label class="inline-flex items-center gap-2 font-label-md text-label-md text-paper-muted">
-                  <input type="checkbox" name="reset_{{ spec.key | e }}" />
-                  Reset
-                </label>
+                <button type="submit" form="reset-{{ spec.key | e }}" class="self-start font-label-md text-label-md text-amber uppercase hover:underline">Reset</button>
                 {% endif %}
               </div>
               {% endif %}
@@ -318,6 +321,16 @@
         </div>
       </footer>
     </form>
+    {% for group in setting_groups %}
+      {% for field in group.fields %}
+        {% if not field.locked and field.spec.mutable %}
+        <form id="reset-{{ field.spec.key | e }}" method="POST" action="/settings/reset" class="hidden">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token | e }}" />
+          <input type="hidden" name="key" value="{{ field.spec.key | e }}" />
+        </form>
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
 
     <div class="max-w-5xl mt-8 grid grid-cols-1 md:grid-cols-12 gap-gutter">
       <section class="md:col-span-8 bg-panel border border-panel-line rounded-xl p-stack-md">

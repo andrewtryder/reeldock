@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
-from app.secret_store import hmac_key
+from app.secret_store import CSRF_HMAC_INFO, derive_hmac_key
 
 _SALT = "reeldock-settings-csrf"
 _MAX_AGE_SECONDS = 8 * 3600
 
 
 def _serializer() -> URLSafeTimedSerializer:
-    return URLSafeTimedSerializer(hmac_key(), salt=_SALT)
+    return URLSafeTimedSerializer(derive_hmac_key(CSRF_HMAC_INFO), salt=_SALT)
 
 
 def issue_csrf_token() -> str:

@@ -9,7 +9,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.models import ExtensionDevice, ExtensionPairingCode
@@ -61,14 +61,35 @@ def mint_device_token() -> str:
     return f"{DEVICE_TOKEN_PREFIX}{secrets.token_hex(32)}"
 
 
+def _utc_now() -> datetime:
+    return datetime.now(tz=UTC).replace(tzinfo=None)
+
+
+def _aware(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
+def purge_expired_pairing_codes(session: Session) -> None:
+    """Drop unused pairing rows whose TTL has already elapsed."""
+    session.execute(
+        delete(ExtensionPairingCode).where(
+            ExtensionPairingCode.consumed_at.is_(None),
+            ExtensionPairingCode.expires_at <= _utc_now(),
+        )
+    )
+
+
 def create_pairing_code(
     session: Session,
     *,
     created_by: str | None = None,
     user_agent: str | None = None,
 ) -> tuple[ExtensionPairingCode, str]:
+    purge_expired_pairing_codes(session)
     code = generate_pairing_code()
-    now = datetime.now(tz=UTC)
+    now = _utc_now()
     row = ExtensionPairingCode(
         code_hmac=pairing_code_hmac(code),
         expires_at=now + CODE_TTL,
@@ -81,10 +102,17 @@ def create_pairing_code(
     return row, code
 
 
-def _aware(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt
+def _raise_consume_failure(session: Session, code_hash: str) -> None:
+    row = session.scalar(
+        select(ExtensionPairingCode).where(ExtensionPairingCode.code_hmac == code_hash)
+    )
+    if row is None:
+        raise PairingError("Invalid pairing code", status_code=401)
+    if row.consumed_at is not None:
+        raise PairingError("Pairing code already used", status_code=401)
+    if _aware(row.expires_at) <= datetime.now(tz=UTC):
+        raise PairingError("Pairing code expired", status_code=401)
+    raise PairingError("Invalid pairing code", status_code=401)
 
 
 def consume_pairing_code(
@@ -99,17 +127,20 @@ def consume_pairing_code(
     if not normalized.startswith("RDK-") or len(normalized) != 13:
         raise PairingError("Invalid pairing code")
 
-    now = datetime.now(tz=UTC)
+    now = _utc_now()
     code_hash = pairing_code_hmac(normalized)
-    row = session.scalar(
-        select(ExtensionPairingCode).where(ExtensionPairingCode.code_hmac == code_hash)
+    claimed = session.execute(
+        update(ExtensionPairingCode)
+        .where(
+            ExtensionPairingCode.code_hmac == code_hash,
+            ExtensionPairingCode.consumed_at.is_(None),
+            ExtensionPairingCode.expires_at > now,
+        )
+        .values(consumed_at=now)
+        .execution_options(synchronize_session="fetch")
     )
-    if row is None:
-        raise PairingError("Invalid pairing code", status_code=401)
-    if row.consumed_at is not None:
-        raise PairingError("Pairing code already used", status_code=401)
-    if _aware(row.expires_at) < now:
-        raise PairingError("Pairing code expired", status_code=401)
+    if int(getattr(claimed, "rowcount", 0) or 0) != 1:
+        _raise_consume_failure(session, code_hash)
 
     token = mint_device_token()
     name = (device_name or "Browser").strip()[:80] or "Browser"
@@ -121,8 +152,8 @@ def consume_pairing_code(
         token_prefix=token[4:12],
         last_seen_at=now,
     )
-    row.consumed_at = now
     session.add(device)
+    purge_expired_pairing_codes(session)
     session.commit()
     session.refresh(device)
     return device, token

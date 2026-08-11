@@ -26,6 +26,7 @@ const ALLOWED = new Set([
   'queue-payload.js',
   'phase-labels.js',
   'errors.js',
+  'pairing.js',
   'icons/icon-16.png',
   'icons/icon-32.png',
   'icons/icon-48.png',

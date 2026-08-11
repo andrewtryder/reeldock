@@ -25,7 +25,7 @@ import {
   buildQueuePayload,
   shouldOpenReelDockAfterQueue,
 } from './queue-payload.js';
-import { isDeviceToken } from './pairing.js';
+import { applyDeviceRevoke, isDeviceToken } from './pairing.js';
 import {
   DEFAULT_SETTINGS,
   SETTINGS_KEYS,
@@ -363,22 +363,28 @@ async function handleTestConnection(message = {}) {
   return { ok: true, status, capabilities, destinations: destinationState };
 }
 
-async function handleRevokeDevice() {
-  await refreshSettings();
-  if (!isDeviceToken(settings.apiToken)) {
-    await saveSettings({ apiToken: '', deviceId: '', deviceName: '' });
-    await refreshSettings();
-    return { ok: true, status: 'disconnected' };
-  }
-  try {
-    await apiFetch('/api/extension/devices/me/revoke', { method: 'POST' });
-  } catch (err) {
-    console.warn('Revoke on server failed:', formatCaughtError(err));
-  }
-  closeAllWebSockets('Device disconnected');
+async function clearLocalDeviceSession(reason) {
+  closeAllWebSockets(reason);
   await saveSettings({ apiToken: '', deviceId: '', deviceName: '' });
   await refreshSettings();
-  return { ok: true, status: 'revoked' };
+}
+
+async function handleRevokeDevice() {
+  await refreshSettings();
+  try {
+    return await applyDeviceRevoke({
+      isDevice: isDeviceToken(settings.apiToken),
+      revokeRemote: () => apiFetch('/api/extension/devices/me/revoke', { method: 'POST' }),
+      clearLocal: () => clearLocalDeviceSession('Device revoked'),
+    });
+  } catch (err) {
+    return { ok: false, error: formatCaughtError(err) };
+  }
+}
+
+async function handleLocalDisconnect() {
+  await clearLocalDeviceSession('Disconnected locally');
+  return { ok: true, status: 'disconnected' };
 }
 
 async function handleLoadDestinations() {
@@ -702,6 +708,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message.action === 'revokeDevice') {
     return replyAsync(sendResponse, handleRevokeDevice());
+  }
+  if (message.action === 'disconnectLocal') {
+    return replyAsync(sendResponse, handleLocalDisconnect());
   }
   if (message.action === 'getNotificationIds') {
     return replyAsync(sendResponse, listedNotificationIds().then((ids) => ({ ok: true, ids })));

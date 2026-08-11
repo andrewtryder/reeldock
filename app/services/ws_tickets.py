@@ -29,10 +29,9 @@ def issue_ws_ticket(redis: RedisCommands, *, job_id: str, device_id: str) -> str
 def redeem_ws_ticket(redis: RedisCommands, ticket: str) -> tuple[str, str] | None:
     key = _ticket_key(ticket)
     try:
-        raw = redis.get(key)
+        raw = redis.getdel(key)
         if raw is None:
             return None
-        redis.delete(key)
         text = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
         job_id, _, device_id = text.partition(":")
         if not job_id or not device_id:

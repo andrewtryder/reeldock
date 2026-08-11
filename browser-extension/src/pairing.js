@@ -52,3 +52,13 @@ export async function pairWithOrigin({ serverUrl, pairingCode, deviceName, fetch
     supports: payload.supports || {},
   };
 }
+
+export async function applyDeviceRevoke({ isDevice, revokeRemote, clearLocal }) {
+  if (!isDevice) {
+    await clearLocal();
+    return { ok: true, status: 'disconnected' };
+  }
+  await revokeRemote();
+  await clearLocal();
+  return { ok: true, status: 'revoked' };
+}

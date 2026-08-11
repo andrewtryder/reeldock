@@ -788,8 +788,12 @@ def _apply_security_form(
         if key == "auth_enabled":
             continue
         raw = form.get(key, "")
-        if key == "auth_password" and not raw.strip():
-            continue
+        if key == "auth_password":
+            if not raw.strip():
+                continue
+            if form.get("auth_password_confirm", "") != raw:
+                errors["auth_password"] = "Password and confirmation do not match."  # noqa: S105
+                continue
         overrides[key] = parse_form_value(raw, spec)
 
     if sources["auth_enabled"]["locked"]:
@@ -865,8 +869,19 @@ async def page_update_settings(request: Request, cfg: SettingsDep) -> HTMLRespon
             status_code=400,
         )
 
-    clear_keys = {key[6:] for key in form if key.startswith("reset_") and form[key] == "on"}
-    save_settings(overrides, clear_keys=clear_keys)
+    try:
+        save_settings(overrides)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(
+                request,
+                cfg,
+                error=str(exc),
+            ),
+            status_code=400,
+        )
     new_cfg = reload_settings()
 
     return templates.TemplateResponse(
@@ -906,7 +921,15 @@ async def page_reset_setting(request: Request, cfg: SettingsDep) -> HTMLResponse
             _build_settings_context(request, cfg, error="That setting cannot be reset."),
             status_code=400,
         )
-    reset_setting(key)
+    try:
+        reset_setting(key)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(request, cfg, error=str(exc)),
+            status_code=400,
+        )
     new_cfg = reload_settings()
     return templates.TemplateResponse(
         request,

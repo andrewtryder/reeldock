@@ -28,3 +28,15 @@ repos:
         entry: uv run --frozen ruff check --fix
         language: system
         types_or: [python, pyi]
+      - id: python-coverage
+        name: python coverage 80
+        entry: bash -c 'uv run --frozen coverage run -m pytest -q --tb=line && uv run --frozen coverage report'
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: extension-coverage
+        name: extension coverage 80
+        entry: npm --prefix browser-extension run test:coverage
+        language: system
+        files: ^browser-extension/.*\.(js|mjs)$
+        pass_filenames: false

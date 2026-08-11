@@ -65,6 +65,8 @@ def _build_rq_retry() -> object | None:
         from rq import Retry  # rq >= 1.10
 
         settings = get_settings()
+        if settings.retry_max <= 0:
+            return None
         intervals = settings.retry_interval_seconds[: settings.retry_max]
         # Pad or trim to match retry_max
         while len(intervals) < settings.retry_max:

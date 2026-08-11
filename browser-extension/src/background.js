@@ -753,7 +753,8 @@ function replyAsync(sendResponse, promise) {
   return true;
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+export function startBackground() {
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || typeof message.action !== 'string') {
     sendResponse({ ok: false, error: 'Unknown message' });
     return false;
@@ -849,4 +850,9 @@ chrome.runtime.onStartup.addListener(() => {
   boot().catch((err) => console.error('onStartup boot failed:', err));
 });
 
-boot().catch((err) => console.error('Eager boot failed:', err));
+  return boot().catch((err) => console.error('Eager boot failed:', err));
+}
+
+if (globalThis.chrome?.runtime?.id && !globalThis.__REELDOCK_TEST__) {
+  startBackground();
+}

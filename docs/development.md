@@ -24,7 +24,8 @@ uv sync --locked --dev
 uv run --frozen ruff format --check .
 uv run --frozen ruff check .
 uv run --frozen mypy app worker
-uv run --frozen pytest
+uv run --frozen coverage run -m pytest
+uv run --frozen coverage report
 ```
 
 ### Rebuilding UI CSS
@@ -98,10 +99,18 @@ The repository includes a comprehensive test suite using `pytest`.
 uv run pytest
 ```
 
-For CI parity:
+Coverage is measured over `app/` and `worker/` (`fail_under = 80`, branch coverage). For CI parity:
 
 ```bash
-uv run --frozen pytest
+uv run --frozen coverage run -m pytest
+uv run --frozen coverage report
+```
+
+Browser extension unit tests live under `browser-extension/test/`. The CI gate requires 80% line coverage of `browser-extension/src`:
+
+```bash
+npm --prefix browser-extension test
+npm --prefix browser-extension run test:coverage
 ```
 
 ---

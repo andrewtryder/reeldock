@@ -169,6 +169,7 @@ logs/
 
 # Coverage artifacts
 coverage/
+browser-extension/coverage/
 
 # Tooling caches / extension build outputs
 .ruff_cache/

@@ -390,14 +390,14 @@ async function onTest() {
   }
 }
 
-for (const button of document.querySelectorAll('[data-quality]')) {
-  button.addEventListener('click', (event) => {
-    event.preventDefault();
-    markQuality(button.dataset.quality);
-  });
-}
+export async function startOptions() {
+  for (const button of document.querySelectorAll('[data-quality]')) {
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      markQuality(button.dataset.quality);
+    });
+  }
 
-(async () => {
   $('save')?.addEventListener('click', onSaveDefaults);
   $('save-legacy')?.addEventListener('click', onSaveLegacy);
   $('test')?.addEventListener('click', onTest);
@@ -409,4 +409,8 @@ for (const button of document.querySelectorAll('[data-quality]')) {
   if (connection?.state === 'connected' || connection?.hasCredential) {
     // refreshView already applied capabilities when public state was available.
   }
-})();
+}
+
+if (globalThis.chrome?.runtime?.id && !globalThis.__REELDOCK_TEST__) {
+  startOptions();
+}

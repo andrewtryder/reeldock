@@ -136,14 +136,18 @@ def initial_selected_destination_folder(
     channel: str | None = None,
     match_channel: bool = False,
 ) -> str:
-    """Mirror Preview Jinja preselect: last matching folder wins (browser behavior)."""
-    selected = ""
-    for folder in folders:
-        if (
-            folder == default_folder
-            or (uploader_id and folder == uploader_id)
-            or (uploader and folder == uploader)
-            or (match_channel and channel and folder == channel)
-        ):
-            selected = folder
-    return selected
+    """Pick exactly one preselect with explicit precedence.
+
+    Order: configured default → uploader ID → uploader name → channel (optional).
+    Returns ``\"\"`` when nothing matches (library root / blank option).
+    """
+    folder_set = set(folders)
+    if default_folder and default_folder in folder_set:
+        return default_folder
+    if uploader_id and uploader_id in folder_set:
+        return uploader_id
+    if uploader and uploader in folder_set:
+        return uploader
+    if match_channel and channel and channel in folder_set:
+        return channel
+    return ""

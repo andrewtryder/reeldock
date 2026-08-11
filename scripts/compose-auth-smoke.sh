@@ -21,8 +21,7 @@ trap 'docker compose -f "$ROOT/docker-compose.yml" -f "$TMP/override.yml" --env-
 mkdir -p "$TMP/data" "$TMP/config" "$TMP/podcasts"
 
 cat >"$TMP/.env" <<EOF
-HOST_PODCASTS_DIR=$TMP/podcasts
-CONTAINER_PODCASTS_DIR=/media/podcasts
+HOST_AUDIOBOOKS_DIR=$TMP/podcasts
 OUTPUT_ROOT=/media/podcasts
 AUTH_ENABLED=true
 AUTH_USERNAME=smokeadmin

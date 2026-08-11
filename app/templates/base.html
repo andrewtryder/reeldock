@@ -5,7 +5,7 @@
   <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
   <title>{% block title %}reeldock{% endblock %}</title>
   <meta name="description" content="YouTube to Audiobookshelf importer — convert YouTube videos to M4B audiobooks" />
-  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link rel="stylesheet" href="/static/tailwind.css"/>
   <link rel="stylesheet" href="/static/fonts/fonts.css"/>
   <link rel="stylesheet" href="/static/app.css"/>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg"/>
@@ -37,118 +37,6 @@
       box-shadow: inset 0 1px 0 rgba(237, 230, 216, 0.04);
     }
   </style>
-  <script id="tailwind-config">
-    tailwind.config = {
-      darkMode: "class",
-      theme: {
-        extend: {
-          "colors": {
-            "ink": "#0C0B09",
-            "panel": "#18140F",
-            "panel-raised": "#221C14",
-            "panel-line": "#2E2618",
-            "panel-line-soft": "#221D14",
-            "paper": "#EDE6D8",
-            "paper-muted": "#9C9284",
-            "amber": "#E8A33D",
-            "amber-container": "#3A2C10",
-            "on-amber-container": "#F2C878",
-            "moss": "#6FA25E",
-            "moss-container": "#1E3318",
-            "on-moss-container": "#A8D89A",
-            "rust": "#C1502E",
-            "rust-container": "#3A1710",
-            "on-rust-container": "#F0A386",
-            "background": "#0C0B09",
-            "surface": "#0C0B09",
-            "surface-dim": "#0C0B09",
-            "surface-bright": "#221C14",
-            "surface-variant": "#221C14",
-            "surface-tint": "#E8A33D",
-            "surface-container-lowest": "#0C0B09",
-            "surface-container-low": "#18140F",
-            "surface-container": "#18140F",
-            "surface-container-high": "#221C14",
-            "surface-container-highest": "#221C14",
-            "on-background": "#EDE6D8",
-            "on-surface": "#EDE6D8",
-            "on-surface-variant": "#9C9284",
-            "outline": "#2E2618",
-            "outline-variant": "#2E2618",
-            "primary": "#E8A33D",
-            "primary-container": "#3A2C10",
-            "on-primary": "#0C0B09",
-            "on-primary-container": "#F2C878",
-            "primary-fixed": "#F2C878",
-            "primary-fixed-dim": "#E8A33D",
-            "on-primary-fixed": "#0C0B09",
-            "on-primary-fixed-variant": "#3A2C10",
-            "inverse-primary": "#E8A33D",
-            "secondary": "#9C9284",
-            "secondary-container": "#221C14",
-            "on-secondary": "#0C0B09",
-            "on-secondary-container": "#EDE6D8",
-            "secondary-fixed": "#EDE6D8",
-            "secondary-fixed-dim": "#9C9284",
-            "on-secondary-fixed": "#0C0B09",
-            "on-secondary-fixed-variant": "#221C14",
-            "tertiary": "#9C9284",
-            "tertiary-container": "#221C14",
-            "on-tertiary": "#0C0B09",
-            "on-tertiary-container": "#EDE6D8",
-            "tertiary-fixed": "#EDE6D8",
-            "tertiary-fixed-dim": "#9C9284",
-            "on-tertiary-fixed": "#0C0B09",
-            "on-tertiary-fixed-variant": "#221C14",
-            "error": "#C1502E",
-            "error-container": "#3A1710",
-            "on-error": "#0C0B09",
-            "on-error-container": "#F0A386",
-            "success": "#6FA25E",
-            "success-container": "#1E3318",
-            "on-success-container": "#A8D89A",
-            "warning": "#E8A33D",
-            "warning-container": "#3A2C10",
-            "on-warning-container": "#F2C878",
-            "inverse-surface": "#EDE6D8",
-            "inverse-on-surface": "#0C0B09"
-          },
-          "borderRadius": {
-            "DEFAULT": "6px",
-            "lg": "8px",
-            "xl": "8px",
-            "full": "9999px"
-          },
-          "spacing": {
-            "stack-lg": "32px",
-            "stack-sm": "8px",
-            "stack-md": "16px",
-            "gutter": "16px",
-            "container-padding": "24px",
-            "base": "4px"
-          },
-          "fontFamily": {
-            "headline-lg": ["JetBrains Mono", "monospace"],
-            "label-md": ["JetBrains Mono", "monospace"],
-            "headline-md": ["JetBrains Mono", "monospace"],
-            "headline-sm": ["JetBrains Mono", "monospace"],
-            "code": ["JetBrains Mono", "monospace"],
-            "body-lg": ["Geist", "sans-serif"],
-            "body-md": ["Geist", "sans-serif"]
-          },
-          "fontSize": {
-            "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
-            "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
-            "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
-            "headline-sm": ["18px", {"lineHeight": "24px", "letterSpacing": "0.02em", "fontWeight": "600"}],
-            "code": ["13px", {"lineHeight": "20px", "fontWeight": "400"}],
-            "body-lg": ["16px", {"lineHeight": "26px", "fontWeight": "400"}],
-            "body-md": ["14px", {"lineHeight": "22px", "fontWeight": "400"}]
-          }
-        },
-      },
-    }
-  </script>
 </head>
 <body class="bg-background text-on-background font-body-md selection:bg-amber-container selection:text-on-amber-container flex min-h-screen overflow-x-hidden">
   <header class="md:hidden fixed inset-x-0 top-0 h-14 z-40 bg-panel/95 backdrop-blur border-b border-panel-line">

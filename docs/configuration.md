@@ -25,7 +25,6 @@ The Settings page is driven by a configuration registry. The following settings 
 | Default destination folder | `DEFAULT_DESTINATION_FOLDER` | Default subdirectory under output root |
 | Cookies file | `COOKIES_FILE` | Absolute path to a Netscape cookies file for yt-dlp |
 | Collision mode | `COLLISION_MODE` | `skip`, `overwrite`, `append_id`, or `append_counter` |
-| Output extension | `OUTPUT_EXTENSION` | Final file extension (usually `m4b`) |
 | Allowed domains | `ALLOWED_DOMAINS` | Comma-separated permitted hostnames |
 | yt-dlp extra args | `YTDLP_EXTRA_ARGS` | Space-separated extra yt-dlp arguments |
 | ffmpeg extra args | `FFMPEG_EXTRA_ARGS` | Space-separated extra ffmpeg arguments |
@@ -65,9 +64,8 @@ The Settings page is driven by a configuration registry. The following settings 
 | `REDIS_URL` | `redis://redis:6379/0` | Connection string for Redis queue. |
 | `DATABASE_URL` | `sqlite+aiosqlite:////data/app.db` | SQLAlchemy connection string for SQLite database. |
 | **Paths & Volumes** | | |
-| `HOST_PODCASTS_DIR` | `/mnt/podcasts` | Host path for podcast files (Docker Compose only). |
-| `CONTAINER_PODCASTS_DIR` | `/media/podcasts` | Container mount point (Docker Compose only). |
-| `OUTPUT_ROOT` | `/media/podcasts` | Path where finished podcasts are written. (Must match Container Path in Docker). |
+| `HOST_AUDIOBOOKS_DIR` | `/mnt/podcasts` | Host path for audiobook media (Docker Compose). Legacy alias: `HOST_PODCASTS_DIR`. |
+| `OUTPUT_ROOT` | `/media/podcasts` | Container path where finished audiobooks are written; Compose also uses this as the bind-mount target. Legacy mount-target alias: `CONTAINER_PODCASTS_DIR`. |
 | `WORK_DIR` | `/data/work` | Workspace for downloading and processing audio. |
 | `ARCHIVE_FILE` | `/data/config/youtube-archive.txt` | `yt-dlp` archive file used as a secondary duplicate guard at download time. |
 | `COOKIES_FILE` | — | Absolute path to a Netscape cookies file passed to yt-dlp via `--cookies`. |
@@ -83,12 +81,10 @@ The Settings page is driven by a configuration registry. The following settings 
 | `YTDLP_BIN` | `yt-dlp` | Command path to `yt-dlp`. |
 | `FFMPEG_BIN` | `ffmpeg` | Command path to `ffmpeg`. |
 | `FFPROBE_BIN` | `ffprobe` | Command path to `ffprobe`. |
-| `YTDLP_AUDIO_FORMAT` | `m4a` | Format requested from `yt-dlp` (e.g. `m4a`). |
-| `YTDLP_AUDIO_QUALITY` | — | Quality arg for `yt-dlp` audio extraction. |
+| `YTDLP_AUDIO_QUALITY` | — | Quality arg for `yt-dlp` audio extraction (user-facing quality control). |
 | `YTDLP_EXTRA_ARGS` | — | Space-separated extra arguments passed to `yt-dlp`. |
 | `FFMPEG_EXTRA_ARGS` | — | Extra arguments passed to `ffmpeg`. |
-| `OUTPUT_EXTENSION` | `m4b` | File extension of the final output file (usually `m4b`). |
-| `FILENAME_TEMPLATE` | `{title}.m4b` | Output filename template. |
+| `FILENAME_TEMPLATE` | `{title}.m4b` | Output filename template (final extension is always `.m4b`). |
 | `ALLOWED_DOMAINS` | YouTube hostnames | Comma-separated permitted import domains. |
 | **Job Management** | | |
 | `JOB_TIMEOUT_SECONDS` | `10800` | Job timeout duration in seconds (3 hours). |
@@ -125,7 +121,6 @@ paths:
 download:
   allow_playlists: false
   allow_channels: false
-  audio_format: "m4a"
   filename_template: "{title}.m4b"
   cookies_file: "/data/config/cookies.txt"
   allowed_domains:

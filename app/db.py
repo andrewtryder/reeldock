@@ -68,7 +68,7 @@ def get_async_session_factory() -> async_sessionmaker[AsyncSession]:
     return _async_session_factory
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
+async def get_db() -> AsyncGenerator[AsyncSession]:
     """FastAPI dependency: yields an async DB session."""
     factory = get_async_session_factory()
     async with factory() as session:

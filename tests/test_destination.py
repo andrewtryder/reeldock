@@ -183,7 +183,7 @@ def test_preview_batch_folder_only(tmp_path: Path):
     assert "audiobooks" in preview.heading.lower()
 
 
-def test_initial_selected_destination_folder_last_match_wins():
+def test_initial_selected_destination_folder_prefers_default():
     folders = ["Podcasts", "DuctTapeMechanic", "Other"]
     selected = initial_selected_destination_folder(
         folders,
@@ -191,4 +191,15 @@ def test_initial_selected_destination_folder_last_match_wins():
         uploader="DuctTapeMechanic",
         uploader_id=None,
     )
-    assert selected == "DuctTapeMechanic"
+    assert selected == "Podcasts"
+
+
+def test_initial_selected_destination_folder_uploader_id_before_name():
+    folders = ["ChannelName", "UC123", "Other"]
+    selected = initial_selected_destination_folder(
+        folders,
+        default_folder="",
+        uploader="ChannelName",
+        uploader_id="UC123",
+    )
+    assert selected == "UC123"

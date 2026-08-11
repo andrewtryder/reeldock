@@ -260,9 +260,9 @@ class ImportPipeline:
             eff_ytdlp_extra = self._split_extra_args(job.ytdlp_extra_args)
             eff_ffmpeg_extra = self._split_extra_args(job.ffmpeg_extra_args)
             eff_cookies = Path(job.cookies_file) if job.cookies_file else None
-            # Source extract format is pipeline-owned (m4a-friendly remux). Quality
-            # presets map to --audio-quality only; users no longer pick containers.
-            eff_audio_format = self.settings.ytdlp_audio_format or "m4a"
+            # Source extract format is an internal constant (m4a). Quality
+            # presets map to --audio-quality only; YTDLP_AUDIO_FORMAT is ignored.
+            eff_audio_format = "m4a"
             eff_audio_quality = job.audio_quality
             eff_loudness_normalize = (
                 job.loudness_normalize
@@ -586,7 +586,7 @@ class ImportPipeline:
                         if not job.duration:
                             job.duration = round(media_duration)
                             self.db.commit()
-                except (FileNotFoundError, RuntimeError, OSError):
+                except FileNotFoundError, RuntimeError, OSError:
                     media_duration = None
 
             # Build progress callback for ffmpeg

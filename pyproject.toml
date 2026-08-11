@@ -13,11 +13,11 @@ authors = [
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "fastapi==0.141.1",
     "uvicorn[standard]==0.32.1",
@@ -59,7 +59,7 @@ include = ["app*", "worker*"]
 # ruff
 # ---------------------------------------------------------------------------
 [tool.ruff]
-target-version = "py312"
+target-version = "py314"
 line-length = 100
 src = ["app", "worker", "tests"]
 
@@ -92,7 +92,7 @@ ignore = [
 # mypy
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 strict = true
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]

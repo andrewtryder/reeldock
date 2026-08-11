@@ -252,6 +252,7 @@ async def page_preview(
                 "folders": folders,
                 "url": url,
                 "default_folder": default_folder,
+                "selected_folder": initial_dest,
                 "blank_folder_label": blank_destination_option_label(
                     cfg.default_destination_folder
                 ),
@@ -303,6 +304,7 @@ async def page_preview(
             "folders": folders,
             "url": url,
             "default_folder": default_folder,
+            "selected_folder": initial_dest,
             "blank_folder_label": blank_destination_option_label(cfg.default_destination_folder),
             "dest_preview": dest_preview,
         },
@@ -635,7 +637,7 @@ async def page_job_detail(
                     conversion_meta = parsed["conversion"]
                 if isinstance(parsed.get("collision"), dict):
                     collision_meta = parsed["collision"]
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 pass
 
     return templates.TemplateResponse(

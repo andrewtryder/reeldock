@@ -86,7 +86,7 @@ class PlaylistEntry:
         if duration is not None:
             try:
                 duration = int(duration)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 duration = None
         thumbnail = data.get("thumbnail")
         if not thumbnail:
@@ -406,7 +406,8 @@ class YtDlpService:
             extra_args: Additional yt-dlp arguments to append.
         """
         s = self.settings
-        resolved_format = audio_format or s.ytdlp_audio_format
+        # Extract format is pipeline-owned ("m4a"). Ignore legacy YTDLP_AUDIO_FORMAT.
+        resolved_format = audio_format or "m4a"
         resolved_quality = audio_quality if audio_quality is not None else s.ytdlp_audio_quality
         resolved_sponsorblock = (
             sponsorblock_remove if sponsorblock_remove is not None else s.sponsorblock_remove
@@ -464,7 +465,7 @@ class YtDlpService:
         """
         Locate the downloaded audio file under the job's work dir.
 
-        Prefers *preferred_format* (or the configured YTDLP_AUDIO_FORMAT), then
+        Prefers *preferred_format* (default ``m4a``), then
         falls back to common audio containers yt-dlp may emit.
         """
         s = self.settings
@@ -472,7 +473,7 @@ class YtDlpService:
         if not download_dir.exists():
             return None
 
-        preferred = (preferred_format or s.ytdlp_audio_format or "m4a").lstrip(".").lower()
+        preferred = (preferred_format or "m4a").lstrip(".").lower()
         # Prefer largest match when multiple files share an extension.
         preferred_matches = list(download_dir.rglob(f"*.{preferred}"))
         if preferred_matches:

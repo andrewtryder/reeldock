@@ -1,0 +1,13 @@
+{
+  "name": "reeldock-ui",
+  "private": true,
+  "description": "Build compiled Tailwind CSS for the ReelDock web UI (not shipped in the runtime image).",
+  "scripts": {
+    "build:css": "tailwindcss -c ./tailwind.config.js -i ./src/input.css -o ../app/static/tailwind.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/container-queries": "^0.1.1",
+    "@tailwindcss/forms": "^0.5.10",
+    "tailwindcss": "^3.4.17"
+  }
+}

@@ -27,6 +27,17 @@ uv run --frozen mypy app worker
 uv run --frozen pytest
 ```
 
+### Rebuilding UI CSS
+
+The Web UI serves a compiled Tailwind stylesheet (`app/static/tailwind.css`) — there is no runtime CDN. After changing utility classes in `app/templates/`, regenerate:
+
+```bash
+npm install --prefix ui
+npm run build:css --prefix ui
+```
+
+Commit the updated `app/static/tailwind.css` with your template changes.
+
 ### Updating dependencies
 
 When adding or changing dependencies:
@@ -44,7 +55,7 @@ When adding or changing dependencies:
 The application requires a running Redis instance to manage the job queue. You can run Redis locally using Docker:
 
 ```bash
-docker run -d -p 6379:6379 redis:7-alpine
+docker run -d -p 6379:6379 redis:8.10-alpine
 ```
 
 ---
@@ -132,4 +143,4 @@ Those DBs are reconciled to the **frozen 0001** schema in `app/baseline_schema.p
 
 ### Worker-only startup
 
-The RQ worker does not initialize the schema. In Docker Compose the `app` service starts first and shares the same `./data` volume. For worker-only local setups, start the app once before the worker.
+The RQ worker does not initialize the schema. In Docker Compose the `worker` service waits for the `app` service to become healthy (`/ready`), so Alembic migrations finish before the worker starts. Both share the same `./data` volume. For worker-only local setups, start the app once before the worker.

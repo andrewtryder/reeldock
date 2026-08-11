@@ -21,13 +21,12 @@ Copy the example environment file to `.env`:
 cp .env.example .env
 ```
 
-Open `.env` in a text editor and set `HOST_PODCASTS_DIR` to the directory on your host machine that Audiobookshelf scans for podcasts:
+Open `.env` in a text editor and set `HOST_AUDIOBOOKS_DIR` to the directory on your host machine that Audiobookshelf scans:
 
 ```env
 # Path on your Docker host (Mac or Linux)
-HOST_PODCASTS_DIR=/mnt/podcasts
+HOST_AUDIOBOOKS_DIR=/mnt/podcasts
 ```
-
 Compose loads `.env` into the app/worker containers. If you enable auth or the browser extension API, set credentials there as well:
 
 ```env
@@ -51,7 +50,7 @@ Ensure the local storage directories for database files and configuration exist 
 mkdir -p data config
 ```
 
-Ensure `HOST_PODCASTS_DIR` exists on the host and is writable. On macOS with a Synology or other network share, mount the share in Finder first so the path under `/Volumes/...` exists before starting Docker.
+Ensure `HOST_AUDIOBOOKS_DIR` exists on the host and is writable. On macOS with a Synology or other network share, mount the share in Finder first so the path under `/Volumes/...` exists before starting Docker.
 
 ## 5. Start the Application
 

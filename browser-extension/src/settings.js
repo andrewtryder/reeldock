@@ -22,23 +22,106 @@ export const STORAGE_KEYS = [
   'allowReimport',
 ];
 
+export const HTTPS_REQUIRED_ERROR =
+  'HTTPS is required for ReelDock servers other than localhost.';
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
+function stripIpv6Brackets(hostname) {
+  return hostname.replace(/^\[|\]$/g, '').toLowerCase();
+}
+
+export function isLoopbackHostname(hostname) {
+  if (!hostname) return false;
+  return LOOPBACK_HOSTS.has(stripIpv6Brackets(hostname));
+}
+
+/** True when the configured server is loopback (localhost / 127.0.0.1 / ::1). */
 export function isLocalServerUrl(serverUrl) {
   if (!serverUrl) return false;
   try {
-    const parsed = new URL(serverUrl);
-    return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+    return isLoopbackHostname(new URL(serverUrl).hostname);
   } catch {
     return false;
   }
 }
 
-/** Request optional host permission for non-localhost ReelDock origins. */
+/**
+ * Normalize a user-entered ReelDock server address to an origin.
+ * Rejects non-loopback HTTP so the API token is never sent over plaintext
+ * to a remote host.
+ *
+ * @returns {{ ok: true, origin: string, error: '' } | { ok: false, origin: '', error: string }}
+ */
+export function normalizeAndValidateServerUrl(input) {
+  if (typeof input !== 'string' || !input.trim()) {
+    return { ok: false, origin: '', error: 'Enter a ReelDock server URL.' };
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(input.trim());
+  } catch {
+    return { ok: false, origin: '', error: 'Enter a valid ReelDock server URL.' };
+  }
+
+  const scheme = parsed.protocol.toLowerCase();
+  if (scheme !== 'http:' && scheme !== 'https:') {
+    return { ok: false, origin: '', error: 'Server URL must use http:// or https://.' };
+  }
+
+  if (parsed.username || parsed.password) {
+    return {
+      ok: false,
+      origin: '',
+      error: 'Server URL must not include a username or password.',
+    };
+  }
+
+  if (parsed.search || parsed.hash) {
+    return {
+      ok: false,
+      origin: '',
+      error: 'Server URL must not include a query string or fragment.',
+    };
+  }
+
+  const path = parsed.pathname;
+  if (path && path !== '/') {
+    return {
+      ok: false,
+      origin: '',
+      error: 'Server URL must be an origin only (no path).',
+    };
+  }
+
+  if (scheme === 'http:' && !isLoopbackHostname(parsed.hostname)) {
+    return { ok: false, origin: '', error: HTTPS_REQUIRED_ERROR };
+  }
+
+  return { ok: true, origin: parsed.origin, error: '' };
+}
+
+export function requireValidatedServerOrigin(input) {
+  const result = normalizeAndValidateServerUrl(input);
+  if (!result.ok) {
+    throw new Error(result.error);
+  }
+  return result.origin;
+}
+
+/** Optional host-permission pattern for a validated origin. */
+export function optionalHostPermissionPattern(origin) {
+  return `${origin}/*`;
+}
+
+/** Request optional host permission for non-loopback ReelDock origins. */
 export async function ensureServerHostPermission(serverUrl) {
-  if (!serverUrl || isLocalServerUrl(serverUrl)) {
+  const origin = requireValidatedServerOrigin(serverUrl);
+  if (isLocalServerUrl(origin)) {
     return true;
   }
-  const parsed = new URL(serverUrl);
-  const originPattern = `${parsed.origin}/*`;
+  const originPattern = optionalHostPermissionPattern(origin);
   const already = await chrome.permissions.contains({ origins: [originPattern] });
   if (already) {
     return true;
@@ -47,16 +130,28 @@ export async function ensureServerHostPermission(serverUrl) {
 }
 
 // Load settings from storage, filling in defaults for missing keys.
+// Valid server URLs are rewritten to the normalized origin.
 export async function loadSettings() {
   const result = await chrome.storage.local.get(STORAGE_KEYS);
-  return { ...DEFAULT_SETTINGS, ...result };
+  const settings = { ...DEFAULT_SETTINGS, ...result };
+  if (settings.serverUrl) {
+    const validated = normalizeAndValidateServerUrl(settings.serverUrl);
+    if (validated.ok && validated.origin !== settings.serverUrl) {
+      settings.serverUrl = validated.origin;
+      await chrome.storage.local.set({ serverUrl: validated.origin });
+    }
+  }
+  return settings;
 }
 
-// Save a settings object to storage.
+// Save a settings object to storage. serverUrl is stored as a validated origin.
 export async function saveSettings(settings) {
   const payload = {};
   for (const key of STORAGE_KEYS) {
     if (key in settings) payload[key] = settings[key];
+  }
+  if (payload.serverUrl) {
+    payload.serverUrl = requireValidatedServerOrigin(payload.serverUrl);
   }
   await chrome.storage.local.set(payload);
   return payload;

@@ -145,14 +145,24 @@ async function init() {
 
   if (!isYouTubeWatchUrl(url)) {
     const videoEl = $('video');
-    if (videoEl) videoEl.innerHTML = 'Not a YouTube video page.';
+    if (videoEl) videoEl.textContent = 'Not a YouTube video page.';
     setStatus('Please navigate to a YouTube video page', 'err');
     return;
   }
 
-  // Show current tab info
   const videoElement = $('video');
-  videoElement.innerHTML = `Current video:<br><a href="${url}" target="_blank" style="word-break: break-all;">${url}</a>`;
+  if (videoElement) {
+    videoElement.replaceChildren();
+    videoElement.append('Current video:');
+    videoElement.appendChild(document.createElement('br'));
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.style.wordBreak = 'break-all';
+    link.textContent = url;
+    videoElement.appendChild(link);
+  }
 
   // Try to load settings
   let serverUrl = '';

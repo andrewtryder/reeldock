@@ -105,7 +105,7 @@ If you are migrating from older names or images:
 * 🐋 [Docker Deployment](docs/deployment-docker.md)
 * 🖥️ [Proxmox VE](docs/deployment-proxmox.md)
 * 📚 [Audiobookshelf](docs/audiobookshelf.md)
-* 🧩 [Browser extension](browser-extension/README.md)
+* 🧩 [Browser extension](browser-extension/README.md) · [Privacy](browser-extension/PRIVACY.md)
 * 🛠️ [Troubleshooting](docs/troubleshooting.md)
 * 🔒 [Security](docs/security.md)
 * 💻 [Development](docs/development.md)

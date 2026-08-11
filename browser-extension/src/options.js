@@ -1,4 +1,10 @@
-import { loadSettings, saveSettings, ensureServerHostPermission } from './settings.js';
+import {
+  loadSettings,
+  saveSettings,
+  ensureServerHostPermission,
+  normalizeAndValidateServerUrl,
+  requireValidatedServerOrigin,
+} from './settings.js';
 
 function $(id) { return document.getElementById(id); }
 
@@ -103,13 +109,18 @@ function updateStatusPanel(statusData, settings) {
   document.getElementById('overall-status-indicator').className = `status-indicator ${overallClass}`;
 }
 
-async function loadStatusFromServer(serverUrl, apiToken = null) {
-  if (!serverUrl) {
-    throw new Error('Server URL is required');
+function validatedServerOriginOrStatus(serverUrl) {
+  const result = normalizeAndValidateServerUrl(serverUrl);
+  if (!result.ok) {
+    setStatus(result.error, false);
+    return null;
   }
+  return result.origin;
+}
 
+async function loadStatusFromServer(serverUrl, apiToken = null) {
+  const base = requireValidatedServerOrigin(serverUrl);
   try {
-    const base = serverUrl.replace(/\/+$/, '');
     const headers = {};
     if (apiToken) headers['Authorization'] = `Bearer ${apiToken}`;
 
@@ -118,22 +129,29 @@ async function loadStatusFromServer(serverUrl, apiToken = null) {
       throw new Error(`HTTP ${res.status}`);
     }
 
-    const data = await res.json();
-    return data;
+    return await res.json();
   } catch (err) {
     throw new Error(`Failed to load server status: ${err.message}`);
   }
 }
 
+async function requestHostPermission(serverUrl) {
+  const granted = await ensureServerHostPermission(serverUrl);
+  if (!granted) {
+    setStatus('Host permission is required for this ReelDock server URL.', false);
+    return false;
+  }
+  return true;
+}
+
 async function onSave() {
   try {
     const settings = collect();
-    if (settings.serverUrl) {
-      const granted = await ensureServerHostPermission(settings.serverUrl);
-      if (!granted) {
-        setStatus('Host permission is required for this ReelDock server URL.', false);
-        return;
-      }
+    if (!validatedServerOriginOrStatus(settings.serverUrl)) {
+      return;
+    }
+    if (!(await requestHostPermission(settings.serverUrl))) {
+      return;
     }
     if (!settings.apiToken) {
       setStatus('API token is required (server requires EXTENSION_API_TOKEN).', false);
@@ -152,8 +170,11 @@ async function onSave() {
 async function onTest() {
   const { serverUrl, apiToken } = collect();
 
-  if (!serverUrl) {
-    setStatus('Enter a server URL first.', false);
+  if (!validatedServerOriginOrStatus(serverUrl)) {
+    return;
+  }
+
+  if (!(await requestHostPermission(serverUrl))) {
     return;
   }
 
@@ -170,23 +191,6 @@ async function onTest() {
       document.getElementById('status-panel').style.display = 'block';
     } else {
       document.getElementById('status-panel').style.display = 'none';
-    }
-
-    // Update local settings with server data if needed
-    const localSettings = await loadSettings();
-    const needsUpdate = false;
-
-    if (needsUpdate) {
-      await saveSettings({
-        serverUrl: statusData.serverUrl || localSettings.serverUrl,
-        apiToken: statusData.apiToken || localSettings.apiToken,
-        defaultDestinationFolder: localSettings.defaultDestinationFolder,
-        embedMetadata: localSettings.embedMetadata,
-        embedThumbnail: localSettings.embedThumbnail,
-        embedChapters: localSettings.embedChapters,
-        triggerAbsScan: localSettings.triggerAbsScan,
-        allowReimport: localSettings.allowReimport,
-      });
     }
 
     setStatus(statusData.ok ? 'Connected successfully!' : 'Server responded but not OK', statusData.ok ? true : false);
@@ -208,7 +212,7 @@ async function onTest() {
 
   // Optional: Auto-test on page load if server URL is configured
   const initialSettings = await loadSettings();
-  if (initialSettings.serverUrl) {
+  if (normalizeAndValidateServerUrl(initialSettings.serverUrl).ok) {
     // Small delay to allow page render
     setTimeout(async () => {
       try {

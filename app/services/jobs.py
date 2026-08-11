@@ -7,16 +7,17 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import desc, select, update
+from sqlalchemy import delete, desc, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import Settings
-from app.models import ImportBatch, ImportedVideo, Job, JobAttempt, JobStatus
+from app.models import ImportBatch, ImportedVideo, Job, JobAttempt, JobStatus, VideoImportClaim
 from app.queue import enqueue_job_task
 from app.services.destination import resolve_destination_folder
 from app.services.filesystem import FilesystemService
+from app.services.import_ledger import acquire_claim, reconcile_import_state_async, release_claim
 from app.services.ytdlp import PlaylistEntry, YtDlpService
 
 
@@ -173,6 +174,22 @@ class JobsListItem:
         return len(self.jobs)
 
     @property
+    def abs_scan_pending(self) -> bool:
+        if self.batch is None:
+            return False
+        return self.batch.abs_scan_status in {"pending", "running"} or (
+            self.batch.abs_scan_requested and self.batch.abs_scan_dirty
+        )
+
+    @property
+    def abs_scan_failed(self) -> bool:
+        return bool(self.batch is not None and self.batch.abs_scan_status == "failed")
+
+    @property
+    def abs_scan_completed(self) -> bool:
+        return bool(self.batch is not None and self.batch.abs_scan_status == "succeeded")
+
+    @property
     def progress_percent(self) -> float:
         if not self.jobs:
             return 0.0
@@ -204,6 +221,7 @@ async def submit_job(
     params: JobSubmitParams,
 ) -> tuple[Job, str]:
     """Validate, optionally create folder, persist job, and enqueue work."""
+    await reconcile_import_state_async(session)
     if params.validate_url:
         svc = YtDlpService(settings)
         validation = svc.validate_url(params.url)
@@ -256,7 +274,12 @@ async def submit_job(
         loudness_audio_bitrate=params.loudness_audio_bitrate,
     )
 
-    rq_id = enqueue_job_task(job.id)
+    try:
+        rq_id = enqueue_job_task(job.id)
+    except Exception:
+        await release_claim(session, job.video_id, job.id)
+        await session.commit()
+        raise
     await update_job_status(session, job.id, JobStatus.queued, rq_job_id=rq_id)
     return job, rq_id
 
@@ -267,6 +290,7 @@ async def submit_batch(
     params: BatchJobSubmitParams,
 ) -> BatchSubmitResult:
     """Create an ImportBatch and fan out one Job per selected entry."""
+    await reconcile_import_state_async(session)
     entries = list(params.entries)
     if not entries:
         raise ValueError("Select at least one video to import")
@@ -298,6 +322,8 @@ async def submit_batch(
         title=_or_none(params.batch_title),
         requested_count=len(entries),
         created_at=_utcnow(),
+        abs_scan_requested=params.trigger_abs_scan,
+        abs_scan_requested_at=_utcnow() if params.trigger_abs_scan else None,
     )
     session.add(batch)
     await session.commit()
@@ -352,6 +378,14 @@ async def submit_batch(
             rq_id = enqueue_job_task(job.id)
             await update_job_status(session, job.id, JobStatus.queued, rq_job_id=rq_id)
         except Exception as exc:
+            await release_claim(session, job.video_id, job.id)
+            await update_job_status(
+                session,
+                job.id,
+                JobStatus.failed,
+                phase="enqueue_failed",
+                error_message=f"enqueue failed: {exc}",
+            )
             result.failed += 1
             result.failures.append(f"{entry.id}: enqueue failed: {exc}")
             continue
@@ -414,8 +448,9 @@ async def create_job(
                 f"(job {existing_import.job_id or 'unknown'})."
             )
 
+    job_id = str(uuid.uuid4())
     job = Job(
-        id=str(uuid.uuid4()),
+        id=job_id,
         url=url,
         video_id=normalized_video_id,
         source_title=source_title,
@@ -454,6 +489,11 @@ async def create_job(
         updated_at=_utcnow(),
     )
     session.add(job)
+    await session.flush()
+    if normalized_video_id and not await acquire_claim(session, normalized_video_id, job.id):
+        await session.delete(job)
+        await session.commit()
+        raise DuplicateVideoError(f"Video '{normalized_video_id}' is already being imported.")
     await session.commit()
     await session.refresh(job)
     return job
@@ -509,6 +549,8 @@ async def cancel_job(session: AsyncSession, job_id: str) -> Job:
     updated = await update_job_status(session, job_id, JobStatus.cancelled)
     if updated is None:
         raise JobNotFoundError(job_id)
+    await release_claim(session, updated.video_id, updated.id)
+    await session.commit()
     return updated
 
 
@@ -521,8 +563,24 @@ async def retry_job(session: AsyncSession, job_id: str) -> tuple[Job, str]:
         raise JobConflictError(
             f"Job status is '{job.status}', can only retry failed/cancelled jobs"
         )
+    if job.video_id and not await acquire_claim(session, job.video_id, job.id):
+        raise JobConflictError("Another import of this video is already in progress")
+    prior_status = JobStatus(job.status)
+    prior_phase = job.phase
+    prior_error = job.error_message or ""
     await update_job_status(session, job_id, JobStatus.queued, phase="queued", error_message="")
-    rq_id = enqueue_job_task(job_id)
+    try:
+        rq_id = enqueue_job_task(job_id)
+    except Exception:
+        await release_claim(session, job.video_id, job.id)
+        await update_job_status(
+            session,
+            job_id,
+            prior_status,
+            phase=prior_phase,
+            error_message=prior_error,
+        )
+        raise
     updated = await update_job_status(session, job_id, JobStatus.queued, rq_job_id=rq_id)
     if updated is None:
         raise JobNotFoundError(job_id)
@@ -602,6 +660,9 @@ async def delete_jobs(session: AsyncSession, job_ids: list[str]) -> dict[str, li
     # Keep the dedup ledger rows while severing references to deleted jobs.
     await session.execute(
         update(ImportedVideo).where(ImportedVideo.job_id.in_(deletable_ids)).values(job_id=None)
+    )
+    await session.execute(
+        delete(VideoImportClaim).where(VideoImportClaim.job_id.in_(deletable_ids))
     )
 
     for job in jobs:
@@ -695,6 +756,7 @@ def sync_update_job(
     progress_eta: str | None = None,
     progress_speed: str | None = None,
     progress_label: str | None = None,
+    owned_import: bool | None = None,
 ) -> None:
     """Update job fields and flush to DB (no commit — caller commits)."""
     now = _utcnow()
@@ -738,6 +800,8 @@ def sync_update_job(
         job.progress_speed = progress_speed
     if progress_label is not None:
         job.progress_label = progress_label
+    if owned_import is not None:
+        job.owned_import = owned_import
 
     session.flush()
 
@@ -788,6 +852,7 @@ def sync_mark_video_imported(session: Session, job: Job, *, overwrite: bool = Fa
         existing.source_url = job.url
         existing.source_title = job.source_title
         existing.imported_at = _utcnow()
+        job.owned_import = True
         session.flush()
         return True
 
@@ -811,7 +876,9 @@ def sync_mark_video_imported(session: Session, job: Job, *, overwrite: bool = Fa
                 existing.source_url = job.url
                 existing.source_title = job.source_title
                 existing.imported_at = _utcnow()
+                job.owned_import = True
                 session.flush()
                 return True
         return False
+    job.owned_import = True
     return True

@@ -157,8 +157,9 @@ def test_download_command_sponsorblock_per_job_override():
     assert cmd_enabled[idx + 1] == "sponsor"
 
 
-def test_download_command_archive(tmp_path: Path):
+def test_download_command_never_passes_archive(tmp_path: Path):
     archive = tmp_path / "archive.txt"
+    archive.write_text("oldid\n", encoding="utf-8")
     svc = make_svc(ARCHIVE_FILE=str(archive))
     cmd = svc.build_download_command(
         "https://youtu.be/abc123",
@@ -166,12 +167,10 @@ def test_download_command_archive(tmp_path: Path):
         "/tmp/out/%(title)s.%(ext)s",
         use_archive=True,
     )
-    assert "--download-archive" in cmd
-    idx = cmd.index("--download-archive")
-    assert cmd[idx + 1] == str(archive)
+    assert "--download-archive" not in cmd
 
 
-def test_download_command_force_archive_bypass(tmp_path: Path):
+def test_download_command_force_archive_bypass_still_omits_flag(tmp_path: Path):
     archive = tmp_path / "archive.txt"
     svc = make_svc(ARCHIVE_FILE=str(archive))
     cmd = svc.build_download_command(

@@ -158,6 +158,20 @@
                         {{ batch.source_type | title }} · {{ item.succeeded_count }}/{{ item.total_count }} succeeded
                         {% if item.failed_count %} · {{ item.failed_count }} failed{% endif %}
                       </span>
+                      {% if settings.abs_configured and (item.abs_scan_pending or item.abs_scan_failed or item.abs_scan_completed) %}
+                      <span class="font-label-md text-label-md block mt-1">
+                        {% if item.abs_scan_pending %}
+                          <span class="text-paper-muted">Audiobookshelf scan pending</span>
+                        {% elif item.abs_scan_failed %}
+                          <span class="text-error">Audiobookshelf scan failed</span>
+                          {% if batch.abs_scan_error %}
+                          <span class="text-paper-muted opacity-75"> · {{ batch.abs_scan_error | e }}</span>
+                          {% endif %}
+                        {% elif item.abs_scan_completed %}
+                          <span class="text-paper-muted">Audiobookshelf scan completed</span>
+                        {% endif %}
+                      </span>
+                      {% endif %}
                     </div>
                   </div>
                 </td>
@@ -186,7 +200,17 @@
                   {{ batch.created_at.strftime('%m-%d %H:%M') if batch.created_at else '—' }}
                 </td>
                 <td data-label="Actions" class="px-6 py-4 text-right">
-                  <span class="font-label-md text-label-md text-paper-muted uppercase">{{ item.total_count }} jobs</span>
+                  <div class="flex flex-col items-end gap-2">
+                    <span class="font-label-md text-label-md text-paper-muted uppercase">{{ item.total_count }} jobs</span>
+                    {% if settings.abs_configured and item.abs_scan_failed %}
+                    <form method="post" action="/jobs/batches/{{ batch.id }}/abs-scan">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                      <button type="submit" class="font-label-md text-label-md text-amber hover:underline">
+                        Retry Audiobookshelf Scan
+                      </button>
+                    </form>
+                    {% endif %}
+                  </div>
                 </td>
               </tr>
               {% for job in item.jobs %}

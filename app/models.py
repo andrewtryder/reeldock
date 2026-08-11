@@ -97,6 +97,18 @@ class ImportBatch(Base):
         DateTime, server_default=func.now(), nullable=False
     )
 
+    abs_scan_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    abs_scan_dirty: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    abs_dirty_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    abs_scanned_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    abs_claimed_generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    abs_scan_status: Mapped[str] = mapped_column(String(16), default="idle", nullable=False)
+    abs_scan_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    abs_scan_requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    abs_scan_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    abs_scan_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    abs_scan_lease_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     jobs: Mapped[list[Job]] = relationship("Job", back_populates="batch")
 
     def __repr__(self) -> str:
@@ -161,6 +173,7 @@ class Job(Base):
     embed_chapters: Mapped[bool] = mapped_column(Boolean, default=True)
     trigger_abs_scan: Mapped[bool] = mapped_column(Boolean, default=False)
     allow_reimport: Mapped[bool] = mapped_column(Boolean, default=False)
+    owned_import: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     sponsorblock_remove: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     # Status
@@ -240,6 +253,17 @@ class ImportedVideo(Base):
 # ---------------------------------------------------------------------------
 # JobAttempt — tracks each retry
 # ---------------------------------------------------------------------------
+
+
+class VideoImportClaim(Base):
+    __tablename__ = "video_import_claims"
+
+    video_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=False)
+    claimed_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
 class JobAttempt(Base):

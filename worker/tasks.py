@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from app.config import reload_settings
 from app.db import get_sync_db
 from app.models import JobStatus
+from app.services.batch_abs import recover_stale_abs_leases
+from app.services.import_ledger import reconcile_import_state, release_claim_sync
 from app.services.import_pipeline import ImportPipeline
 from app.services.jobs import sync_get_job, sync_record_attempt, sync_update_job
 
@@ -28,6 +30,9 @@ def run_import_job(job_id: str) -> None:
     started_at = datetime.now(tz=UTC)
 
     try:
+        reconcile_import_state(db)
+        recover_stale_abs_leases(db)
+        db.commit()
         job = sync_get_job(db, job_id)
         if job is None:
             logger.error("Job %s not found in database", job_id)
@@ -57,6 +62,8 @@ def run_import_job(job_id: str) -> None:
                     started_at=started_at,
                     finished_at=datetime.now(tz=UTC),
                 )
+                db.commit()
+                release_claim_sync(db, job.video_id, job.id)
                 db.commit()
         except Exception:
             logger.exception("Could not record job failure in DB")

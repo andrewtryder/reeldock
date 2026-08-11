@@ -426,8 +426,8 @@ class YtDlpService:
             embed_metadata: Pass --embed-metadata.
             embed_thumbnail: Pass --embed-thumbnail.
             embed_chapters: Pass --embed-chapters.
-            use_archive: Pass --download-archive flag.
-            force_archive_bypass: If True, skip the archive flag even if configured.
+            use_archive: Deprecated. ReelDock no longer passes --download-archive.
+            force_archive_bypass: Deprecated. Kept for call-site compatibility.
             extra_args: Additional yt-dlp arguments to append.
         """
         s = self.settings
@@ -464,9 +464,9 @@ class YtDlpService:
         if resolved_sponsorblock:
             cmd += ["--sponsorblock-remove", "sponsor"]
 
-        archive = s.archive_file
-        if use_archive and not force_archive_bypass and archive:
-            cmd += ["--download-archive", str(archive)]
+        # Duplicate detection is the ImportedVideo ledger + claims, not yt-dlp's
+        # --download-archive. Keep unused kwargs so existing callers stay valid.
+        _ = (use_archive, force_archive_bypass)
 
         # Extra args from config or per-job override
         if resolved_cookies:

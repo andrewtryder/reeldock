@@ -42,6 +42,7 @@ x-app-environment: &app-environment
   DATABASE_URL: sqlite+aiosqlite:////data/app.db
   OUTPUT_ROOT: ${OUTPUT_ROOT:-${CONTAINER_PODCASTS_DIR:-/media/podcasts}}
   WORK_DIR: /data/work
+  # Legacy path only; unused for duplicate detection (ImportedVideo ledger).
   ARCHIVE_FILE: /data/config/youtube-archive.txt
   REELDOCK_CONFIG_MODE: ${REELDOCK_CONFIG_MODE:-ui}
   AUTH_ENABLED: ${AUTH_ENABLED:-false}

@@ -20,6 +20,7 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(config.router)
     app.include_router(jobs.router)
     app.include_router(jobs.abs_router)
+    app.include_router(jobs.batch_router)
     app.include_router(pages.router)
     app.include_router(diagnostics.router)
     app.include_router(extension.router)

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from app.config import Settings
-from app.models import Base, ImportedVideo, Job, JobStatus
+from app.models import Base, ImportBatch, ImportedVideo, Job, JobStatus, VideoImportClaim
 from app.services.ffmpeg import FfprobeResult, RemuxResult
 from app.services.import_pipeline import ImportPipeline
 from sqlalchemy import create_engine, text
@@ -204,7 +204,7 @@ def test_pipeline_happy_path_with_abs_scan(
     # checkbox alone must still trigger the scan.
     mock_settings.abs_scan_after_success = False
     mock_settings.abs_base_url = "http://abs:1337"
-    mock_settings.abs_api_token = "test-token"
+    mock_settings.abs_api_token = "abs-fixture-secret"
     mock_settings.abs_library_id = "lib-1"
 
     # Mock subprocess.Popen for download
@@ -246,6 +246,78 @@ def test_pipeline_happy_path_with_abs_scan(
     assert job.status == JobStatus.succeeded
     assert job.progress_percent == 100.0
     assert job.progress_label == "Complete"
+    mock_scan.assert_called_once()
+
+
+@patch("app.services.process_runner.subprocess.Popen")
+@patch("app.services.import_pipeline.YtDlpService.find_downloaded_file")
+@patch("app.services.import_pipeline.FfmpegService.run_remux")
+@patch("app.services.import_pipeline.FfmpegService.verify_output")
+def test_pipeline_batch_child_does_not_scan_immediately(
+    mock_verify, mock_remux, mock_find, mock_popen, test_db, mock_settings, tmp_path
+):
+    """Batch children mark the batch dirty instead of scanning per success."""
+    test_db.add(
+        ImportBatch(
+            id="batch-scan",
+            source_url="https://www.youtube.com/playlist?list=PLx",
+            source_type="playlist",
+            title="Batch",
+            requested_count=1,
+            abs_scan_requested=True,
+        )
+    )
+    job = Job(
+        id="job-batch-scan",
+        url="https://youtube.com/watch?v=batch1",
+        video_id="batch1",
+        status=JobStatus.queued,
+        output_title="Batch Child",
+        destination_folder="Scan",
+        collision_mode="overwrite",
+        trigger_abs_scan=True,
+        batch_id="batch-scan",
+    )
+    test_db.add(job)
+    test_db.commit()
+    mock_settings.abs_base_url = "http://abs:1337"
+    mock_settings.abs_api_token = "abs-fixture-secret"
+    mock_settings.abs_library_id = "lib-1"
+
+    mock_proc = MagicMock()
+    mock_proc.stdout = ["[download] 100% of 10.00MiB\n"]
+    mock_proc.returncode = 0
+    mock_popen.return_value = mock_proc
+    downloaded = tmp_path / "work" / "job-batch-scan" / "download" / "Batch Child.m4a"
+    downloaded.parent.mkdir(parents=True, exist_ok=True)
+    downloaded.write_bytes(b"audio")
+    mock_find.return_value = downloaded
+    mock_remux.side_effect = _fake_remux_writes_staged(b"final m4b")
+    mock_verify.return_value = FfprobeResult(
+        file_size=len(b"final m4b"),
+        has_audio=True,
+        chapter_count=0,
+        duration_seconds=60.0,
+        codec_name="aac",
+    )
+
+    with (
+        patch("app.services.import_pipeline.AudiobookshelfClient.trigger_scan") as mock_scan,
+        patch("app.services.batch_abs.AudiobookshelfClient.trigger_scan") as mock_batch_scan,
+    ):
+        from app.services.audiobookshelf import ScanResult
+
+        mock_scan.return_value = ScanResult(success=True, skipped=False)
+        mock_batch_scan.return_value = ScanResult(success=True, skipped=False)
+        ImportPipeline(test_db, mock_settings, "job-batch-scan").run()
+
+    test_db.refresh(job)
+    assert job.status == JobStatus.succeeded
+    mock_scan.assert_not_called()
+    mock_batch_scan.assert_called_once()
+    batch = test_db.get(ImportBatch, "batch-scan")
+    assert batch is not None
+    assert batch.abs_scan_status == "succeeded"
 
 
 @patch("app.services.process_runner.subprocess.Popen")
@@ -342,6 +414,7 @@ def test_pipeline_cancellation(mock_popen, test_db, mock_settings):
     job = Job(
         id="job-cancel",
         url="https://youtube.com/watch?v=123",
+        video_id="cancel123",
         status=JobStatus.queued,
         output_title="Cancelled Video",
         destination_folder="Cancel",
@@ -407,6 +480,8 @@ def test_pipeline_cancellation(mock_popen, test_db, mock_settings):
     assert mock_proc.terminate.called
     assert len(job.attempts_log) == 1
     assert job.attempts_log[0].status == "cancelled"
+    assert test_db.get(ImportedVideo, "cancel123") is None
+    assert test_db.get(VideoImportClaim, "cancel123") is None
 
 
 # ── Staged Output ───────────────────────────────────────────────────────────
@@ -833,9 +908,16 @@ def test_pipeline_collision_skip_does_not_download(
     assert existing.read_bytes() == b"already-here"
     # Filename collision must not claim this video_id as imported.
     assert test_db.get(ImportedVideo, "skip123") is None
+    assert job.owned_import is False
     mock_popen.assert_not_called()
     mock_find.assert_not_called()
     mock_remux.assert_not_called()
+
+    from app.services.import_ledger import reconcile_import_state
+
+    reconcile_import_state(test_db)
+    test_db.commit()
+    assert test_db.get(ImportedVideo, "skip123") is None
 
 
 @patch("app.services.process_runner.subprocess.Popen")
@@ -893,10 +975,10 @@ def test_pipeline_collision_overwrite_replaces_file(
 @patch("app.services.import_pipeline.YtDlpService.find_downloaded_file")
 @patch("app.services.import_pipeline.FfmpegService.run_remux")
 @patch("app.services.import_pipeline.FfmpegService.verify_output")
-def test_pipeline_retry_bypasses_download_archive(
+def test_pipeline_retry_does_not_pass_download_archive(
     mock_verify, mock_remux, mock_find, mock_popen, test_db, mock_settings, tmp_path
 ):
-    """Second attempt must pass force_archive_bypass even without allow_reimport."""
+    """Retries never pass --download-archive; the DB ledger is authoritative."""
     job = Job(
         id="job-retry-arch",
         url="https://youtube.com/watch?v=arch123",
@@ -929,11 +1011,12 @@ def test_pipeline_retry_bypasses_download_archive(
         codec_name="aac",
     )
 
-    captured: dict = {}
+    captured_cmd: list[str] = []
 
     def _capture(url, job_id, output_template, **kwargs):
-        captured.update(kwargs)
-        return ["yt-dlp", "-o", output_template, "--", url]
+        cmd = ["yt-dlp", "-o", output_template, "--", url]
+        captured_cmd.extend(cmd)
+        return cmd
 
     with patch(
         "app.services.import_pipeline.YtDlpService.build_download_command",
@@ -941,7 +1024,8 @@ def test_pipeline_retry_bypasses_download_archive(
     ):
         ImportPipeline(test_db, mock_settings, "job-retry-arch").run()
 
-    assert captured.get("force_archive_bypass") is True
+    assert "--download-archive" not in captured_cmd
     test_db.refresh(job)
     assert job.status == JobStatus.succeeded
     assert job.attempts == 2
+    assert test_db.get(ImportedVideo, "arch123") is not None

@@ -250,3 +250,113 @@ async def test_submit_job_new_folder_sets_destination(submit_job_db: Settings, t
     assert job.destination_folder == new_folder_name
     assert (submit_job_db.output_root / new_folder_name).is_dir()
     assert rq_id == "rq-test-1"
+
+
+@pytest.mark.asyncio
+async def test_submit_job_in_progress_is_dup(submit_job_db: Settings):
+    await init_db()
+    mock_svc = Mock()
+    mock_svc.validate_url.return_value = Mock(valid=True)
+
+    with patch("app.services.jobs.YtDlpService", return_value=mock_svc):
+        factory = get_async_session_factory()
+        async with factory() as session:
+            await submit_job(
+                session,
+                submit_job_db,
+                JobSubmitParams(
+                    url="https://www.youtube.com/watch?v=prog01",
+                    video_id="prog01",
+                ),
+            )
+            with pytest.raises(DuplicateVideoError, match="already being imported"):
+                await submit_job(
+                    session,
+                    submit_job_db,
+                    JobSubmitParams(
+                        url="https://www.youtube.com/watch?v=prog01",
+                        video_id="prog01",
+                    ),
+                )
+
+
+@pytest.fixture
+def jobs_live_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, default_settings: Settings):
+    db_path = tmp_path / "jobs-live.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    import app.db as db_module
+
+    db_module._async_engine = None
+    db_module._async_session_factory = None
+    db_module._sync_engine = None
+    db_module._sync_session_factory = None
+    return default_settings
+
+
+@pytest.mark.asyncio
+async def test_retry_enqueue_failure_restores_failed_status(jobs_live_db: Settings):
+    from app.models import Job, VideoImportClaim
+    from app.services.jobs import retry_job
+
+    await init_db()
+    factory = get_async_session_factory()
+    async with factory() as session:
+        job = Job(
+            id="retry-enq",
+            url="https://www.youtube.com/watch?v=retry01",
+            video_id="retry01",
+            status=JobStatus.failed,
+            phase="failed",
+            error_message="download failed",
+        )
+        session.add(job)
+        await session.commit()
+
+        with (
+            patch("app.services.jobs.enqueue_job_task", side_effect=RuntimeError("redis down")),
+            pytest.raises(RuntimeError, match="redis down"),
+        ):
+            await retry_job(session, "retry-enq")
+
+        restored = await session.get(Job, "retry-enq")
+        assert restored is not None
+        assert restored.status == JobStatus.failed
+        assert restored.phase == "failed"
+        assert await session.get(VideoImportClaim, "retry01") is None
+
+
+@pytest.mark.asyncio
+async def test_batch_enqueue_failure_marks_child_failed(jobs_live_db: Settings):
+    from app.models import Job
+    from app.services.jobs import BatchJobSubmitParams, submit_batch
+    from app.services.ytdlp import PlaylistEntry
+
+    await init_db()
+    factory = get_async_session_factory()
+    async with factory() as session:
+        with patch("app.services.jobs.enqueue_job_task", side_effect=RuntimeError("redis down")):
+            result = await submit_batch(
+                session,
+                jobs_live_db,
+                BatchJobSubmitParams(
+                    source_url="https://www.youtube.com/playlist?list=PLtest",
+                    source_type="playlist",
+                    batch_title="Batch",
+                    entries=[
+                        PlaylistEntry(
+                            id="child01",
+                            title="Child",
+                            url="https://www.youtube.com/watch?v=child01",
+                        )
+                    ],
+                ),
+            )
+        assert result.failed == 1
+        assert result.created == 0
+        child = await session.get(Job, result.job_ids[0]) if result.job_ids else None
+        if child is None:
+            from sqlalchemy import select
+
+            child = (await session.execute(select(Job))).scalar_one()
+        assert child.status == JobStatus.failed
+        assert child.phase == "enqueue_failed"

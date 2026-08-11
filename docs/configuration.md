@@ -77,7 +77,7 @@ The Settings page is driven by a configuration registry. The following settings 
 | `HOST_AUDIOBOOKS_DIR` | `/mnt/podcasts` | Host path for audiobook media (Docker Compose). Legacy alias: `HOST_PODCASTS_DIR`. |
 | `OUTPUT_ROOT` | `/media/podcasts` | Container path where finished audiobooks are written; Compose also uses this as the bind-mount target. Legacy mount-target alias: `CONTAINER_PODCASTS_DIR`. |
 | `WORK_DIR` | `/data/work` | Workspace for downloading and processing audio. |
-| `ARCHIVE_FILE` | `/data/config/youtube-archive.txt` | `yt-dlp` archive file used as a secondary duplicate guard at download time. |
+| `ARCHIVE_FILE` | `/data/config/youtube-archive.txt` | Legacy path only. ReelDock no longer passes `--download-archive` to yt-dlp; the ImportedVideo ledger is authoritative. Existing files are left in place. |
 | `COOKIES_FILE` | — | Absolute path to a Netscape cookies file passed to yt-dlp via `--cookies`. |
 | **Download & Processing** | | |
 | `ALLOW_PLAYLISTS` | `false` | Accept playlist URLs and enumerate entries for batch import in the UI. |
@@ -125,7 +125,7 @@ app:
 
 paths:
   work_dir: "/data/work"
-  archive_file: "/data/config/youtube-archive.txt"
+  archive_file: "/data/config/youtube-archive.txt"  # unused for dedupe; left in place
   output_root: "/media/podcasts"
 
 download:

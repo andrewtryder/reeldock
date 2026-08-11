@@ -385,4 +385,26 @@ def run_diagnostics(settings: Settings) -> list[DiagnosticCheck]:
         ),
         check_cookies(settings),
         check_abs_api(settings),
+        check_archive_unused(settings),
     ]
+
+
+def check_archive_unused(settings: Settings) -> DiagnosticCheck:
+    """Note that youtube-archive.txt is no longer used for duplicate detection."""
+    path = settings.archive_file
+    exists = bool(path) and Path(path).exists()
+    location = str(path) if path else "not configured"
+    detail = (
+        "ReelDock uses the ImportedVideo ledger for duplicate detection. "
+        "Existing youtube-archive.txt files are left in place and are not passed to yt-dlp."
+    )
+    if exists:
+        detail = f"{detail} File still present at {location}."
+    return DiagnosticCheck(
+        id="archive_file",
+        label="yt-dlp archive file",
+        status="ok",
+        summary="Unused for duplicate detection",
+        detail=detail,
+        path=str(path) if path else None,
+    )

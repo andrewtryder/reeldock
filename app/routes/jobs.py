@@ -7,9 +7,11 @@ from typing import Any
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from app.db import get_sync_db
 from app.routes import DbDep, SettingsDep
 from app.serializers import job_dict
 from app.services.audiobookshelf import AudiobookshelfClient
+from app.services.batch_abs import retry_batch_abs_scan
 from app.services.filesystem import FilesystemService
 from app.services.jobs import (
     DuplicateVideoError,
@@ -27,6 +29,7 @@ from app.services.jobs import (
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 abs_router = APIRouter(prefix="/api/audiobookshelf", tags=["audiobookshelf"])
+batch_router = APIRouter(prefix="/api/batches", tags=["batches"])
 
 
 @router.get("")
@@ -162,4 +165,21 @@ async def api_abs_scan(cfg: SettingsDep) -> dict[str, Any]:
         "success": result.success,
         "skipped": result.skipped,
         "error": result.error,
+    }
+
+
+@batch_router.post("/{batch_id}/abs-scan")
+async def api_retry_batch_abs_scan(batch_id: str, cfg: SettingsDep) -> dict[str, Any]:
+    db = get_sync_db()
+    try:
+        batch = retry_batch_abs_scan(db, batch_id, cfg)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Batch not found") from exc
+    finally:
+        db.close()
+    return {
+        "batch_id": batch.id,
+        "abs_scan_status": batch.abs_scan_status,
+        "abs_scan_error": batch.abs_scan_error,
+        "abs_scan_dirty": batch.abs_scan_dirty,
     }

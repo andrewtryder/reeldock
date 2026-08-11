@@ -16,10 +16,16 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import Job, JobStatus
+from app.models import ImportedVideo, Job, JobStatus
 from app.services.audiobookshelf import AudiobookshelfClient
+from app.services.batch_abs import note_batch_child_finished
 from app.services.ffmpeg import FfmpegProgress, FfmpegService
 from app.services.filesystem import FilesystemService
+from app.services.import_ledger import (
+    acquire_claim_sync,
+    release_claim_sync,
+    renew_claim_sync,
+)
 from app.services.jobs import (
     sync_get_job,
     sync_mark_video_imported,
@@ -142,6 +148,7 @@ class ImportPipeline:
             and not time_passed
         ):
             return
+        renew_claim_sync(self.db, job.video_id, job.id)
 
         if clear_percent:
             job.progress = None
@@ -234,6 +241,20 @@ class ImportPipeline:
             ffmpeg_svc = FfmpegService(self.settings)
             abs_client = AudiobookshelfClient(self.settings)
 
+            video_id = (job.video_id or "").strip()
+            if video_id:
+                existing_import = self.db.get(ImportedVideo, video_id)
+                if existing_import is not None and not job.allow_reimport:
+                    raise PipelineFailedError(
+                        "Video has already been imported. Duplicate import blocked."
+                    )
+                if not acquire_claim_sync(self.db, video_id, job.id):
+                    raise PipelineFailedError(
+                        "Another import of this video is already in progress."
+                    )
+                renew_claim_sync(self.db, video_id, job.id)
+                self.db.commit()
+
             # ── Resolve output path ────────────────────────────────────────────
             dest_folder = job.destination_folder or ""
             output_title = job.output_title or job.source_title or "Unknown"
@@ -317,6 +338,7 @@ class ImportPipeline:
                     phase="skipped_collision",
                     final_output_path=str(output_path),
                     output_file_size=existing_size,
+                    owned_import=False,
                 )
                 self.db.commit()
                 sync_record_attempt(
@@ -336,6 +358,9 @@ class ImportPipeline:
                     ),
                 )
                 self.db.commit()
+                release_claim_sync(self.db, job.video_id, job.id)
+                self.db.commit()
+                note_batch_child_finished(self.db, job, self.settings)
                 log(f"=== Job {self.job_id} skipped (collision) ===")
                 return
 
@@ -389,6 +414,12 @@ class ImportPipeline:
                 if check_cancelled():
                     raise PipelineCancelledError()
 
+                if job.video_id and not sync_mark_video_imported(
+                    self.db, job, overwrite=bool(job.allow_reimport)
+                ):
+                    raise PipelineFailedError(
+                        "Video has already been imported. Duplicate import blocked."
+                    )
                 self._set_progress(
                     job,
                     percent=self._M_COMPLETE,
@@ -414,6 +445,9 @@ class ImportPipeline:
                     finished_at=datetime.now(tz=UTC),
                 )
                 self.db.commit()
+                release_claim_sync(self.db, job.video_id, job.id)
+                self.db.commit()
+                note_batch_child_finished(self.db, job, self.settings)
                 log(f"=== Job {self.job_id} completed successfully ===")
                 return
 
@@ -439,10 +473,6 @@ class ImportPipeline:
             log("[download] Starting yt-dlp")
 
             dl_template = ytdlp_svc.get_output_template(self.job_id)
-            # Bypass yt-dlp's download-archive on retry attempts: archive may
-            # record success before conversion/commit finishes. Allow-reimport
-            # also bypasses so intentional redownloads are not blocked.
-            bypass_archive = bool(job.allow_reimport) or (job.attempts or 1) > 1
 
             if self.settings.release_smoke_fixture:
                 from app.release_smoke import (
@@ -461,23 +491,11 @@ class ImportPipeline:
                 )
                 staged = stage_download_fixture(self.job_id, self.settings.work_dir, fixture_dir)
                 log(f"[download] Staged fixture at {staged}")
-                # Simulate yt-dlp having written the archive on a prior attempt.
-                if bypass_archive and self.settings.archive_file:
-                    self.settings.archive_file.parent.mkdir(parents=True, exist_ok=True)
-                    self.settings.archive_file.touch(exist_ok=True)
                 fail_once = (
                     self.settings.release_smoke_fail_once
                     or smoke_should_fail_first_attempt(job.video_id, job.url)
                 )
                 if fail_once and (job.attempts or 1) == 1:
-                    if self.settings.archive_file and job.video_id:
-                        self.settings.archive_file.parent.mkdir(parents=True, exist_ok=True)
-                        with self.settings.archive_file.open("a", encoding="utf-8") as fh:
-                            fh.write(f"{job.video_id}\n")
-                        log(
-                            "[download] smoke fail-once: wrote "
-                            f"{job.video_id} to archive, failing first attempt"
-                        )
                     raise PipelineFailedError(
                         "release smoke intentional first-attempt failure after download"
                     )
@@ -495,22 +513,12 @@ class ImportPipeline:
                     embed_metadata=job.embed_metadata,
                     embed_thumbnail=job.embed_thumbnail,
                     embed_chapters=job.embed_chapters,
-                    force_archive_bypass=bypass_archive,
                     audio_format=eff_audio_format,
                     audio_quality=eff_audio_quality,
                     sponsorblock_remove=job.sponsorblock_remove,
                     cookies_file=eff_cookies,
                     extra_args=eff_ytdlp_extra,
                 )
-                if bypass_archive:
-                    log(
-                        "[download] Bypassing yt-dlp download-archive "
-                        f"(allow_reimport={bool(job.allow_reimport)} attempts={job.attempts})"
-                    )
-
-                # Ensure archive parent dir exists
-                if self.settings.archive_file:
-                    self.settings.archive_file.parent.mkdir(parents=True, exist_ok=True)
 
                 dl_success = self._run_subprocess(
                     dl_cmd, log, check_cancelled, is_download=True, job=job
@@ -555,20 +563,9 @@ class ImportPipeline:
                 self.job_id, preferred_format=eff_audio_format
             )
             if downloaded_file is None:
-                # Check download archive message
-                log_content = ""
-                if log_path.exists():
-                    log_content = log_path.read_text(encoding="utf-8", errors="replace")
-
-                if "has already been recorded in the archive" in log_content:
-                    err_msg = (
-                        "Video has already been recorded in the download archive. "
-                        "Retry this job to bypass the archive, or remove the video ID "
-                        "from your youtube-archive.txt file."
-                    )
-                else:
-                    err_msg = "Could not locate downloaded audio file in work directory"
-                raise PipelineFailedError(err_msg)
+                raise PipelineFailedError(
+                    "Could not locate downloaded audio file in work directory"
+                )
 
             # Wrap in DownloadArtifact
             dl_artifact = DownloadArtifact(
@@ -825,9 +822,9 @@ class ImportPipeline:
                 raise PipelineCancelledError()
 
             # ── Audiobookshelf Scan ───────────────────────────────────────────
-            # Per-job checkbox controls whether this job scans. Global
-            # ABS_SCAN_AFTER_SUCCESS is only the UI default for that checkbox.
-            if job.trigger_abs_scan:
+            # Single jobs still scan immediately. Batch children mark the batch
+            # dirty and scan once after every child is terminal.
+            if job.trigger_abs_scan and not job.batch_id:
                 self._set_progress(
                     job,
                     clear_percent=True,
@@ -945,7 +942,9 @@ class ImportPipeline:
                 artifact_metadata=self._build_metadata_json(dl_artifact, conv_artifact),
             )
             self.db.commit()
-
+            release_claim_sync(self.db, job.video_id, job.id)
+            self.db.commit()
+            note_batch_child_finished(self.db, job, self.settings)
             log(f"=== Job {self.job_id} completed successfully ===")
             log(f"Output: {output_path}")
 
@@ -974,6 +973,9 @@ class ImportPipeline:
                 artifact_metadata=self._build_metadata_json(dl_artifact, conv_artifact),
             )
             self.db.commit()
+            release_claim_sync(self.db, job.video_id, job.id)
+            self.db.commit()
+            note_batch_child_finished(self.db, job, self.settings)
             # Clean up any staged/partial artifacts before removing the work
             # dir so a cancelled job never leaves a partial final .m4b behind.
             fs.cleanup_output_partials(staged_path, final_temp_path)
@@ -1008,6 +1010,9 @@ class ImportPipeline:
                 artifact_metadata=self._build_metadata_json(dl_artifact, conv_artifact),
             )
             self.db.commit()
+            release_claim_sync(self.db, job.video_id, job.id)
+            self.db.commit()
+            note_batch_child_finished(self.db, job, self.settings)
             # Clean up any staged/partial artifacts on failure. This must run
             # regardless of cleanup_temp_on_failure because the temp sibling
             # lives next to the final .m4b, not inside the work directory.

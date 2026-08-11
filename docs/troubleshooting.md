@@ -75,18 +75,15 @@ If downloads complete successfully in `reeldock` but do not show up in Audiobook
 Queueing a URL fails immediately with a `409` response (or UI error) indicating the video has already been imported.
 
 ### Cause
-The app now keeps a database ledger of successfully imported video IDs and rejects duplicate imports early.
-`yt-dlp` also keeps `/data/config/youtube-archive.txt` as a secondary duplicate guard during downloads.
+The app keeps a database ledger (`imported_videos`) of successfully imported video IDs and rejects duplicate imports early. In-flight imports take a short-lived claim so two jobs cannot process the same video at once. Failed and cancelled jobs do not write ledger rows and release their claim.
+
+`youtube-archive.txt` is **not** used for duplicate detection. ReelDock no longer passes `--download-archive` to yt-dlp. An ID that exists only in a leftover archive file does not block a new import.
+
+File commit and the SQLite ledger are not one atomic transaction. If the database write fails after the `.m4b` is in the library, the job is not marked succeeded; retry uses the configured collision mode instead of blindly writing a second file.
 
 ### Fix
 * **Option A: Enable Re-import for This Job**: In the web import form, check **Allow re-import (overwrite duplicate guard)**, or send `allow_reimport=true` to the API.
-* **Option B: Remove Historical Dedup Entries**: If you intentionally need a re-import, remove the video ID from the DB ledger and the archive file.
-* **Option C: Manually Edit the Archive**: Edit `/data/config/youtube-archive.txt` on your host machine and delete the line containing the corresponding YouTube ID.
-  ```bash
-  # Example to remove video ID CcYToxtmFHs
-  grep -v "CcYToxtmFHs" data/config/youtube-archive.txt > /tmp/archive.tmp
-  mv /tmp/archive.tmp data/config/youtube-archive.txt
-  ```
+* **Option B: Remove the ledger row**: If you intentionally need a re-import, delete the video ID from `imported_videos` (or use allow-reimport). Do not edit `youtube-archive.txt` for this — it is unused.
 
 ---
 

@@ -13,9 +13,11 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import Settings, get_setting_sources, reload_settings, reset_setting, save_settings
 from app.csrf import issue_csrf_token, validate_csrf_token
+from app.db import get_sync_db
 from app.diagnostics import format_free_space
 from app.path_checks import check_writable_directory
 from app.routes import DbDep, SettingsDep
+from app.services.batch_abs import retry_batch_abs_scan
 from app.services.destination import (
     blank_destination_option_label,
     initial_selected_destination_folder,
@@ -609,8 +611,26 @@ async def page_jobs(request: Request, db: DbDep, cfg: SettingsDep) -> HTMLRespon
             "settings": cfg,
             "items": items,
             "highlight_batch": highlight_batch,
+            "csrf_token": issue_csrf_token(),
         },
     )
+
+
+@router.post("/jobs/batches/{batch_id}/abs-scan", response_class=HTMLResponse)
+async def page_retry_batch_abs_scan(
+    request: Request, batch_id: str, cfg: SettingsDep
+) -> RedirectResponse:
+    form = {key: str(value) for key, value in (await request.form()).items()}
+    if not validate_csrf_token(form.get("csrf_token")):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    db = get_sync_db()
+    try:
+        retry_batch_abs_scan(db, batch_id, cfg)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Batch not found") from exc
+    finally:
+        db.close()
+    return RedirectResponse(f"/jobs?batch={batch_id}", status_code=303)
 
 
 @router.get("/jobs/{job_id}", response_class=HTMLResponse)

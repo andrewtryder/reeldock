@@ -151,7 +151,11 @@ The RQ worker does not initialize the schema. In Docker Compose the `worker` ser
 
 Issue [#118](https://github.com/andrewtryder/reeldock/issues/118): run the **shipping** Docker image with a real worker + ffmpeg path and assert a valid `.m4b` **without live YouTube**.
 
-Fixtures live in `tests/fixtures/release_smoke/`. When `RELEASE_SMOKE_FIXTURE=true`, the worker stages canned audio instead of calling yt-dlp, then runs the normal remux/verify/commit path. Preview of the reserved URL `https://www.youtube.com/watch?v=reeldockSmoke01` returns fixture metadata.
+Fixtures live in `tests/fixtures/release_smoke/`. When `RELEASE_SMOKE_FIXTURE=true`, the worker stages canned audio instead of calling yt-dlp, then runs the normal remux/verify/commit path. Reserved watch IDs:
+
+- `rdSmoke01001` — happy path
+- `rdSmokeFail1` — fail once (`attempts == 1`), succeed on retry
+- `rdSmokeSlow1` — short sleep after staging so Cancel can win
 
 Local run (Docker + host `ffprobe` required):
 
@@ -166,6 +170,14 @@ cd e2e && npm ci && npx playwright install chromium
 cd .. && ./scripts/compose-playwright-smoke.sh
 ```
 
-CI workflow: `.github/workflows/release-smoke.yml` (workflow_dispatch, `v*` tags, and PRs that touch pipeline/Docker/e2e paths). Unit `ci.yml` stays fast and separate.
+Browser extension E2E (unpacked Chrome, mocked YouTube, headed under `xvfb-run` in CI):
+
+```bash
+./scripts/compose-extension-e2e.sh
+```
+
+See [e2e/README.md](../e2e/README.md). Optional-host permission dialogs are not covered in the browser suite.
+
+CI workflow: `.github/workflows/release-smoke.yml` (workflow_dispatch, `v*` tags, and PRs that touch pipeline/Docker/e2e/extension paths). Unit `ci.yml` stays fast and separate.
 
 Do **not** enable `RELEASE_SMOKE_FIXTURE` in production.

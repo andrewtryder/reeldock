@@ -11,12 +11,18 @@ Privacy policy: [PRIVACY.md](PRIVACY.md). Store listing drafts:
 
 ## Features
 
-- **Popup** on YouTube watch / Shorts pages with **Queue video**.
-- **Job status** in the popup (progress, Finalize / Done) via a WebSocket to
-  your ReelDock server. The job page on the server may also open.
-- **Context menu** “Send to ReelDock” on YouTube pages and links.
-- **Options** for server URL, API token, destination folder, embed flags,
-  Audiobookshelf scan, and allow re-import.
+- **Popup** on YouTube watch / Shorts pages: destination, quality, embed /
+  SponsorBlock, and **Create Audiobook**. The form stays visible after queueing.
+- **Recent imports** (last 5 of 10 stored) with View / Cancel / Retry. The
+  background service worker owns API calls, WebSockets, and the ledger so
+  closing the popup does not lose progress.
+- **Notifications**: context-menu queue confirmation, then one success or
+  failure notification. Click a notification to open the job. Popup queue does
+  not fire a “Queued” toast.
+- **Context menu** “Send to ReelDock” uses your saved defaults.
+- **Options** for server URL, API token, destination, quality, SponsorBlock,
+  embed flags, optional Audiobookshelf scan, and **Open ReelDock after queueing**
+  (off by default).
 
 ## Server URL rules
 
@@ -86,22 +92,28 @@ Click the extension icon → Options (or the gear icon on the popup) and set:
 
 - **Server URL**: e.g. `http://127.0.0.1:8080` or `https://reeldock.example.com`
 - **API token**: must match `EXTENSION_API_TOKEN`
-- **Default destination folder**: subfolder under `OUTPUT_ROOT` (optional)
-- **Embed metadata / thumbnail / chapters**: passed through to the job
-- **Trigger Audiobookshelf scan after success**: passed through to the job
-- **Allow re-import by default**: sends `allow_reimport=true` for extension
-  queue requests unless overridden in the popup
+- **Default destination**: server default, library root, or a folder from your ReelDock library
+- **Default quality**: Standard / High / Best
+- **Embed metadata / thumbnail / chapters** and optional SponsorBlock
+- **Trigger Audiobookshelf scan after success**: shown only when ABS is configured
+- **Open ReelDock after queueing**: off by default
+- **Allow re-import by default**: secondary; sends `allow_reimport=true` unless
+  overridden in the popup
 
 Use **Test connection** to verify the server is reachable and the token is
 accepted. Non-localhost HTTPS URLs prompt for optional host permission once.
 
 ## Endpoints used by the extension
 
-| Method | Path                      | Purpose                                  |
-|--------|---------------------------|------------------------------------------|
-| GET    | `/api/extension/status`   | Health / capability check (options page) |
-| POST   | `/api/extension/queue`    | Queue a video; returns `job_id` + `job_url` |
-| WS     | `/api/ws/jobs/{job_id}`   | Job progress while the popup is open     |
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/extension/status` | Health / `api_version` / `supports` |
+| GET | `/api/extension/destinations` | Library folders (no host paths) |
+| POST | `/api/extension/queue` | Queue a video (`quality`, SponsorBlock, embeds) |
+| GET | `/api/extension/jobs/{id}` | Slim job status for the recent-jobs ledger |
+| POST | `/api/extension/jobs/{id}/cancel` | Cancel queued / running jobs |
+| POST | `/api/extension/jobs/{id}/retry` | Retry failed / cancelled jobs |
+| WS | `/api/ws/jobs/{job_id}` | Progress while the background worker is alive |
 
 HTTP endpoints return `404` when `EXTENSION_API_ENABLED=false`, and `401` when
 the token is missing/wrong. See [docs/configuration.md](../docs/configuration.md).

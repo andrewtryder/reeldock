@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import contextlib
 from typing import Any
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from app.models import JobStatus
-from app.queue import enqueue_job_task
 from app.routes import DbDep, SettingsDep
 from app.serializers import job_dict
 from app.services.audiobookshelf import AudiobookshelfClient
@@ -17,12 +14,15 @@ from app.services.filesystem import FilesystemService
 from app.services.jobs import (
     DuplicateVideoError,
     InvalidJobUrlError,
+    JobConflictError,
+    JobNotFoundError,
     JobSubmitParams,
+    cancel_job,
     delete_jobs,
     get_job,
     get_recent_jobs,
+    retry_job,
     submit_job,
-    update_job_status,
 )
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -72,7 +72,7 @@ async def api_create_job(
         thumbnail_url=thumbnail_url,
         chapter_count=chapter_count,
         output_title=output_title,
-        destination_folder=destination_folder,
+        destination_folder=destination_folder.strip() or None,
         new_folder=new_folder,
         embed_metadata=embed_metadata,
         embed_thumbnail=embed_thumbnail,
@@ -113,35 +113,24 @@ async def api_get_log(job_id: str, db: DbDep, cfg: SettingsDep) -> dict[str, str
 
 
 @router.post("/{job_id}/retry")
-async def api_retry_job(job_id: str, db: DbDep, cfg: SettingsDep) -> dict[str, str]:
-    job = await get_job(db, job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if job.status not in {JobStatus.failed, JobStatus.cancelled}:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Job status is '{job.status}', can only retry failed/cancelled jobs",
-        )
-    await update_job_status(db, job_id, JobStatus.queued, phase="queued", error_message="")
-    rq_id = enqueue_job_task(job_id)
-    await update_job_status(db, job_id, JobStatus.queued, rq_job_id=rq_id)
+async def api_retry_job(job_id: str, db: DbDep) -> dict[str, str]:
+    try:
+        _job, rq_id = await retry_job(db, job_id)
+    except JobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    except JobConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"job_id": job_id, "rq_job_id": rq_id, "status": "queued"}
 
 
 @router.post("/{job_id}/cancel")
 async def api_cancel_job(job_id: str, db: DbDep) -> dict[str, str]:
-    job = await get_job(db, job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if job.rq_job_id:
-        with contextlib.suppress(Exception):
-            from rq.job import Job as RqJob
-
-            from app.queue import get_redis
-
-            rq_job = RqJob.fetch(job.rq_job_id, connection=get_redis())
-            rq_job.cancel()
-    await update_job_status(db, job_id, JobStatus.cancelled)
+    try:
+        await cancel_job(db, job_id)
+    except JobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    except JobConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"job_id": job_id, "status": "cancelled"}
 
 

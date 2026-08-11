@@ -5,8 +5,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint": "node scripts/lint.mjs && node scripts/check-store.mjs && node --test test/server-url.test.mjs",
-    "test": "node --test test/server-url.test.mjs",
+    "lint": "node scripts/lint.mjs && node scripts/check-store.mjs && node --test test/*.test.mjs",
+    "test": "node --test test/*.test.mjs",
     "check:store": "node scripts/check-store.mjs",
     "check:package": "node scripts/check-package.mjs",
     "lint:firefox": "npm run build:firefox && web-ext lint -s dist/firefox",

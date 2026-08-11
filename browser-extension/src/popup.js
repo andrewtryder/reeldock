@@ -1,16 +1,9 @@
 import { isYouTubeWatchUrl } from './settings.js';
+import { phaseLabel, statusLabel } from './phase-labels.js';
+import { isTerminalStatus } from './recent-jobs.js';
 
 function $(id) {
-  if (!id) return null;
-  const normalizedId = typeof id === 'string' && id.startsWith('#') ? id.slice(1) : id;
-  return document.getElementById(normalizedId);
-}
-
-function setExtensionVersionLabel() {
-  const versionEl = $('extension-version');
-  if (!versionEl) return;
-  const runtimeVersion = chrome.runtime?.getManifest?.().version;
-  versionEl.textContent = runtimeVersion || 'unknown';
+  return document.getElementById(id);
 }
 
 function setStatus(text, className = 'pending') {
@@ -20,260 +13,330 @@ function setStatus(text, className = 'pending') {
   el.className = className;
 }
 
-function updateStatusDot(connected) {
-  const dot = $('status-dot');
-  if (!dot) return;
-  if (connected) {
-    dot.className = 'status-dot connected';
-  } else {
-    dot.className = 'status-dot disconnected';
+function showBanner(id, text) {
+  const el = $(id);
+  if (!el) return;
+  if (!text) {
+    el.textContent = '';
+    el.classList.remove('visible');
+    return;
   }
+  el.textContent = text;
+  el.classList.add('visible');
 }
 
-let activeJobId = null;
-
-async function getActiveTabUrl() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab?.url || '';
+function setExtensionVersionLabel() {
+  const versionEl = $('extension-version');
+  if (!versionEl) return;
+  versionEl.textContent = chrome.runtime?.getManifest?.().version || 'unknown';
 }
 
-async function getSettings() {
-  const res = await chrome.runtime.sendMessage({ action: 'getSettings' });
-  if (!res?.ok) throw new Error(res?.error || 'Could not load settings');
-  return res.settings;
+let publicState = {
+  settings: {},
+  jobs: [],
+  capabilities: { ready: false, supports: {} },
+  destinations: { choices: [], selected: '', banner: '' },
+  configured: false,
+};
+
+let selectedQuality = 'standard';
+let activeTab = { url: '', title: '' };
+let pollTimer = null;
+
+function hasActiveJobs(jobs = publicState.jobs) {
+  return (jobs || []).some((job) => !isTerminalStatus(job.status));
 }
 
-async function queueVideo(url, allowReimport = false) {
-  try {
-    const res = await chrome.runtime.sendMessage({ action: 'queue', url, allowReimport });
-    if (!res?.ok) throw new Error(res?.error || 'Queue failed');
-    return res;
-  } catch (err) {
-    throw err;
-  }
+function stopPopupPoll() {
+  if (!pollTimer) return;
+  clearInterval(pollTimer);
+  pollTimer = null;
 }
 
-function renderQueuedJob(data) {
-  // Show result section
-  const result = $('result');
-  const queueForm = $('queue-form');
-  if (!result || !queueForm) return;
-
-  result.classList.add('visible');
-  queueForm.style.display = 'none';
-
-  // Update job info
-  const jobIdEl = $('job-id');
-  const titleEl = $('queued-title');
-  const uploaderEl = $('queued-uploader');
-  if (jobIdEl) jobIdEl.textContent = data.job_id || 'unknown';
-  if (titleEl) titleEl.textContent = data.title || 'Unknown Title';
-  if (uploaderEl) uploaderEl.textContent = `by ${data.uploader || 'Unknown'}`;
-
-  // Update job link (construct proper URL)
-  const jobLink = $('job-link');
-  const serverUrl = data.serverUrl || 'http://localhost:8080';
-  if (jobLink) {
-    if (data.job_url?.startsWith('http://') || data.job_url?.startsWith('https://')) {
-      jobLink.href = data.job_url;
-    } else {
-      jobLink.href = `${serverUrl}${data.job_url || ''}`;
+function startPopupPoll() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    if (!hasActiveJobs()) {
+      stopPopupPoll();
+      return;
     }
-  }
-
-  // Render initial status
-  renderJobStatus(data);
+    try {
+      await refreshState();
+      renderRecent();
+      if (!hasActiveJobs()) stopPopupPoll();
+    } catch {
+      // Keep the last rendered ledger if the worker is asleep or the server is down.
+    }
+  }, 2000);
 }
 
-function renderJobStatus(data) {
-  // Update status badge
-  const statusBadge = $('status-badge');
-  const statusText = $('status-text');
-  if (!statusBadge || !statusText) return;
-
-  if (data.status === 'queued') {
-    statusBadge.className = 'status-badge status-queued';
-    statusBadge.textContent = 'queued';
-    statusText.textContent = 'Queued';
-  } else if (data.status === 'running' || data.status === 'downloading') {
-    statusBadge.className = 'status-badge status-running';
-    statusBadge.textContent = data.status;
-    statusText.textContent = 'Processing';
-  } else if (data.status === 'succeeded') {
-    statusBadge.className = 'status-badge status-succeeded';
-    statusBadge.textContent = 'succeeded';
-    statusText.textContent = 'Complete';
-  } else if (data.status === 'failed') {
-    statusBadge.className = 'status-badge status-failed';
-    statusBadge.textContent = 'failed';
-    statusText.textContent = 'Failed';
-  } else if (data.status === 'cancelled') {
-    statusBadge.className = 'status-badge status-cancelled';
-    statusBadge.textContent = 'cancelled';
-    statusText.textContent = 'Cancelled';
-  }
-
-  // Update progress bar
-  const progressBarFill = $('progress-bar-fill');
-  const progressPercentage = $('progress-percentage');
-  const progressLabel = $('progress-label');
-  if (!progressBarFill || !progressPercentage || !progressLabel) return;
-
-  const progress = data.progress_percent || data.progress || 0;
-  progressBarFill.style.width = `${progress}%`;
-  progressPercentage.textContent = `${Math.round(progress)}%`;
-  progressLabel.textContent = data.progress_label || `Stage: ${data.phase || data.status}` || 'Processing...';
-
-  // Update status dot based on job status
-  if (data.status === 'succeeded' || data.status === 'failed' || data.status === 'cancelled') {
-    updateStatusDot(false); // Terminal status
-  } else {
-    updateStatusDot(true); // Active job
-  }
+async function getActiveTabInfo() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return { url: tab?.url || '', title: tab?.title || '' };
 }
 
-async function init() {
-  let url;
-  try {
-    url = await getActiveTabUrl();
-  } catch (err) {
-    const videoEl = $('video');
-    if (videoEl) videoEl.textContent = 'Could not read current tab.';
-    setStatus('Error reading tab', 'err');
-    return;
-  }
-
-  if (!isYouTubeWatchUrl(url)) {
-    const videoEl = $('video');
-    if (videoEl) videoEl.textContent = 'Not a YouTube video page.';
-    setStatus('Please navigate to a YouTube video page', 'err');
-    return;
-  }
-
+function renderCurrentVideo() {
   const videoElement = $('video');
-  if (videoElement) {
-    videoElement.replaceChildren();
-    videoElement.append('Current video:');
-    videoElement.appendChild(document.createElement('br'));
-    const link = document.createElement('a');
-    link.href = url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.style.wordBreak = 'break-all';
-    link.textContent = url;
-    videoElement.appendChild(link);
+  if (!videoElement) return;
+  videoElement.replaceChildren();
+  if (!isYouTubeWatchUrl(activeTab.url)) {
+    videoElement.append('Not a YouTube video page.');
+    return;
   }
+  const title = (activeTab.title || '').trim() || activeTab.url;
+  videoElement.append('Current video:');
+  videoElement.appendChild(document.createElement('br'));
+  const strong = document.createElement('strong');
+  strong.textContent = title;
+  videoElement.appendChild(strong);
+}
 
-  // Try to load settings
-  let serverUrl = '';
-  let settings = {};
-  try {
-    settings = await getSettings();
-    serverUrl = settings.serverUrl || '';
-    const allowReimportEl = $('allow-reimport');
-    if (allowReimportEl) allowReimportEl.checked = Boolean(settings.allowReimport);
-  } catch (err) {
-    console.error('Error loading settings:', err);
-    setStatus('Failed to load extension settings', 'err');
+function fillDestinationSelect() {
+  const select = $('destination');
+  const field = $('destination-field');
+  if (!select || !field) return;
+  const supports = publicState.capabilities?.supports?.destinations;
+  field.classList.toggle('hidden', !supports);
+  if (!supports) return;
+  select.replaceChildren();
+  for (const choice of publicState.destinations?.choices || [{ value: '', label: 'Server default' }]) {
+    const option = document.createElement('option');
+    option.value = choice.value;
+    option.textContent = choice.label;
+    select.appendChild(option);
   }
+  select.value = publicState.destinations?.selected || '';
+}
 
-  if (!serverUrl) {
-    setStatus('Set the server URL in options first', 'err');
-  } else {
-    setStatus('Ready to queue', 'ok');
+function applyQualityPills() {
+  const field = $('quality-field');
+  const supports = publicState.capabilities?.supports?.quality_presets;
+  field?.classList.toggle('hidden', !supports);
+  selectedQuality = publicState.settings.defaultQuality || 'standard';
+  for (const button of document.querySelectorAll('[data-quality]')) {
+    button.classList.toggle('active', button.dataset.quality === selectedQuality);
   }
+}
 
-  // Enable queue button
+function applyFormDefaults() {
+  const settings = publicState.settings || {};
+  const supports = publicState.capabilities?.supports || {};
+  $('embed-metadata').checked = settings.embedMetadata !== false;
+  $('embed-thumbnail').checked = settings.embedThumbnail !== false;
+  $('embed-chapters').checked = settings.embedChapters !== false;
+  $('allow-reimport').checked = Boolean(settings.allowReimport);
+  const sbRow = $('sponsorblock-row');
+  sbRow?.classList.toggle('hidden', !supports.sponsorblock);
+  $('sponsorblock').checked = Boolean(settings.sponsorblockRemove);
+}
+
+function renderRecent() {
+  const list = $('recent-list');
+  if (!list) return;
+  list.replaceChildren();
+  const jobs = publicState.jobs || [];
+  if (!jobs.length) {
+    const empty = document.createElement('div');
+    empty.className = 'job-meta';
+    empty.textContent = 'No recent imports.';
+    list.appendChild(empty);
+    return;
+  }
+  const supports = publicState.capabilities?.supports || {};
+  for (const job of jobs) {
+    const card = document.createElement('div');
+    card.className = 'job';
+
+    const title = document.createElement('div');
+    title.className = 'job-title';
+    title.textContent = job.title || job.jobId;
+    card.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'job-meta';
+    const bits = [statusLabel(job.status)];
+    if (job.uploader) bits.push(job.uploader);
+    if (job.progressLabel || job.phase) bits.push(job.progressLabel || phaseLabel(job.phase, job.status));
+    meta.textContent = bits.join(' · ');
+    card.appendChild(meta);
+
+    if (!isTerminalStatus(job.status)) {
+      const bar = document.createElement('div');
+      bar.className = 'progress-bar';
+      const fill = document.createElement('div');
+      fill.className = 'progress-fill';
+      if (job.progressPercent == null) {
+        bar.classList.add('indeterminate');
+      } else {
+        fill.style.width = `${Math.max(0, Math.min(100, job.progressPercent))}%`;
+      }
+      bar.appendChild(fill);
+      card.appendChild(bar);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'job-actions';
+
+    const view = document.createElement('button');
+    view.type = 'button';
+    view.className = 'ghost';
+    view.textContent = 'View';
+    view.addEventListener('click', () => send({ action: 'openJob', jobId: job.jobId }));
+    actions.appendChild(view);
+
+    if (supports.cancel && !isTerminalStatus(job.status)) {
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'ghost';
+      cancel.textContent = 'Cancel';
+      cancel.addEventListener('click', () => onCancel(job.jobId));
+      actions.appendChild(cancel);
+    }
+
+    if (supports.retry && (job.status === 'failed' || job.status === 'cancelled')) {
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'ghost';
+      retry.textContent = 'Retry';
+      retry.addEventListener('click', () => onRetry(job.jobId));
+      actions.appendChild(retry);
+    }
+
+    card.appendChild(actions);
+    list.appendChild(card);
+  }
+}
+
+async function send(message) {
+  return chrome.runtime.sendMessage(message);
+}
+
+async function refreshState() {
+  const res = await send({ action: 'getPublicState' });
+  if (!res?.ok) throw new Error(res?.error || 'Could not load extension state');
+  if ('apiToken' in (res.settings || {})) {
+    delete res.settings.apiToken;
+  }
+  publicState = res;
+  return res;
+}
+
+function renderState() {
+  showBanner('legacy-banner', publicState.legacyMessage || '');
+  showBanner('dest-banner', publicState.destinations?.banner || '');
+  fillDestinationSelect();
+  applyQualityPills();
+  applyFormDefaults();
+  renderRecent();
   const queueButton = $('queue');
-  if (!queueButton) return;
-  queueButton.disabled = false;
+  const canQueue = publicState.configured && isYouTubeWatchUrl(activeTab.url);
+  if (queueButton) queueButton.disabled = !canQueue;
+  if (!publicState.configured) {
+    setStatus('Set the server URL and token in Options first', 'err');
+  } else if (publicState.connectionError) {
+    setStatus(publicState.connectionError, 'err');
+  } else if (!isYouTubeWatchUrl(activeTab.url)) {
+    setStatus('Open a YouTube video page', 'err');
+  } else {
+    setStatus('Ready to create an audiobook', 'ok');
+  }
 }
 
-function normalizeQueueResponse(payload) {
-  if (!payload || typeof payload !== 'object') return null;
-  return {
-    ...payload,
-    job_id: payload.job_id || payload.jobId || null,
-    job_url: payload.job_url || payload.jobUrl || null,
-    serverUrl: payload.serverUrl || payload.server_url || null,
-  };
-}
-
-async function onQueue() {
-  const url = await getActiveTabUrl();
-  if (!isYouTubeWatchUrl(url)) {
+async function onQueue(event) {
+  event.preventDefault();
+  if (!isYouTubeWatchUrl(activeTab.url)) {
     setStatus('Not a YouTube video URL', 'err');
     return;
   }
-
-  const allowReimport = $('allow-reimport')?.checked || false;
-
   const queueButton = $('queue');
   queueButton.disabled = true;
-  queueButton.textContent = 'Queuing…';
-
+  queueButton.textContent = 'Creating…';
   try {
-    setStatus('Queuing video...', 'pending');
-
-    const data = normalizeQueueResponse(await queueVideo(url, allowReimport));
-
-    if (data?.ok && data.job_id) {
-      activeJobId = data.job_id;
-      setStatus('Video queued successfully!', 'ok');
-      renderQueuedJob(data);
-
-      // Ask background service worker to own the WebSocket lifecycle.
-      chrome.runtime.sendMessage({ action: 'startWebSocket', jobId: data.job_id }).catch((err) => {
-        console.error('Failed to request WebSocket start:', err);
-      });
-    } else {
-      throw new Error(data?.error || 'Queue response missing job_id');
-    }
+    setStatus('Queuing video…', 'pending');
+    const res = await send({
+      action: 'queue',
+      source: 'popup',
+      url: activeTab.url,
+      destinationFolder: $('destination')?.value,
+      quality: selectedQuality,
+      embedMetadata: $('embed-metadata').checked,
+      embedThumbnail: $('embed-thumbnail').checked,
+      embedChapters: $('embed-chapters').checked,
+      sponsorblockRemove: $('sponsorblock').checked,
+      allowReimport: $('allow-reimport').checked,
+    });
+    if (!res?.ok) throw new Error(res?.error || 'Queue failed');
+    setStatus(`Queued: ${res.title || res.job_id}`, 'ok');
+    await refreshState();
+    renderState();
+    startPopupPoll();
   } catch (err) {
-    console.error('Queue failed:', err);
-    setStatus(`Queue failed: ${err.message}`, 'err');
+    setStatus(err.message || 'Queue failed', 'err');
   } finally {
     queueButton.disabled = false;
-    queueButton.textContent = 'Queue video';
+    queueButton.textContent = 'Create Audiobook';
   }
+}
+
+async function onCancel(jobId) {
+  try {
+    const res = await send({ action: 'cancel', jobId });
+    if (!res?.ok) throw new Error(res?.error || 'Cancel failed');
+    await refreshState();
+    renderState();
+  } catch (err) {
+    setStatus(err.message || 'Cancel failed', 'err');
+  }
+}
+
+async function onRetry(jobId) {
+  try {
+    const res = await send({ action: 'retry', jobId });
+    if (!res?.ok) throw new Error(res?.error || 'Retry failed');
+    await refreshState();
+    renderState();
+    startPopupPoll();
+  } catch (err) {
+    setStatus(err.message || 'Retry failed', 'err');
+  }
+}
+
+$('queue-form')?.addEventListener('submit', onQueue);
+$('open-reeldock')?.addEventListener('click', () => send({ action: 'openReelDock' }));
+
+for (const button of document.querySelectorAll('[data-quality]')) {
+  button.addEventListener('click', () => {
+    selectedQuality = button.dataset.quality;
+    for (const other of document.querySelectorAll('[data-quality]')) {
+      other.classList.toggle('active', other === button);
+    }
+  });
 }
 
 chrome.runtime.onMessage.addListener((message) => {
   if (!message || typeof message.action !== 'string') return;
-
-  if (message.action === 'queueError') {
-    setStatus(`Queue failed: ${message.error || 'Unknown error'}`, 'err');
-    updateStatusDot(false);
-    return;
-  }
-
-  if (message.action === 'websocketConnected') {
-    if (!activeJobId || message.jobId === activeJobId) updateStatusDot(true);
-    return;
-  }
-
-  if (message.action === 'websocketDisconnected' || message.action === 'websocketError') {
-    if (!activeJobId || message.jobId === activeJobId) updateStatusDot(false);
-    return;
-  }
-
-  if (message.action === 'jobUpdate' && message.job) {
-    const job = message.job;
-    if (activeJobId && job.id && job.id !== activeJobId) return;
-
-    renderJobStatus(job);
-    if (job.status === 'failed' && job.error_message) {
-      setStatus(`Queue failed: ${job.error_message}`, 'err');
-    } else if (job.status === 'succeeded') {
-      setStatus('Completed successfully', 'ok');
-    }
+  if (message.action === 'jobUpdate' || message.action === 'jobsChanged') {
+    if (Array.isArray(message.jobs)) publicState.jobs = message.jobs;
+    renderRecent();
+    if (hasActiveJobs()) startPopupPoll();
+    else stopPopupPoll();
   }
 });
 
-// Event listeners
-const queueButton = $('queue');
-if (queueButton) queueButton.addEventListener('click', onQueue);
 setExtensionVersionLabel();
 
-// Initialize
-init();
+(async () => {
+  try {
+    activeTab = await getActiveTabInfo();
+  } catch {
+    activeTab = { url: '', title: '' };
+  }
+  renderCurrentVideo();
+  try {
+    await refreshState();
+    renderState();
+    if (hasActiveJobs()) startPopupPoll();
+  } catch (err) {
+    setStatus(err.message || 'Failed to load extension state', 'err');
+  }
+})();

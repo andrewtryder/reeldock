@@ -276,17 +276,17 @@ class YtDlpService:
         if self.settings.release_smoke_fixture:
             from app.release_smoke import (
                 SMOKE_DURATION_SECONDS,
-                SMOKE_TITLE,
                 SMOKE_UPLOADER,
-                SMOKE_URL,
-                SMOKE_VIDEO_ID,
                 is_smoke_url,
+                smoke_title_for_id,
+                smoke_video_id_from_url,
             )
 
             if is_smoke_url(url):
+                video_id = smoke_video_id_from_url(url) or ""
                 return VideoMetadata(
-                    id=SMOKE_VIDEO_ID,
-                    title=SMOKE_TITLE,
+                    id=video_id,
+                    title=smoke_title_for_id(video_id),
                     uploader=SMOKE_UPLOADER,
                     uploader_id="reeldock_ci",
                     channel=SMOKE_UPLOADER,
@@ -295,7 +295,7 @@ class YtDlpService:
                     upload_date="20260101",
                     thumbnail=None,
                     chapters=[],
-                    webpage_url=SMOKE_URL,
+                    webpage_url=f"https://www.youtube.com/watch?v={video_id}",
                 )
 
         # Pass a list literal so the executable is a fixed first element; the

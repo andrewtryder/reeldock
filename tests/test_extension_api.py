@@ -87,6 +87,12 @@ def mocked_ytdlp(monkeypatch):
 
 
 @pytest.fixture
+def mocked_enqueue(monkeypatch):
+    """Mock Redis enqueue so queue/cancel/retry tests do not need Redis."""
+    monkeypatch.setattr("app.services.jobs.enqueue_job_task", lambda job_id: "rq-job-123")
+
+
+@pytest.fixture
 def mocked_queue(monkeypatch):
     """Mock enqueue_job_task and update_job_status for tests."""
     with monkeypatch.context() as m:
@@ -121,16 +127,47 @@ def _seed_imported_video(video_id: str) -> None:
         conn.commit()
 
 
-def _mark_job_succeeded(job_id: str) -> None:
-    """Mark a job terminal so the WebSocket handler exits without polling."""
+def _mark_job_status(job_id: str, status: str) -> None:
     from app.db import get_sync_session_factory
     from app.models import Job, JobStatus
 
     with get_sync_session_factory()() as session:
         job = session.get(Job, job_id)
         assert job is not None
-        job.status = JobStatus.succeeded
+        job.status = JobStatus(status)
         session.commit()
+
+
+def _mark_job_succeeded(job_id: str) -> None:
+    """Mark a job terminal so the WebSocket handler exits without polling."""
+    _mark_job_status(job_id, "succeeded")
+
+
+def _get_job_row(job_id: str):
+    from app.db import get_sync_session_factory
+    from app.models import Job
+
+    with get_sync_session_factory()() as session:
+        job = session.get(Job, job_id)
+        assert job is not None
+        session.expunge(job)
+        return job
+
+
+def _queue_job(client: TestClient, extra: dict | None = None) -> str:
+    payload = {
+        "url": "https://www.youtube.com/watch?v=test123",
+        "output_title": "",
+        "embed_metadata": True,
+        "embed_thumbnail": True,
+        "embed_chapters": True,
+        "trigger_abs_scan": False,
+    }
+    if extra:
+        payload.update(extra)
+    response = client.post("/api/extension/queue", headers=EXT_AUTH, json=payload)
+    assert response.status_code == 201, response.text
+    return response.json()["job_id"]
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +205,14 @@ def test_extension_status_with_bearer_token(extension_enabled_client):
     assert data["ok"] is True
     assert data["auth_required"] is True
     assert data["app"] == "reeldock"
+    assert data["api_version"] == 1
+    assert data["supports"] == {
+        "destinations": True,
+        "quality_presets": True,
+        "sponsorblock": True,
+        "cancel": True,
+        "retry": True,
+    }
 
 
 def test_extension_status_with_wrong_token(extension_enabled_client):
@@ -493,3 +538,314 @@ def test_extension_api_disabled_in_settings(monkeypatch: pytest.MonkeyPatch):
     response = client.get("/api/extension/status")
     assert response.status_code == 404
     assert "Extension API not enabled" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Destinations
+# ---------------------------------------------------------------------------
+
+
+def test_destinations_return_404_when_disabled(client):
+    response = client.get("/api/extension/destinations")
+    assert response.status_code == 404
+
+
+def test_extension_destinations_requires_token(extension_enabled_client):
+    assert extension_enabled_client.get("/api/extension/destinations").status_code == 401
+
+
+def test_extension_destinations_empty(tmp_path, monkeypatch):
+    output_root = tmp_path / "empty-library"
+    output_root.mkdir()
+    monkeypatch.setenv("EXTENSION_API_ENABLED", "true")
+    monkeypatch.setenv("EXTENSION_API_TOKEN", "test-token-12345")
+    monkeypatch.setenv("OUTPUT_ROOT", str(output_root))
+    monkeypatch.delenv("DEFAULT_DESTINATION_FOLDER", raising=False)
+    import app.config as cfg_module
+
+    cfg_module._settings = None
+    with TestClient(create_app()) as dest_client:
+        response = dest_client.get("/api/extension/destinations", headers=EXT_AUTH)
+    assert response.status_code == 200
+    assert response.json() == {"default": "", "folders": []}
+
+
+def test_extension_destinations_multiple_and_default(tmp_path, monkeypatch):
+    output_root = tmp_path / "library"
+    output_root.mkdir()
+    (output_root / "Lectures").mkdir()
+    (output_root / "Theology").mkdir()
+    monkeypatch.setenv("EXTENSION_API_ENABLED", "true")
+    monkeypatch.setenv("EXTENSION_API_TOKEN", "test-token-12345")
+    monkeypatch.setenv("OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("DEFAULT_DESTINATION_FOLDER", "Theology")
+    import app.config as cfg_module
+
+    cfg_module._settings = None
+    with TestClient(create_app()) as dest_client:
+        response = dest_client.get("/api/extension/destinations", headers=EXT_AUTH)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["default"] == "Theology"
+    assert body["folders"] == ["Lectures", "Theology"]
+    assert all(not name.startswith("/") and ".." not in name for name in body["folders"])
+
+
+def test_extension_destinations_default_missing_falls_back_to_root(tmp_path, monkeypatch):
+    output_root = tmp_path / "library"
+    output_root.mkdir()
+    (output_root / "Lectures").mkdir()
+    monkeypatch.setenv("EXTENSION_API_ENABLED", "true")
+    monkeypatch.setenv("EXTENSION_API_TOKEN", "test-token-12345")
+    monkeypatch.setenv("OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("DEFAULT_DESTINATION_FOLDER", "Theology")
+    import app.config as cfg_module
+
+    cfg_module._settings = None
+    with TestClient(create_app()) as dest_client:
+        response = dest_client.get("/api/extension/destinations", headers=EXT_AUTH)
+    assert response.status_code == 200
+    assert response.json() == {"default": "", "folders": ["Lectures"]}
+
+
+def test_extension_destinations_strips_traversal_names(extension_enabled_client, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.filesystem.FilesystemService.list_folders",
+        lambda self, recursive=False: ["Theology", "../etc", "/var/media", "Lectures"],
+    )
+    response = extension_enabled_client.get("/api/extension/destinations", headers=EXT_AUTH)
+    assert response.status_code == 200
+    assert response.json()["folders"] == ["Theology", "Lectures"]
+    assert response.json()["default"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Queue destination three-state
+# ---------------------------------------------------------------------------
+
+
+def _theology_queue_client(tmp_path, monkeypatch):
+    output_root = tmp_path / "library"
+    output_root.mkdir()
+    (output_root / "Theology").mkdir()
+    monkeypatch.setenv("EXTENSION_API_ENABLED", "true")
+    monkeypatch.setenv("EXTENSION_API_TOKEN", "test-token-12345")
+    monkeypatch.setenv("OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("DEFAULT_DESTINATION_FOLDER", "Theology")
+    import app.config as cfg_module
+
+    cfg_module._settings = None
+    return TestClient(create_app())
+
+
+def _queue_payload(**extra):
+    payload = {
+        "url": "https://www.youtube.com/watch?v=test123",
+        "output_title": "",
+        "embed_metadata": True,
+        "embed_thumbnail": True,
+        "embed_chapters": True,
+        "trigger_abs_scan": False,
+    }
+    payload.update(extra)
+    return payload
+
+
+def test_queue_omit_uses_server_default(tmp_path, monkeypatch, mocked_ytdlp, mocked_enqueue):
+    with _theology_queue_client(tmp_path, monkeypatch) as client:
+        response = client.post("/api/extension/queue", headers=EXT_AUTH, json=_queue_payload())
+        assert response.status_code == 201, response.text
+        job_id = response.json()["job_id"]
+        job = client.get(f"/api/extension/jobs/{job_id}", headers=EXT_AUTH)
+        assert job.json()["destination_folder"] == "Theology"
+        assert _get_job_row(job_id).destination_folder == "Theology"
+
+
+def test_queue_empty_string_is_root(tmp_path, monkeypatch, mocked_ytdlp, mocked_enqueue):
+    with _theology_queue_client(tmp_path, monkeypatch) as client:
+        response = client.post(
+            "/api/extension/queue",
+            headers=EXT_AUTH,
+            json=_queue_payload(destination_folder=""),
+        )
+        assert response.status_code == 201, response.text
+        job_id = response.json()["job_id"]
+        job = client.get(f"/api/extension/jobs/{job_id}", headers=EXT_AUTH)
+        assert job.json()["destination_folder"] == ""
+        assert _get_job_row(job_id).destination_folder is None
+
+
+def test_queue_named_folder_theology(tmp_path, monkeypatch, mocked_ytdlp, mocked_enqueue):
+    with _theology_queue_client(tmp_path, monkeypatch) as client:
+        response = client.post(
+            "/api/extension/queue",
+            headers=EXT_AUTH,
+            json=_queue_payload(destination_folder="Theology"),
+        )
+        assert response.status_code == 201, response.text
+        job_id = response.json()["job_id"]
+        job = client.get(f"/api/extension/jobs/{job_id}", headers=EXT_AUTH)
+        assert job.json()["destination_folder"] == "Theology"
+
+
+# ---------------------------------------------------------------------------
+# Queue quality / SponsorBlock
+# ---------------------------------------------------------------------------
+
+
+def test_extension_queue_maps_quality_and_sponsorblock(
+    extension_enabled_client, mocked_ytdlp, mocked_queue
+):
+    job_id = _queue_job(
+        extension_enabled_client,
+        {"quality": "high", "sponsorblock_remove": True},
+    )
+    job = _get_job_row(job_id)
+    assert job.audio_quality == "192K"
+    assert job.sponsorblock_remove is True
+
+
+def test_extension_queue_default_quality_is_standard(
+    extension_enabled_client, mocked_ytdlp, mocked_queue
+):
+    job_id = _queue_job(extension_enabled_client)
+    job = _get_job_row(job_id)
+    assert job.audio_quality == "128K"
+    assert job.sponsorblock_remove is False
+
+
+def test_extension_queue_rejects_unknown_quality(
+    extension_enabled_client, mocked_ytdlp, mocked_queue
+):
+    response = extension_enabled_client.post(
+        "/api/extension/queue",
+        headers=EXT_AUTH,
+        json={
+            "url": "https://www.youtube.com/watch?v=test123",
+            "quality": "ultra",
+        },
+    )
+    assert response.status_code == 400
+    assert "Unknown quality" in response.text
+
+
+def test_extension_queue_maps_best_quality(extension_enabled_client, mocked_ytdlp, mocked_queue):
+    job_id = _queue_job(extension_enabled_client, {"quality": "best"})
+    assert _get_job_row(job_id).audio_quality == "0"
+
+
+# ---------------------------------------------------------------------------
+# Job GET / cancel / retry
+# ---------------------------------------------------------------------------
+
+
+def test_extension_get_job_happy(extension_enabled_client, mocked_ytdlp, mocked_queue):
+    job_id = _queue_job(extension_enabled_client, {"output_title": "My Book"})
+    response = extension_enabled_client.get(f"/api/extension/jobs/{job_id}", headers=EXT_AUTH)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == job_id
+    assert body["status"] == "queued"
+    assert body["title"] == "My Book"
+    assert body["uploader"] == "Test Uploader"
+    assert body["job_url"] == f"/jobs/{job_id}"
+    assert "final_output_path" not in body
+    assert "log_file_path" not in body
+    assert "rq_job_id" not in body
+    assert "work_dir" not in body
+
+
+def test_extension_get_job_404(extension_enabled_client):
+    response = extension_enabled_client.get("/api/extension/jobs/missing-id", headers=EXT_AUTH)
+    assert response.status_code == 404
+
+
+def test_extension_get_job_bad_token(extension_enabled_client, mocked_ytdlp, mocked_queue):
+    job_id = _queue_job(extension_enabled_client)
+    response = extension_enabled_client.get(
+        f"/api/extension/jobs/{job_id}",
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+    assert response.status_code == 401
+
+
+def test_extension_cancel_job_happy(extension_enabled_client, mocked_ytdlp, mocked_enqueue):
+    job_id = _queue_job(extension_enabled_client)
+    response = extension_enabled_client.post(
+        f"/api/extension/jobs/{job_id}/cancel", headers=EXT_AUTH
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+    assert _get_job_row(job_id).status == "cancelled"
+
+
+def test_extension_cancel_job_409_when_terminal(
+    extension_enabled_client, mocked_ytdlp, mocked_enqueue
+):
+    job_id = _queue_job(extension_enabled_client)
+    _mark_job_succeeded(job_id)
+    response = extension_enabled_client.post(
+        f"/api/extension/jobs/{job_id}/cancel", headers=EXT_AUTH
+    )
+    assert response.status_code == 409
+
+
+def test_extension_cancel_job_404(extension_enabled_client):
+    response = extension_enabled_client.post(
+        "/api/extension/jobs/missing-id/cancel", headers=EXT_AUTH
+    )
+    assert response.status_code == 404
+
+
+def test_extension_cancel_job_bad_token(extension_enabled_client, mocked_ytdlp, mocked_enqueue):
+    job_id = _queue_job(extension_enabled_client)
+    response = extension_enabled_client.post(
+        f"/api/extension/jobs/{job_id}/cancel",
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+    assert response.status_code == 401
+
+
+def test_extension_retry_job_happy(extension_enabled_client, mocked_ytdlp, monkeypatch):
+    monkeypatch.setattr("app.services.jobs.enqueue_job_task", lambda _job_id: "rq-retry-1")
+    job_id = _queue_job(extension_enabled_client)
+    _mark_job_status(job_id, "failed")
+    response = extension_enabled_client.post(
+        f"/api/extension/jobs/{job_id}/retry", headers=EXT_AUTH
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "queued"
+    assert body["rq_job_id"] == "rq-retry-1"
+    assert _get_job_row(job_id).status == "queued"
+
+
+def test_retry_rejects_active_job_with_409(extension_enabled_client, mocked_ytdlp, mocked_enqueue):
+    job_id = _queue_job(extension_enabled_client)
+    response = extension_enabled_client.post(
+        f"/api/extension/jobs/{job_id}/retry", headers=EXT_AUTH
+    )
+    assert response.status_code == 409
+
+
+def test_extension_retry_job_404(extension_enabled_client):
+    response = extension_enabled_client.post(
+        "/api/extension/jobs/missing-id/retry", headers=EXT_AUTH
+    )
+    assert response.status_code == 404
+
+
+def test_extension_retry_job_bad_token(extension_enabled_client, mocked_ytdlp, mocked_enqueue):
+    job_id = _queue_job(extension_enabled_client)
+    _mark_job_status(job_id, "failed")
+    response = extension_enabled_client.post(
+        f"/api/extension/jobs/{job_id}/retry",
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+    assert response.status_code == 401
+
+
+def test_extension_job_routes_disabled_404(client):
+    assert client.get("/api/extension/jobs/any").status_code == 404
+    assert client.post("/api/extension/jobs/any/cancel").status_code == 404
+    assert client.post("/api/extension/jobs/any/retry").status_code == 404

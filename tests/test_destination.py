@@ -36,14 +36,25 @@ def test_resolve_new_folder_overrides_selected():
     )
 
 
-def test_resolve_configured_default_when_blank():
+def test_resolve_configured_default_when_omitted():
     assert (
         resolve_destination_folder(
             new_folder="  ",
-            destination_folder="",
+            destination_folder=None,
             default_destination_folder="Podcasts",
         )
         == "Podcasts"
+    )
+
+
+def test_resolve_explicit_root_ignores_configured_default():
+    assert (
+        resolve_destination_folder(
+            new_folder="",
+            destination_folder="",
+            default_destination_folder="Podcasts",
+        )
+        == ""
     )
 
 
@@ -51,7 +62,7 @@ def test_resolve_library_root_when_no_default():
     assert (
         resolve_destination_folder(
             new_folder="",
-            destination_folder="",
+            destination_folder=None,
             default_destination_folder=None,
         )
         == ""

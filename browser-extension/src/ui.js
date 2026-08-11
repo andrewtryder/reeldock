@@ -65,38 +65,7 @@ export {
   normalizeAndValidateServerUrl as normalizeServerUrl,
 } from './settings.js';
 
-/**
- * Check if URL is a valid YouTube video URL
- * @param {string} url - URL to check
- * @returns {boolean} True if URL is a YouTube video URL
- */
-export function isYouTubeVideoUrl(url) {
-  if (!url) return false;
-
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-
-  const host = parsed.hostname.toLowerCase();
-  if (host === 'youtu.be') {
-    return /^\/[\w-]{11,12}$/.test(parsed.pathname);
-  }
-
-  if (host === 'www.youtube.com' || host === 'youtube.com' || host === 'm.youtube.com') {
-    if (parsed.pathname === '/watch') {
-      return /^[A-Za-z0-9_-]{11,12}$/.test(parsed.searchParams.get('v') || '');
-    }
-    // youtu.be short links can also appear as /shorts/ID
-    if (parsed.pathname.startsWith('/shorts/')) {
-      return /^\/shorts\/[\w-]{11,12}$/.test(parsed.pathname);
-    }
-  }
-
-  return false;
-}
+export { isYouTubeWatchUrl as isYouTubeVideoUrl } from './settings.js';
 
 /**
  * Safely truncate long text with ellipsis

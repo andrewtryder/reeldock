@@ -13,30 +13,25 @@ from app.services.filesystem import FilesystemService, resolve_safe_path
 def resolve_destination_folder(
     *,
     new_folder: str = "",
-    destination_folder: str = "",
+    destination_folder: str | None = None,
     default_destination_folder: str | None = None,
 ) -> str:
     """Resolve the relative destination folder using submit precedence.
 
     Precedence (preview-safe; does not create directories):
       1. non-empty ``new_folder``
-      2. non-empty ``destination_folder``
-      3. configured ``default_destination_folder``
-      4. empty string → audiobook library root (OUTPUT_ROOT)
+      2. ``destination_folder is None`` → configured default (or library root)
+      3. ``destination_folder == ""`` → explicit library root (OUTPUT_ROOT)
+      4. non-empty ``destination_folder`` → that folder
     """
     new_stripped = (new_folder or "").strip()
     if new_stripped:
         return new_stripped
 
-    selected = (destination_folder or "").strip()
-    if selected:
-        return selected
+    if destination_folder is None:
+        return (default_destination_folder or "").strip()
 
-    default = (default_destination_folder or "").strip()
-    if default:
-        return default
-
-    return ""
+    return destination_folder.strip()
 
 
 def blank_destination_option_label(default_destination_folder: str | None) -> str:
@@ -80,7 +75,7 @@ def preview_audiobook_destination(
     settings: Settings,
     *,
     new_folder: str = "",
-    destination_folder: str = "",
+    destination_folder: str | None = None,
     output_title: str = "",
     video_id: str = "",
     filename_template: str | None = None,

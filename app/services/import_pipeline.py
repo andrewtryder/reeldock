@@ -445,7 +445,14 @@ class ImportPipeline:
             bypass_archive = bool(job.allow_reimport) or (job.attempts or 1) > 1
 
             if self.settings.release_smoke_fixture:
-                from app.release_smoke import resolve_fixture_dir, stage_download_fixture
+                from app.release_smoke import (
+                    SMOKE_SLOW_POLL_SECONDS,
+                    SMOKE_SLOW_POLLS,
+                    resolve_fixture_dir,
+                    smoke_should_delay_after_stage,
+                    smoke_should_fail_first_attempt,
+                    stage_download_fixture,
+                )
 
                 fixture_dir = resolve_fixture_dir(self.settings.release_smoke_fixture_dir)
                 log(
@@ -458,18 +465,28 @@ class ImportPipeline:
                 if bypass_archive and self.settings.archive_file:
                     self.settings.archive_file.parent.mkdir(parents=True, exist_ok=True)
                     self.settings.archive_file.touch(exist_ok=True)
-                if self.settings.release_smoke_fail_once and (job.attempts or 1) == 1:
+                fail_once = (
+                    self.settings.release_smoke_fail_once
+                    or smoke_should_fail_first_attempt(job.video_id, job.url)
+                )
+                if fail_once and (job.attempts or 1) == 1:
                     if self.settings.archive_file and job.video_id:
                         self.settings.archive_file.parent.mkdir(parents=True, exist_ok=True)
                         with self.settings.archive_file.open("a", encoding="utf-8") as fh:
                             fh.write(f"{job.video_id}\n")
                         log(
-                            f"[download] RELEASE_SMOKE_FAIL_ONCE: wrote {job.video_id} "
-                            "to archive, failing first attempt"
+                            "[download] smoke fail-once: wrote "
+                            f"{job.video_id} to archive, failing first attempt"
                         )
                     raise PipelineFailedError(
                         "release smoke intentional first-attempt failure after download"
                     )
+                if smoke_should_delay_after_stage(job.video_id, job.url):
+                    log("[download] smoke slow fixture — cancel window")
+                    for _ in range(SMOKE_SLOW_POLLS):
+                        if check_cancelled():
+                            raise PipelineCancelledError()
+                        time.sleep(SMOKE_SLOW_POLL_SECONDS)
             else:
                 dl_cmd = ytdlp_svc.build_download_command(
                     job.url,

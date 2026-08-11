@@ -21,7 +21,8 @@ Queue the YouTube video you are watching into your own ReelDock server.
 
 ReelDock is a helper for a self-hosted ReelDock instance. On a YouTube watch
 or Shorts page, use the toolbar popup or the “Send to ReelDock” context menu
-to queue that video. Your server converts it to an `.m4b` audiobook.
+to queue that video. Recent imports, cancel, and retry stay in the popup.
+Your server converts it to an `.m4b` audiobook.
 
 Requires **Firefox 140** or newer (built-in data-collection consent). Configure
 the ReelDock origin and extension API token in Options. Localhost may use

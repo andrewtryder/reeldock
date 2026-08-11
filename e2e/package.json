@@ -3,8 +3,9 @@
   "private": true,
   "description": "Playwright golden-path E2E against Compose release-smoke stack",
   "scripts": {
-    "test": "playwright test",
-    "test:headed": "playwright test --headed"
+    "test": "playwright test --project=chromium",
+    "test:extension": "playwright test --project=extension",
+    "test:headed": "playwright test --headed --project=chromium"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0"

@@ -1,7 +1,7 @@
 // Builds unpacked extensions for Chrome and Firefox into dist/<browser>/.
 // Copies src/* + icons/, then writes the per-browser manifest at the root.
 
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -18,15 +18,12 @@ async function build(target) {
   // Copy the icons directory (referenced by manifest + notifications API).
   await cp(resolve(ROOT, 'icons'), resolve(dist, 'icons'), { recursive: true });
 
-  // Copy source files the manifest references directly to the dist root,
-  // plus the shared ES modules they import. Skip the standalone src/ folder.
-  const entries = ['popup.html', 'popup.js', 'options.html', 'options.js', 'background.js', 'ui.js'];
-  for (const name of entries) {
-    await cp(resolve(ROOT, 'src', name), resolve(dist, name));
+  // Copy every runtime source file the unpacked extension needs.
+  const srcDir = resolve(ROOT, 'src');
+  for (const name of await readdir(srcDir)) {
+    if (!/\.(js|html)$/.test(name)) continue;
+    await cp(resolve(srcDir, name), resolve(dist, name));
   }
-  // Shared modules imported by the entry points.
-  await cp(resolve(ROOT, 'src', 'settings.js'), resolve(dist, 'settings.js'));
-  await cp(resolve(ROOT, 'src', 'browser-api.js'), resolve(dist, 'browser-api.js'));
 
   // Merge the per-browser manifest with the shared base and write it to the dist root.
   const base = JSON.parse(await readFile(resolve(ROOT, 'manifests', 'base.json'), 'utf8'));

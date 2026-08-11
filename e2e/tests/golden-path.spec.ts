@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const SMOKE_URL = "https://www.youtube.com/watch?v=reeldockSmoke01";
+const SMOKE_URL = "https://www.youtube.com/watch?v=rdSmoke01001";
 
 test("golden path: home → preview → queue → Done", async ({ page }) => {
   await page.goto("/");

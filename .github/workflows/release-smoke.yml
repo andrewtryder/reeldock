@@ -11,13 +11,23 @@ on:
       - "app/services/ffmpeg.py"
       - "app/services/filesystem.py"
       - "app/services/ytdlp.py"
+      - "app/services/jobs.py"
       - "app/release_smoke.py"
       - "app/config.py"
+      - "app/auth.py"
+      - "app/quality.py"
+      - "app/serializers.py"
+      - "app/routes/extension.py"
+      - "app/routes/jobs.py"
+      - "app/routes/ws.py"
       - "Dockerfile"
       - "docker-compose.yml"
       - "scripts/compose-release-smoke.sh"
+      - "scripts/compose-playwright-smoke.sh"
+      - "scripts/compose-extension-e2e.sh"
       - "tests/fixtures/release_smoke/**"
       - "e2e/**"
+      - "browser-extension/**"
       - ".github/workflows/release-smoke.yml"
 
 permissions:
@@ -70,3 +80,33 @@ jobs:
 
       - name: Run Playwright golden path against Compose
         run: ./scripts/compose-playwright-smoke.sh
+
+  extension-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: playwright-golden
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903  # v6.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            e2e/package-lock.json
+            browser-extension/package-lock.json
+
+      - name: Install Playwright and xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb
+          npm ci --prefix e2e
+          npx --prefix e2e playwright install --with-deps chromium
+
+      - name: Run extension E2E against Compose
+        run: ./scripts/compose-extension-e2e.sh

@@ -59,6 +59,10 @@ async def _websocket_endpoint(
     try:
         last_data = initial
         while True:
+            # Worker writes happen on a different connection. Expire so this
+            # long-lived WebSocket session does not keep serving the first
+            # identity-map snapshot (status stuck at queued).
+            db.expire_all()
             current_job = await get_job(db, job_id)
             if not current_job:
                 await websocket.close(code=1000, reason="Job no longer exists")

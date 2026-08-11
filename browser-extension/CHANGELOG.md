@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.10.1...browser-extension-v1.11.0) (2026-08-11)
+
+
+### Features
+
+* **extension:** add job controls, recent imports, and end-to-end coverage ([65fc454](https://github.com/andrewtryder/reeldock/commit/65fc454f80b805e6ebafd5926997d4282b2cbf2f))
+
 ## [1.10.1](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.10.0...browser-extension-v1.10.1) (2026-08-11)
 
 

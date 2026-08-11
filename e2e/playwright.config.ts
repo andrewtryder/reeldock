@@ -18,7 +18,12 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
+      testIgnore: "**/extension/**",
       use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "extension",
+      testMatch: "**/extension/**/*.spec.ts",
     },
   ],
 });

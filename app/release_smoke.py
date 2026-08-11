@@ -51,6 +51,22 @@ def smoke_title_for_id(video_id: str) -> str:
     return SMOKE_TITLES.get(video_id, SMOKE_TITLE)
 
 
+def smoke_should_fail_first_attempt(video_id: str | None, url: str = "") -> bool:
+    """True for the fail-once fixture id (retry should succeed)."""
+    resolved = (video_id or "").strip() or smoke_video_id_from_url(url) or ""
+    return resolved == SMOKE_FAIL_VIDEO_ID
+
+
+def smoke_should_delay_after_stage(video_id: str | None, url: str = "") -> bool:
+    """True for the slow fixture so Cancel can win the race."""
+    resolved = (video_id or "").strip() or smoke_video_id_from_url(url) or ""
+    return resolved == SMOKE_SLOW_VIDEO_ID
+
+
+SMOKE_SLOW_POLL_SECONDS = 0.25
+SMOKE_SLOW_POLLS = 40  # 10s cancel window
+
+
 def resolve_fixture_dir(configured: Path | None) -> Path:
     """Return the directory that contains source.m4a (+ optional cover.jpg)."""
     if configured is not None:

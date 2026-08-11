@@ -44,6 +44,17 @@ let activeTab = { url: '', title: '' };
 
 async function getActiveTabInfo() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (isYouTubeWatchUrl(tab?.url || '')) {
+    return { url: tab.url || '', title: tab.title || '' };
+  }
+  // Popup opened as its own tab (E2E / docked) still prefers an open watch page.
+  const youtubeTabs = await chrome.tabs.query({
+    url: ['https://www.youtube.com/watch*', 'https://m.youtube.com/watch*', 'https://youtu.be/*'],
+  });
+  const watch = youtubeTabs.find((candidate) => isYouTubeWatchUrl(candidate.url || ''));
+  if (watch) {
+    return { url: watch.url || '', title: watch.title || '' };
+  }
   return { url: tab?.url || '', title: tab?.title || '' };
 }
 

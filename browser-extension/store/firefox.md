@@ -25,7 +25,7 @@ to queue that video. Recent imports, cancel, and retry stay in the popup.
 Your server converts it to an `.m4b` audiobook.
 
 Requires **Firefox 140** or newer (built-in data-collection consent). Configure
-the ReelDock origin and extension API token in Options. Localhost may use
+the ReelDock origin and a pairing code (or legacy token) in Options. Localhost may use
 HTTP; any other host must use HTTPS.
 
 Desktop Firefox only for this initial store release. Keep

@@ -32,8 +32,9 @@ menu), the extension sends **only to the ReelDock server URL you configured**:
 - the selected / current YouTube video URL
 - the import options you chose (destination, quality, SponsorBlock, embed
   flags, re-import, ABS scan)
-- the extension API authentication token (`Authorization: Bearer …` on HTTP;
-  the same token as a WebSocket query parameter for job status)
+- the device or legacy API token (`Authorization: Bearer …` on HTTP)
+- paired clients open job WebSockets with a short-lived `?ticket=` (not the
+  long-lived device token). Legacy shared tokens may still use `?token=`.
 
 The extension then receives job status and progress from that same configured
 server.

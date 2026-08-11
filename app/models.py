@@ -260,3 +260,46 @@ class JobAttempt(Base):
     artifact_metadata: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     job: Mapped[Job] = relationship("Job", back_populates="attempts_log")
+
+
+# ---------------------------------------------------------------------------
+# Browser extension pairing
+# ---------------------------------------------------------------------------
+
+
+class ExtensionDevice(Base):
+    __tablename__ = "extension_devices"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    browser: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    platform: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    token_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ExtensionPairingCode(Base):
+    __tablename__ = "extension_pairing_codes"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    code_hmac: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(256), nullable=True)

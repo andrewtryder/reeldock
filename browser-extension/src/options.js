@@ -1,3 +1,4 @@
+import { DEFAULT_DEVICE_NAME, pairWithOrigin } from './pairing.js';
 import {
   loadSettings,
   saveSettings,
@@ -16,6 +17,12 @@ function setHidden(id, hidden) {
 function populate(settings) {
   $('serverUrl').value = settings.serverUrl || '';
   $('apiToken').value = settings.apiToken || '';
+  if ($('deviceName')) {
+    $('deviceName').value = settings.deviceName || DEFAULT_DEVICE_NAME;
+  }
+  if ($('pairingCode')) {
+    $('pairingCode').value = '';
+  }
   $('defaultDestinationFolder').value = settings.defaultDestinationFolder || '';
   $('defaultQuality').value = settings.defaultQuality || 'standard';
   $('embedMetadata').checked = settings.embedMetadata;
@@ -44,6 +51,7 @@ function collect() {
   return {
     serverUrl: $('serverUrl').value.trim(),
     apiToken: $('apiToken').value.trim(),
+    deviceName: $('deviceName')?.value.trim() || DEFAULT_DEVICE_NAME,
     defaultDestinationFolder: destinationFromSelect,
     defaultQuality: $('defaultQuality').value || 'standard',
     embedMetadata: $('embedMetadata').checked,
@@ -115,6 +123,56 @@ async function requestHostPermission(serverUrl) {
     return false;
   }
   return true;
+}
+
+async function onPair() {
+  try {
+    const serverUrl = $('serverUrl').value.trim();
+    const pairingCode = $('pairingCode').value;
+    const deviceName = $('deviceName')?.value.trim() || DEFAULT_DEVICE_NAME;
+    if (!validatedServerOriginOrStatus(serverUrl)) return;
+    if (!(await requestHostPermission(serverUrl))) return;
+    setStatus('Pairing…', true);
+    const paired = await pairWithOrigin({ serverUrl, pairingCode, deviceName });
+    const current = collect();
+    await saveSettings({
+      ...current,
+      serverUrl: paired.origin,
+      apiToken: paired.deviceToken,
+      deviceId: paired.deviceId,
+      deviceName,
+    });
+    $('pairingCode').value = '';
+    $('apiToken').value = paired.deviceToken;
+    setStatus('Paired. Testing connection…', true);
+    await onTest();
+  } catch (err) {
+    setStatus(err.message || 'Pairing failed', false);
+  }
+}
+
+async function onDisconnect() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'revokeDevice' });
+    if (!res?.ok) throw new Error(res?.error || 'Disconnect failed');
+    $('apiToken').value = '';
+    if ($('pairingCode')) $('pairingCode').value = '';
+    setStatus('Disconnected. Pair again to reconnect.', true);
+  } catch (err) {
+    setStatus(err.message || 'Disconnect failed', false);
+  }
+}
+
+async function onDisconnectLocal() {
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'disconnectLocal' });
+    if (!res?.ok) throw new Error(res?.error || 'Local disconnect failed');
+    $('apiToken').value = '';
+    if ($('pairingCode')) $('pairingCode').value = '';
+    setStatus('Disconnected locally. The server device token was not revoked.', true);
+  } catch (err) {
+    setStatus(err.message || 'Local disconnect failed', false);
+  }
 }
 
 async function onSave() {
@@ -205,6 +263,9 @@ for (const button of document.querySelectorAll('[data-quality]')) {
   populate(await loadSettings());
   $('save').addEventListener('click', onSave);
   $('test').addEventListener('click', onTest);
+  $('pair')?.addEventListener('click', onPair);
+  $('disconnect')?.addEventListener('click', onDisconnect);
+  $('disconnectLocal')?.addEventListener('click', onDisconnectLocal);
 
   const initial = await loadSettings();
   if (normalizeAndValidateServerUrl(initial.serverUrl).ok && initial.apiToken) {

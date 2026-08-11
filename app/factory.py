@@ -123,7 +123,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    settings = get_settings()
+    get_settings()
     app = FastAPI(
         title="reeldock",
         description="Selective YouTube → Audiobookshelf importer",
@@ -138,8 +138,7 @@ def create_app() -> FastAPI:
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    if settings.auth_enabled:
-        attach_basic_auth(app, settings)
+    attach_basic_auth(app)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

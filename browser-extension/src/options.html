@@ -398,13 +398,23 @@
     ReelDock Options
   </h1>
 
-  <label for="serverUrl">Server URL</label>
+  <label for="serverUrl">ReelDock origin</label>
   <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8080" />
-  <p class="help-text">Use <code>http://localhost</code> or <code>http://127.0.0.1</code> for a local instance. HTTPS is required for ReelDock servers other than localhost.</p>
+  <p class="help-text">Use <code>http://localhost</code> or <code>http://127.0.0.1</code> for a local instance. Store extensions need a browser-trusted HTTPS origin for any other host.</p>
 
-  <label for="apiToken">API token</label>
-  <input id="apiToken" type="password" placeholder="EXTENSION_API_TOKEN from backend" />
-  <p class="help-text">Required. Must match <code>EXTENSION_API_TOKEN</code> on the ReelDock server.</p>
+  <label for="pairingCode">Pairing code</label>
+  <input id="pairingCode" type="text" placeholder="RDK-XXXX-XXXX" autocomplete="off" />
+  <label for="deviceName">Device name</label>
+  <input id="deviceName" type="text" placeholder="This browser" />
+  <button id="pair" type="button">Pair this browser</button>
+  <p class="help-text">Generate a code on the ReelDock Settings page. The code is not saved.</p>
+
+  <details id="legacy-token-wrap">
+    <summary>Advanced / legacy token</summary>
+    <label for="apiToken">API token</label>
+    <input id="apiToken" type="password" placeholder="Legacy EXTENSION_API_TOKEN" />
+    <p class="help-text">Existing installs can still paste a shared <code>EXTENSION_API_TOKEN</code>. Pairing is recommended.</p>
+  </details>
 
   <div id="legacy-banner" class="help-text hidden">Update ReelDock to enable all extension features.</div>
   <div id="dest-banner" class="help-text hidden"></div>
@@ -490,6 +500,8 @@
 
   <button id="save">Save settings</button>
   <button id="test">Test connection</button>
+  <button id="disconnect" type="button">Disconnect and revoke</button>
+  <button id="disconnectLocal" type="button">Disconnect locally without revoking</button>
   <div id="status"></div>
 
   <!-- Status Panel -->

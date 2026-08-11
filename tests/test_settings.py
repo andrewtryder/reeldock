@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import app.config as config_module
@@ -21,6 +22,7 @@ def _reset_runtime_state() -> None:
     config_module._settings = None
     config_module._pinned_sources = {}
     config_module._db_overrides = {}
+    config_module._bootstrap_values = {}
     db_module._async_engine = None
     db_module._async_session_factory = None
     db_module._sync_engine = None
@@ -97,6 +99,13 @@ def test_save_and_load_custom_settings(settings_env: Path):
     assert rows["dry_run"] == "true"
 
 
+def _csrf(client: TestClient) -> str:
+    html = client.get("/settings").text
+    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert match, "csrf_token missing from settings page"
+    return match.group(1)
+
+
 def test_get_settings_page(settings_env: Path):
     with TestClient(create_app()) as client:
         response = client.get("/settings")
@@ -112,6 +121,7 @@ def test_post_settings_valid(settings_env: Path, tmp_path: Path):
         response = client.post(
             "/settings",
             data={
+                "csrf_token": _csrf(client),
                 "output_root": str(valid_path),
                 "dry_run": "on",
                 "allow_playlists": "on",
@@ -151,6 +161,7 @@ def test_post_settings_relative(settings_env: Path):
         response = client.post(
             "/settings",
             data={
+                "csrf_token": _csrf(client),
                 "output_root": "some/relative/path",
                 "collision_mode": "append_id",
                 "job_timeout_seconds": "10800",
@@ -174,6 +185,7 @@ def test_post_settings_non_writable(settings_env: Path):
         response = client.post(
             "/settings",
             data={
+                "csrf_token": _csrf(client),
                 "output_root": str(fake_file),
                 "collision_mode": "append_id",
                 "job_timeout_seconds": "10800",
@@ -190,8 +202,21 @@ def test_post_settings_non_writable(settings_env: Path):
         assert "not writable" in response.text.lower()
 
 
-def test_env_locks_setting_in_ui(settings_env: Path, monkeypatch: pytest.MonkeyPatch):
+def test_env_is_bootstrap_not_locked_in_ui_mode(
+    settings_env: Path, monkeypatch: pytest.MonkeyPatch
+):
     monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("REELDOCK_CONFIG_MODE", "ui")
+    _reset_runtime_state()
+    sources = get_setting_sources()
+    assert sources["dry_run"]["locked"] is False
+    assert sources["dry_run"]["label"] == "Deployment default"
+    assert reload_settings().dry_run is True
+
+
+def test_env_locks_setting_in_locked_mode(settings_env: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("REELDOCK_CONFIG_MODE", "locked")
     _reset_runtime_state()
     sources = get_setting_sources()
     assert sources["dry_run"]["locked"] is True
@@ -205,6 +230,7 @@ def test_extra_args_reject_shell_injection(settings_env: Path):
         response = client.post(
             "/settings",
             data={
+                "csrf_token": _csrf(client),
                 "output_root": str(valid_path),
                 "ytdlp_extra_args": "--verbose; rm -rf /",
                 "collision_mode": "append_id",
@@ -220,3 +246,131 @@ def test_extra_args_reject_shell_injection(settings_env: Path):
         )
         assert response.status_code == 400
         assert "shell metacharacters" in response.text.lower()
+
+
+def _base_form(output_root: Path, extra: dict[str, str] | None = None) -> dict[str, str]:
+    data = {
+        "output_root": str(output_root),
+        "collision_mode": "append_id",
+        "job_timeout_seconds": "10800",
+        "retry_max": "3",
+        "retry_interval_seconds": "60,300,900",
+        "max_playlist_entries": "100",
+        "output_extension": "m4b",
+        "filename_template": "{title}.m4b",
+        "allowed_domains": "youtube.com",
+        **_LOUDNESS_FORM_FIELDS,
+    }
+    if extra:
+        data.update(extra)
+    return data
+
+
+def test_reset_endpoint_clears_override_and_does_not_rewrite(
+    settings_env: Path,
+) -> None:
+    from app.db import get_sync_session_factory
+    from app.models import AppSetting
+
+    save_settings({"dry_run": "true"})
+    assert reload_settings().dry_run is True
+
+    with TestClient(create_app()) as client:
+        html = client.get("/settings").text
+        assert 'action="/settings/reset"' in html
+        assert 'name="key" value="dry_run"' in html
+        assert 'name="reset_dry_run"' not in html
+        response = client.post(
+            "/settings/reset",
+            data={"csrf_token": _csrf(client), "key": "dry_run"},
+        )
+        assert response.status_code == 200
+        assert "reset to the deployment/default" in response.text.lower()
+
+    assert reload_settings().dry_run is False
+    with get_sync_session_factory()() as session:
+        assert session.get(AppSetting, "dry_run") is None
+
+
+def test_enabling_auth_without_password_does_not_persist(settings_env: Path) -> None:
+    from app.db import get_sync_session_factory
+    from app.models import AppSetting
+
+    with pytest.raises(ValueError, match="AUTH_ENABLED"):
+        save_settings({"auth_enabled": "true", "auth_username": "admin"})
+
+    with get_sync_session_factory()() as session:
+        assert session.get(AppSetting, "auth_enabled") is None
+    assert reload_settings().auth_enabled is False
+
+
+def test_reset_password_rejected_while_auth_enabled(settings_env: Path) -> None:
+    from app.db import get_sync_session_factory
+    from app.models import AppSetting
+
+    save_settings(
+        {
+            "auth_enabled": "true",
+            "auth_username": "admin",
+            "auth_password": "s3cret-pass",
+        }
+    )
+    with TestClient(create_app()) as client:
+        client.auth = ("admin", "s3cret-pass")
+        response = client.post(
+            "/settings/reset",
+            data={"csrf_token": _csrf(client), "key": "auth_password"},
+        )
+        assert response.status_code == 400
+
+    settings = reload_settings()
+    assert settings.auth_enabled is True
+    assert settings.auth_password == "s3cret-pass"
+    with get_sync_session_factory()() as session:
+        assert session.get(AppSetting, "auth_password") is not None
+
+
+def test_password_confirm_mismatch_is_400(settings_env: Path, tmp_path: Path) -> None:
+    output = tmp_path / "out"
+    output.mkdir()
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/settings",
+            data=_base_form(
+                output,
+                {
+                    "csrf_token": _csrf(client),
+                    "auth_enabled": "on",
+                    "auth_username": "admin",
+                    "auth_password": "new-pass-1",
+                    "auth_password_confirm": "new-pass-2",
+                },
+            ),
+        )
+        assert response.status_code == 400
+        assert "confirmation do not match" in response.text.lower()
+    assert reload_settings().auth_enabled is False
+
+
+def test_password_confirm_match_saves(settings_env: Path, tmp_path: Path) -> None:
+    output = tmp_path / "out"
+    output.mkdir()
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/settings",
+            data=_base_form(
+                output,
+                {
+                    "csrf_token": _csrf(client),
+                    "auth_enabled": "on",
+                    "auth_username": "admin",
+                    "auth_password": "new-pass-1",
+                    "auth_password_confirm": "new-pass-1",
+                },
+            ),
+        )
+        assert response.status_code == 200
+    settings = reload_settings()
+    assert settings.auth_enabled is True
+    assert settings.auth_username == "admin"
+    assert settings.auth_password == "new-pass-1"

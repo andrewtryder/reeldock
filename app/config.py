@@ -1,10 +1,11 @@
 """Application configuration.
 
-Priority (highest to lowest):
-  1. Environment variables (including .env)
-  2. YAML config file (/config/config.yaml)
-  3. Database overrides (Web UI)
-  4. Defaults defined here
+Modes (REELDOCK_CONFIG_MODE):
+  ui (default): DB/UI override > env/YAML bootstrap > defaults
+  locked:       env/YAML > DB > defaults  (env/YAML-backed fields are read-only)
+
+Blank environment/YAML values are treated as unset so Compose-injected empty
+strings do not pin or lock UI-managed settings.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.path_checks import check_writable_directory
@@ -45,6 +46,7 @@ def _load_yaml() -> dict[str, Any]:
             "AUTH_ENABLED": app.get("auth_enabled", None),
             "AUTH_USERNAME": app.get("auth_username", None),
             "AUTH_PASSWORD": app.get("auth_password", None),
+            "EXTENSION_PUBLIC_URL": app.get("extension_public_url", None),
         }
     )
 
@@ -105,8 +107,8 @@ def _load_yaml() -> dict[str, Any]:
         }
     )
 
-    # Remove None values so they don't override env vars
-    return {k: v for k, v in flat.items() if v is not None}
+    # Remove None / blank values so Compose empties and missing YAML keys stay unset
+    return {k: v for k, v in flat.items() if v is not None and v != ""}
 
 
 # ---------------------------------------------------------------------------
@@ -160,9 +162,14 @@ class Settings(BaseSettings):
     extension_api_token: str | None = Field(
         None,
         alias="EXTENSION_API_TOKEN",
-        description="Required bearer token when EXTENSION_API_ENABLED=true. "
-        "Send Authorization: Bearer <token> or X-REELDOCK-Token.",
+        description="Legacy shared bearer token. Prefer per-browser pairing.",
     )
+    extension_public_url: str | None = Field(
+        None,
+        alias="EXTENSION_PUBLIC_URL",
+        description="Advertised origin browsers should use to reach this instance.",
+    )
+    reeldock_config_mode: str = Field("ui", alias="REELDOCK_CONFIG_MODE")
 
     # ── Infrastructure ───────────────────────────────────────────────────────
     redis_url: str = Field("redis://redis:6379/0", alias="REDIS_URL")
@@ -293,12 +300,13 @@ class Settings(BaseSettings):
                 )
         return self
 
-    @model_validator(mode="after")
-    def validate_extension_api_token_required(self) -> Settings:
-        """Refuse to start with the extension API enabled but no token."""
-        if self.extension_api_enabled and not self.extension_api_token:
-            raise ValueError("EXTENSION_API_ENABLED=true requires a non-empty EXTENSION_API_TOKEN")
-        return self
+    @field_validator("reeldock_config_mode", mode="before")
+    @classmethod
+    def validate_config_mode(cls, v: Any) -> str:  # noqa: ANN401
+        raw = str(v or "ui").strip().lower()
+        if raw not in {"ui", "locked"}:
+            raise ValueError("REELDOCK_CONFIG_MODE must be 'ui' or 'locked'")
+        return raw
 
     # ── Computed helpers ──────────────────────────────────────────────────────
 
@@ -319,45 +327,101 @@ class Settings(BaseSettings):
 _settings: Settings | None = None
 _pinned_sources: dict[str, str] = {}
 _db_overrides: dict[str, str] = {}
+_bootstrap_values: dict[str, Any] = {}
+
+# Even in ui mode these stay deployment-locked when env/YAML provides a value.
+DEPLOYMENT_BOUND_KEYS = frozenset({"output_root"})
 
 
 def _parse_dotenv_keys() -> set[str]:
-    """Return env var names declared in the project .env file."""
+    """Return non-blank env var names declared in the project .env file."""
+    return set(_parse_dotenv_values().keys())
+
+
+def _parse_dotenv_values() -> dict[str, str]:
     env_path = Path(".env")
     if not env_path.exists():
-        return set()
-    keys: set[str] = set()
+        return {}
+    values: dict[str, str] = {}
     for line in env_path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
-        if "=" not in stripped:
+        key, _, raw = stripped.partition("=")
+        value = raw.strip().strip("'").strip('"')
+        if value:
+            values[key.strip()] = value
+    return values
+
+
+def _nonblank_env(alias: str) -> str | None:
+    if alias in os.environ:
+        raw = os.environ[alias]
+        if raw != "":
+            return raw
+    if alias not in _parse_dotenv_keys():
+        return None
+    return _parse_dotenv_values().get(alias) or None
+
+
+def _config_mode() -> str:
+    raw = (_nonblank_env("REELDOCK_CONFIG_MODE") or "ui").strip().lower()
+    return raw if raw in {"ui", "locked"} else "ui"
+
+
+def _alias_to_field() -> dict[str, str]:
+    return {
+        (field.alias if isinstance(field.alias, str) else name): name
+        for name, field in Settings.model_fields.items()
+    }
+
+
+def _yaml_as_field_map(yaml_flat: dict[str, Any]) -> dict[str, Any]:
+    mapping = _alias_to_field()
+    out: dict[str, Any] = {}
+    for alias, value in yaml_flat.items():
+        field_name = mapping.get(alias)
+        if field_name is None:
             continue
-        key, _ = stripped.split("=", 1)
-        keys.add(key.strip())
-    return keys
+        out[field_name] = value
+    return out
+
+
+def _env_as_field_map() -> dict[str, Any]:
+    mapping = _alias_to_field()
+    out: dict[str, Any] = {}
+    for alias in mapping:
+        raw = _nonblank_env(alias)
+        if raw is None:
+            continue
+        out[mapping[alias]] = raw
+    return out
 
 
 def _collect_pinned_sources() -> dict[str, str]:
-    """Return env aliases pinned by environment or YAML (highest precedence layers)."""
+    """Return env aliases that lock the UI field."""
     from app.settings_registry import SETTINGS_REGISTRY
 
-    env_at_start = set(os.environ.keys())
-    dotenv_keys = _parse_dotenv_keys()
+    mode = _config_mode()
     yaml_flat = _load_yaml()
     pinned: dict[str, str] = {}
-    for env_alias in {spec.env_alias for spec in SETTINGS_REGISTRY}:
-        if env_alias in env_at_start or env_alias in dotenv_keys:
-            pinned[env_alias] = "env"
-        elif env_alias in yaml_flat:
-            pinned[env_alias] = "yaml"
+    for spec in SETTINGS_REGISTRY:
+        env_val = _nonblank_env(spec.env_alias)
+        yaml_set = spec.env_alias in yaml_flat
+        bound = spec.key in DEPLOYMENT_BOUND_KEYS or not spec.mutable
+        locks = mode == "locked" or bound
+        if env_val is not None and locks:
+            pinned[spec.env_alias] = "env"
+        elif yaml_set and locks:
+            pinned[spec.env_alias] = "yaml"
     return pinned
 
 
-def _load_db_overrides(settings: Settings, pinned: dict[str, str]) -> dict[str, str]:
-    """Apply database overrides for mutable, non-pinned settings."""
+def _load_db_override_map() -> dict[str, str]:
+    """Return decrypted DB overrides keyed by Settings field name."""
     from app.models import AppSetting
-    from app.settings_registry import SETTINGS_BY_KEY, coerce_storage_value
+    from app.secret_store import SecretStoreError, decrypt_secret, is_encrypted_value
+    from app.settings_registry import SETTINGS_BY_KEY
 
     overrides: dict[str, str] = {}
     try:
@@ -368,71 +432,183 @@ def _load_db_overrides(settings: Settings, pinned: dict[str, str]) -> dict[str, 
         factory = get_sync_session_factory()
         with factory() as session:
             rows = session.scalars(select(AppSetting)).all()
+            encrypted_present = any(is_encrypted_value(row.value) for row in rows)
             for row in rows:
                 spec = SETTINGS_BY_KEY.get(row.key)
-                if spec is None or not spec.mutable or spec.secret:
-                    continue
-                if spec.env_alias in pinned:
+                if spec is None or not spec.mutable:
                     continue
                 if row.value is None:
                     continue
-                overrides[row.key] = row.value
-                setattr(settings, row.key, coerce_storage_value(row.value, spec))
+                value = row.value
+                if spec.secret or is_encrypted_value(value):
+                    try:
+                        value = decrypt_secret(value)
+                    except SecretStoreError:
+                        if encrypted_present:
+                            raise
+                        continue
+                overrides[row.key] = value
+    except SecretStoreError:
+        raise
     except Exception:
         return overrides
     return overrides
 
 
+def _settings_from_mapping(data: dict[str, Any]) -> Settings:
+    """Validate a merged mapping without re-reading process environment."""
+
+    class _Frozen(Settings):
+        @classmethod
+        def settings_customise_sources(  # type: ignore[override]
+            cls,
+            settings_cls: type,
+            init_settings: object,
+            env_settings: object,
+            dotenv_settings: object,
+            file_secret_settings: object,
+        ) -> tuple[object, ...]:
+            return (init_settings,)
+
+    alias_data: dict[str, Any] = {}
+    for name, field in Settings.model_fields.items():
+        if name not in data:
+            continue
+        alias = field.alias if isinstance(field.alias, str) else name
+        alias_data[alias] = data[name]
+    return _Frozen(**alias_data)
+
+
 def get_setting_sources() -> dict[str, dict[str, Any]]:
-    """Return effective value, source, and lock state for registry settings."""
+    """Return effective value, source, lock state, and display label."""
     from app.settings_registry import SETTINGS_REGISTRY, format_setting_value
 
     settings = get_settings()
     sources: dict[str, dict[str, Any]] = {}
     for spec in SETTINGS_REGISTRY:
         pinned_source = _pinned_sources.get(spec.env_alias)
-        if pinned_source:
-            source = pinned_source
-            locked = True
-        elif spec.key in _db_overrides:
+        if spec.key in _db_overrides and not pinned_source:
             source = "db"
+            label = "UI override"
+            locked = False
+        elif pinned_source:
+            source = pinned_source
+            label = (
+                "Deployment locked"
+                if (
+                    not spec.mutable
+                    or spec.key in DEPLOYMENT_BOUND_KEYS
+                    or _config_mode() == "locked"
+                )
+                else "Deployment default"
+            )
+            locked = True
+        elif spec.key in _bootstrap_values:
+            source = "env"
+            label = "Deployment default"
             locked = False
         else:
             source = "default"
+            label = "Application default"
             locked = False
+        if not spec.mutable:
+            locked = True
+            label = "Deployment locked"
         value = getattr(settings, spec.key)
+        display = "" if spec.secret else format_setting_value(value, spec)
         sources[spec.key] = {
-            "value": format_setting_value(value, spec),
+            "value": display,
             "source": source,
-            "locked": locked or not spec.mutable,
+            "label": label,
+            "locked": locked,
             "restart_required": spec.restart_required,
+            "secret": spec.secret,
+            "has_value": bool(value) if spec.secret else True,
         }
     return sources
 
 
-def save_settings(overrides: dict[str, str]) -> None:
-    """Persist UI overrides to app_settings, skipping pinned/immutable keys."""
+def _merge_setting_layers(
+    bootstrap: dict[str, Any],
+    db_map: dict[str, Any],
+    pinned: dict[str, str],
+) -> dict[str, Any]:
+    from app.settings_registry import SETTINGS_BY_KEY
+
+    if _config_mode() == "locked":
+        return {**db_map, **bootstrap}
+    merged = {**bootstrap, **db_map}
+    for spec in SETTINGS_BY_KEY.values():
+        if spec.env_alias in pinned and spec.key in db_map and spec.key in bootstrap:
+            merged[spec.key] = bootstrap[spec.key]
+    return merged
+
+
+def preview_merged_settings(
+    overrides: dict[str, str],
+    *,
+    clear_keys: set[str] | None = None,
+) -> Settings:
+    """Build the Settings object that would result from a save, without writing."""
+    from app.settings_registry import SETTINGS_BY_KEY
+
+    get_settings()
+    db_map = dict(_load_db_override_map())
+    pinned = _collect_pinned_sources()
+    for key in clear_keys or set():
+        spec = SETTINGS_BY_KEY.get(key)
+        if spec is None or not spec.mutable or spec.env_alias in pinned:
+            continue
+        db_map.pop(key, None)
+    for key, value in overrides.items():
+        spec = SETTINGS_BY_KEY.get(key)
+        if spec is None or not spec.mutable or spec.env_alias in pinned:
+            continue
+        if spec.secret and value == "":
+            continue
+        db_map[key] = value
+    merged = _merge_setting_layers(_bootstrap_values, db_map, pinned)
+    try:
+        return _settings_from_mapping(merged)
+    except (ValidationError, ValueError) as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def save_settings(overrides: dict[str, str], *, clear_keys: set[str] | None = None) -> None:
+    """Persist UI overrides. Secrets are encrypted. Blank secrets are omitted."""
     from app.models import AppSetting
+    from app.secret_store import encrypt_secret
     from app.settings_registry import SETTINGS_BY_KEY
 
     pinned = _collect_pinned_sources()
+    to_clear = clear_keys or set()
+    preview_merged_settings(overrides, clear_keys=to_clear)
     try:
         from app.db import get_sync_session_factory
 
         factory = get_sync_session_factory()
         with factory() as session:
+            for key in to_clear:
+                spec = SETTINGS_BY_KEY.get(key)
+                if spec is None or not spec.mutable or spec.env_alias in pinned:
+                    continue
+                row = session.get(AppSetting, key)
+                if row is not None:
+                    session.delete(row)
             for key, value in overrides.items():
                 spec = SETTINGS_BY_KEY.get(key)
-                if spec is None or not spec.mutable or spec.secret:
+                if spec is None or not spec.mutable:
                     continue
                 if spec.env_alias in pinned:
                     continue
+                if spec.secret and value == "":
+                    continue
+                stored = encrypt_secret(value) if spec.secret else value
                 row = session.get(AppSetting, key)
                 if row is None:
-                    row = AppSetting(key=key, value=value)
-                    session.add(row)
+                    session.add(AppSetting(key=key, value=stored))
                 else:
-                    row.value = value
+                    row.value = stored
             session.commit()
     except Exception as exc:
         raise RuntimeError(f"Failed to save settings: {exc}") from exc
@@ -441,28 +617,41 @@ def save_settings(overrides: dict[str, str]) -> None:
     _settings = None
 
 
+def reset_setting(key: str) -> None:
+    """Remove a DB override so the deployment/default value is used again."""
+    save_settings({}, clear_keys={key})
+
+
 def reload_settings() -> Settings:
     """Force settings reload and return a fresh settings instance."""
-    global _settings, _pinned_sources, _db_overrides
+    global _settings, _pinned_sources, _db_overrides, _bootstrap_values
     _settings = None
     _pinned_sources = {}
     _db_overrides = {}
+    _bootstrap_values = {}
     return get_settings()
 
 
 def get_settings() -> Settings:
-    """Return cached settings instance, merging YAML values under env vars."""
-    global _settings, _pinned_sources, _db_overrides
+    """Return cached Settings built from explicit sources (no os.environ mutation)."""
+    global _settings, _pinned_sources, _db_overrides, _bootstrap_values
     if _settings is None:
+        from app.settings_registry import SETTINGS_BY_KEY
+
+        yaml_fields = _yaml_as_field_map(_load_yaml())
+        env_fields = _env_as_field_map()
+        bootstrap = {**yaml_fields, **env_fields}
+        _bootstrap_values = dict(bootstrap)
+        # Assign bootstrap first so get_sync_engine() re-entry during DB load
+        # does not recurse into get_settings().
+        _settings = _settings_from_mapping(bootstrap)
+        db_map = _load_db_override_map()
         _pinned_sources = _collect_pinned_sources()
-        yaml_values = _load_yaml()
-        # Set missing env vars from YAML so pydantic picks them up
-        for key, val in yaml_values.items():
-            if key not in os.environ:
-                if isinstance(val, list):
-                    os.environ[key] = ",".join(str(x) for x in val)
-                else:
-                    os.environ[key] = str(val)
-        _settings = Settings()
-        _db_overrides = _load_db_overrides(_settings, _pinned_sources)
+        merged = _merge_setting_layers(bootstrap, db_map, _pinned_sources)
+        _db_overrides = {
+            key: value
+            for key, value in db_map.items()
+            if SETTINGS_BY_KEY[key].env_alias not in _pinned_sources
+        }
+        _settings = _settings_from_mapping(merged)
     return _settings

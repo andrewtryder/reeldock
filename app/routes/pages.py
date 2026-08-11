@@ -11,7 +11,8 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app.config import Settings, get_setting_sources, reload_settings, save_settings
+from app.config import Settings, get_setting_sources, reload_settings, reset_setting, save_settings
+from app.csrf import issue_csrf_token, validate_csrf_token
 from app.diagnostics import format_free_space
 from app.path_checks import check_writable_directory
 from app.routes import DbDep, SettingsDep
@@ -36,6 +37,8 @@ from app.services.jobs import (
 from app.services.ytdlp import PlaylistEntry, YtDlpService, is_channel_url, is_playlist_url
 from app.settings_registry import (
     COLLISION_CHOICES,
+    SECRET_KEEP_KEYS,
+    SECURITY_FORM_KEYS,
     parse_form_value,
     registry_groups,
 )
@@ -677,13 +680,35 @@ def _build_settings_context(
                     "spec": spec,
                     "value": value,
                     "source": meta["source"],
+                    "label": meta.get("label", meta["source"]),
                     "locked": meta["locked"],
                     "restart_required": meta["restart_required"],
+                    "secret": meta.get("secret", spec.secret),
+                    "has_value": meta.get("has_value", True),
                     "error": (field_errors or {}).get(spec.key),
                     "warning": (field_warnings or {}).get(spec.key),
                 }
             )
         groups.append({"id": group_id, "label": group_label, "fields": fields})
+
+    from sqlalchemy import select
+
+    from app.db import get_sync_session_factory
+    from app.models import ExtensionDevice
+
+    devices: list[ExtensionDevice] = []
+    try:
+        with get_sync_session_factory()() as session:
+            devices = list(
+                session.scalars(select(ExtensionDevice).order_by(ExtensionDevice.created_at.desc()))
+            )
+    except Exception:
+        devices = []
+
+    host = (request.url.hostname or "").lower()
+    loopback = host in {"localhost", "127.0.0.1", "::1"}
+    private_http = request.url.scheme == "http" and not loopback
+
     return {
         "request": request,
         "settings": cfg,
@@ -693,6 +718,20 @@ def _build_settings_context(
         "warnings": warnings or [],
         "library_path_writable": check_writable_directory(cfg.output_root, create=False) is None,
         "library_path": str(cfg.output_root),
+        "csrf_token": issue_csrf_token(),
+        "extension_devices": devices,
+        "config_mode": cfg.reeldock_config_mode,
+        "private_http": private_http,
+        "current_origin": str(request.base_url).rstrip("/"),
+        "deployment": {
+            "app_host": cfg.app_host,
+            "app_port": cfg.app_port,
+            "redis_url": cfg.redis_url,
+            "database_url": cfg.database_url,
+            "output_root": str(cfg.output_root),
+            "work_dir": str(cfg.work_dir),
+            "config_mode": cfg.reeldock_config_mode,
+        },
     }
 
 
@@ -711,7 +750,11 @@ def _process_settings_form(
     for spec in SETTINGS_REGISTRY:
         if not spec.mutable or sources[spec.key]["locked"]:
             continue
+        if spec.key in SECURITY_FORM_KEYS:
+            continue
         raw = form.get(spec.key)
+        if (spec.secret or spec.key in SECRET_KEEP_KEYS) and not (raw or "").strip():
+            continue
         value = parse_form_value(raw, spec)
         if spec.validate:
             error, warning = spec.validate(value)
@@ -726,7 +769,54 @@ def _process_settings_form(
                 f"{spec.label} may require a process restart to take full effect."
             )
 
+    _apply_security_form(form, sources, overrides, errors)
     return overrides, errors, warnings, global_warnings
+
+
+def _apply_security_form(
+    form: dict[str, str],
+    sources: dict[str, dict[str, object]],
+    overrides: dict[str, str],
+    errors: dict[str, str],
+) -> None:
+    from app.settings_registry import SETTINGS_BY_KEY
+
+    for key in SECURITY_FORM_KEYS:
+        spec = SETTINGS_BY_KEY[key]
+        if sources[key]["locked"]:
+            continue
+        if key == "auth_enabled":
+            continue
+        raw = form.get(key, "")
+        if key == "auth_password":
+            if not raw.strip():
+                continue
+            if form.get("auth_password_confirm", "") != raw:
+                errors["auth_password"] = "Password and confirmation do not match."  # noqa: S105
+                continue
+        overrides[key] = parse_form_value(raw, spec)
+
+    if sources["auth_enabled"]["locked"]:
+        return
+
+    want_enabled = form.get("auth_enabled") in {"on", "true", "1", "yes"}
+    currently_enabled = sources["auth_enabled"]["value"] == "true"
+    if want_enabled:
+        overrides["auth_enabled"] = "true"
+        username = (overrides.get("auth_username") or "").strip()
+        password = (overrides.get("auth_password") or "").strip()
+        has_existing_password = bool(sources["auth_password"].get("has_value"))
+        if not username:
+            errors["auth_username"] = "Username is required when sign-in is enabled."
+        if not password and not has_existing_password:
+            errors["auth_password"] = "Password is required when enabling sign-in."  # noqa: S105
+    elif currently_enabled:
+        if form.get("confirm_disable_auth") != "on":
+            errors["auth_enabled"] = "Confirm disable to turn off Web UI sign-in."
+        else:
+            overrides["auth_enabled"] = "false"
+    else:
+        overrides["auth_enabled"] = "false"
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -738,11 +828,25 @@ async def page_settings(request: Request, cfg: SettingsDep) -> HTMLResponse:
     )
 
 
+def _csrf_or_error(form: dict[str, str]) -> str | None:
+    if not validate_csrf_token(form.get("csrf_token")):
+        return "This form expired or was missing a security token. Reload Settings and try again."
+    return None
+
+
 @router.post("/settings", response_class=HTMLResponse)
 async def page_update_settings(request: Request, cfg: SettingsDep) -> HTMLResponse:
     form = {
         key: value for key, value in (await request.form()).multi_items() if isinstance(value, str)
     }
+    csrf_error = _csrf_or_error(form)
+    if csrf_error:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(request, cfg, error=csrf_error),
+            status_code=403,
+        )
     overrides, field_errors, field_warnings, global_warnings = _process_settings_form(form)
 
     if field_errors:
@@ -765,7 +869,19 @@ async def page_update_settings(request: Request, cfg: SettingsDep) -> HTMLRespon
             status_code=400,
         )
 
-    save_settings(overrides)
+    try:
+        save_settings(overrides)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(
+                request,
+                cfg,
+                error=str(exc),
+            ),
+            status_code=400,
+        )
     new_cfg = reload_settings()
 
     return templates.TemplateResponse(
@@ -779,3 +895,197 @@ async def page_update_settings(request: Request, cfg: SettingsDep) -> HTMLRespon
             warnings=global_warnings,
         ),
     )
+
+
+@router.post("/settings/reset", response_class=HTMLResponse)
+async def page_reset_setting(request: Request, cfg: SettingsDep) -> HTMLResponse:
+    form = {
+        key: value for key, value in (await request.form()).multi_items() if isinstance(value, str)
+    }
+    csrf_error = _csrf_or_error(form)
+    if csrf_error:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(request, cfg, error=csrf_error),
+            status_code=403,
+        )
+    key = (form.get("key") or "").strip()
+    from app.settings_registry import SETTINGS_BY_KEY
+
+    spec = SETTINGS_BY_KEY.get(key)
+    if spec is None or not spec.mutable:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(request, cfg, error="That setting cannot be reset."),
+            status_code=400,
+        )
+    try:
+        reset_setting(key)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(request, cfg, error=str(exc)),
+            status_code=400,
+        )
+    new_cfg = reload_settings()
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        _build_settings_context(
+            request, new_cfg, success=f"{spec.label} reset to the deployment/default value."
+        ),
+    )
+
+
+@router.post("/settings/extension/pair-code", response_class=HTMLResponse)
+async def page_create_pairing_code(request: Request, cfg: SettingsDep) -> HTMLResponse:
+    form = {
+        key: value for key, value in (await request.form()).multi_items() if isinstance(value, str)
+    }
+    csrf_error = _csrf_or_error(form)
+    if csrf_error:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(request, cfg, error=csrf_error),
+            status_code=403,
+        )
+    if not cfg.extension_api_enabled:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(
+                request,
+                cfg,
+                error="Enable the browser extension API before pairing a browser.",
+            ),
+            status_code=400,
+        )
+    from app.db import get_sync_session_factory
+    from app.services.pairing import create_pairing_code
+
+    factory = get_sync_session_factory()
+    with factory() as session:
+        _row, code = create_pairing_code(
+            session,
+            created_by=cfg.auth_username,
+            user_agent=request.headers.get("user-agent"),
+        )
+    ctx = _build_settings_context(
+        request, cfg, success="Pairing code created. It expires in 5 minutes."
+    )
+    ctx["pairing_code"] = code
+    ctx["pairing_origin"] = cfg.extension_public_url or str(request.base_url).rstrip("/")
+    return templates.TemplateResponse(request, "settings.html", ctx)
+
+
+@router.post("/settings/extension/devices/{device_id}/revoke", response_class=HTMLResponse)
+async def page_revoke_device(request: Request, device_id: str, cfg: SettingsDep) -> HTMLResponse:
+    form = {
+        key: value for key, value in (await request.form()).multi_items() if isinstance(value, str)
+    }
+    csrf_error = _csrf_or_error(form)
+    if csrf_error:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(request, cfg, error=csrf_error),
+            status_code=403,
+        )
+    from app.db import get_sync_session_factory
+    from app.models import ExtensionDevice
+    from app.queue import get_redis
+    from app.services.pairing import revoke_device
+    from app.services.ws_tickets import mark_device_revoked
+
+    factory = get_sync_session_factory()
+    with factory() as session:
+        device = session.get(ExtensionDevice, device_id)
+        if device is None:
+            return templates.TemplateResponse(
+                request,
+                "settings.html",
+                _build_settings_context(request, cfg, error="Device not found."),
+                status_code=404,
+            )
+        revoke_device(session, device)
+    try:
+        mark_device_revoked(get_redis(), device_id)
+    except Exception:
+        logger.warning("Could not publish device revocation", exc_info=True)
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        _build_settings_context(
+            request, cfg, success="Device revoked. That browser must pair again."
+        ),
+    )
+
+
+@router.post("/settings/extension/devices/revoke-all", response_class=HTMLResponse)
+async def page_revoke_all_devices(request: Request, cfg: SettingsDep) -> HTMLResponse:
+    form = {
+        key: value for key, value in (await request.form()).multi_items() if isinstance(value, str)
+    }
+    csrf_error = _csrf_or_error(form)
+    if csrf_error:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(request, cfg, error=csrf_error),
+            status_code=403,
+        )
+    if (form.get("confirm_text") or "").strip() != "REVOKE":
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            _build_settings_context(
+                request,
+                cfg,
+                error="Type REVOKE to confirm revoking every paired browser.",
+            ),
+            status_code=400,
+        )
+    from sqlalchemy import select
+
+    from app.db import get_sync_session_factory
+    from app.models import ExtensionDevice
+    from app.queue import get_redis
+    from app.services.pairing import revoke_all_devices
+    from app.services.ws_tickets import mark_device_revoked
+
+    factory = get_sync_session_factory()
+    with factory() as session:
+        ids = [row.id for row in session.scalars(select(ExtensionDevice)).all()]
+        count = revoke_all_devices(session)
+    try:
+        redis = get_redis()
+        for device_id in ids:
+            mark_device_revoked(redis, device_id)
+    except Exception:
+        logger.warning("Could not publish device revocations", exc_info=True)
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        _build_settings_context(request, cfg, success=f"Revoked {count} device(s)."),
+    )
+
+
+@router.post("/settings/abs/test")
+async def page_abs_test(request: Request, cfg: SettingsDep) -> JSONResponse:
+    form = {
+        key: value for key, value in (await request.form()).multi_items() if isinstance(value, str)
+    }
+    if not validate_csrf_token(form.get("csrf_token")):
+        raise HTTPException(status_code=403, detail="Invalid security token")
+    from app.services.audiobookshelf import AudiobookshelfClient
+
+    base_url = (form.get("abs_base_url") or cfg.abs_base_url or "").strip()
+    token = (form.get("abs_api_token") or "").strip() or (cfg.abs_api_token or "")
+    libraries, error = AudiobookshelfClient(cfg).list_libraries(base_url=base_url, api_token=token)
+    if error:
+        return JSONResponse({"ok": False, "error": error, "libraries": []}, status_code=400)
+    return JSONResponse({"ok": True, "libraries": libraries})

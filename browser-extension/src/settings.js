@@ -4,6 +4,8 @@ import { MAX_RECENT_JOBS, RECENT_JOBS_KEY } from './recent-jobs.js';
 export const DEFAULT_SETTINGS = Object.freeze({
   serverUrl: '',
   apiToken: '',
+  deviceId: '',
+  deviceName: '',
   defaultDestinationFolder: '',
   defaultQuality: 'standard',
   sponsorblockRemove: false,
@@ -19,6 +21,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
 export const SETTINGS_KEYS = [
   'serverUrl',
   'apiToken',
+  'deviceId',
+  'deviceName',
   'defaultDestinationFolder',
   'defaultQuality',
   'sponsorblockRemove',

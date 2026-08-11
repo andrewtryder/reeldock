@@ -9,14 +9,24 @@
       <h1 class="font-headline-md text-headline-md text-paper font-semibold truncate uppercase tracking-wide">Settings</h1>
     </div>
     <div class="flex items-center gap-stack-md shrink-0">
-      <span class="font-code text-code text-paper-muted opacity-75 uppercase tracking-wider">Configuration Registry</span>
+      <span class="font-code text-code text-paper-muted opacity-75 uppercase tracking-wider">{{ config_mode | default('ui') | e }} mode</span>
     </div>
   </header>
 
   <div class="pt-8 pb-32 px-container-padding max-w-5xl mx-auto w-full">
     <p class="font-body-md text-body-md text-paper-muted mb-stack-lg section-entrance section-entrance-1">
-      Configure global application behavior. Environment and YAML values take precedence and lock their fields.
+      UI-managed settings apply on the next request or job. Deployment-locked fields stay read-only.
     </p>
+
+    {% if private_http %}
+    <div class="mb-6 bg-warning-container/20 border border-warning/25 text-on-warning-container rounded-xl p-4 flex items-start gap-3 shadow-md">
+      <span class="material-symbols-outlined shrink-0">https</span>
+      <div>
+        <p class="font-body-md text-body-md">This Settings page is on private HTTP.</p>
+        <p class="font-label-md text-label-md mt-1">Store-installed browsers need a <strong>browser-trusted HTTPS origin</strong> they can reach — not an exposed Internet URL. Pair with a reverse-proxied HTTPS address, or use loopback for unpacked local testing.</p>
+      </div>
+    </div>
+    {% endif %}
 
     {% if library_path_writable is defined %}
     <div class="mb-6 section-entrance section-entrance-1">
@@ -56,6 +66,16 @@
     </div>
     {% endif %}
 
+    {% if pairing_code is defined and pairing_code %}
+    <div class="bg-panel border border-amber/40 rounded-xl p-4 mb-6 shadow-md">
+      <p class="font-label-md text-label-md text-paper-muted uppercase tracking-wider mb-2">Pair a browser</p>
+      <p class="font-body-md text-body-md mb-2">Copy the origin and code into the extension Options page. The code expires in 5 minutes and can be used once.</p>
+      <p class="font-code text-code break-all mb-1"><span class="text-paper-muted">Origin</span> {{ pairing_origin | e }}</p>
+      <p class="font-code text-headline-sm text-amber tracking-widest" id="pairing-code-value">{{ pairing_code | e }}</p>
+      <button type="button" class="mt-3 px-4 py-2 rounded-lg border border-panel-line font-label-md text-label-md uppercase" data-copy-pairing>Copy origin + code</button>
+    </div>
+    {% endif %}
+
     {% if warnings %}
     <div class="bg-warning-container/20 border border-warning/25 text-on-warning-container rounded-xl p-4 mb-6 shadow-md">
       <div class="flex items-start gap-3">
@@ -70,9 +90,10 @@
     {% endif %}
 
     <form method="POST" action="/settings" class="settings-form settings-layout grid grid-cols-1 md:grid-cols-12 gap-gutter">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token | e }}" />
       <div class="md:col-span-8 flex flex-col gap-stack-md">
         {% for group in setting_groups %}
-        <section class="settings-card section-entrance section-entrance-2 bg-panel border border-panel-line rounded-xl p-stack-md panel-edge">
+        <section class="settings-card section-entrance section-entrance-2 bg-panel border border-panel-line rounded-xl p-stack-md panel-edge" id="group-{{ group.id | e }}">
           <div class="flex items-center gap-2 mb-stack-md pb-3 border-b border-panel-line">
             <span class="material-symbols-outlined text-amber">tune</span>
             <h2 class="font-headline-sm text-headline-sm font-semibold uppercase tracking-wide text-paper">{{ group.label | e }}</h2>
@@ -81,14 +102,12 @@
             {% for field in group.fields %}
             {% set spec = field.spec %}
             <div class="{% if not loop.first and spec.type.value != 'bool' %}border-t border-panel-line/30 pt-4{% elif loop.first %}{% else %}pt-1{% endif %}">
-              {% if spec.type.value == 'bool' %}
+              {% if spec.type.value == 'bool' and spec.key != 'auth_enabled' %}
               <label class="flex items-center justify-between gap-3 rounded-lg border border-panel-line/40 bg-panel-raised px-4 py-3 {% if field.locked %}opacity-60 cursor-not-allowed{% else %}cursor-pointer{% endif %}">
                 <div class="flex flex-col gap-1">
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="font-body-md text-body-md text-paper">{{ spec.label | e }}</span>
-                    {% if field.locked %}
-                    {{ badge(field.source | e, variant='neutral') }}
-                    {% endif %}
+                    {{ badge(field.label | e, variant='neutral') }}
                     {% if field.restart_required %}
                     {{ badge('Restart', variant='warning') }}
                     {% endif %}
@@ -113,15 +132,41 @@
                   <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-paper transition-transform peer-checked:translate-x-5"></span>
                 </span>
               </label>
+              {% if not field.locked and spec.mutable %}
+              <button type="submit" form="reset-{{ spec.key | e }}" class="mt-2 font-label-md text-label-md text-amber uppercase hover:underline">Reset</button>
+              {% endif %}
+              {% elif spec.key == 'auth_enabled' %}
+              <label class="flex items-center justify-between gap-3 rounded-lg border border-panel-line/40 bg-panel-raised px-4 py-3 {% if field.locked %}opacity-60 cursor-not-allowed{% else %}cursor-pointer{% endif %}">
+                <div class="flex flex-col gap-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-body-md text-body-md text-paper">{{ spec.label | e }}</span>
+                    {{ badge(field.label | e, variant='neutral') }}
+                  </div>
+                  <span class="font-label-md text-label-md text-paper-muted">{{ spec.help_text | e }}</span>
+                  {% if field.error %}
+                  <span class="font-label-md text-label-md text-error">{{ field.error | e }}</span>
+                  {% endif %}
+                </div>
+                <span class="relative inline-flex h-6 w-11 items-center shrink-0">
+                  <input type="checkbox" name="auth_enabled" class="peer sr-only" {% if field.value in ['true', 'True', '1', 'on', 'yes'] %}checked{% endif %} {% if field.locked %}disabled{% endif %} />
+                  <span class="absolute inset-0 rounded-full bg-panel-raised peer-checked:bg-amber transition-colors border border-panel-line peer-checked:border-amber"></span>
+                  <span class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-paper transition-transform peer-checked:translate-x-5"></span>
+                </span>
+              </label>
+              {% if settings.auth_enabled and not field.locked %}
+              <label class="mt-3 flex items-center gap-2 font-label-md text-label-md text-paper-muted">
+                <input type="checkbox" name="confirm_disable_auth" />
+                Confirm disable Web UI sign-in
+              </label>
+              {% endif %}
+              {% if not field.locked and spec.mutable %}
+              <button type="submit" form="reset-{{ spec.key | e }}" class="mt-2 font-label-md text-label-md text-amber uppercase hover:underline">Reset</button>
+              {% endif %}
               {% else %}
               <div class="flex flex-col gap-2">
                 <div class="flex items-center gap-2 flex-wrap">
                   <label for="{{ spec.key | e }}" class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">{{ spec.label | e }}</label>
-                  {% if field.locked %}
-                  {{ badge(field.source | e, variant='neutral') }}
-                  {% elif field.source == 'db' %}
-                  {{ badge('UI override', variant='info') }}
-                  {% endif %}
+                  {{ badge(field.label | e, variant='neutral') }}
                   {% if field.restart_required %}
                   {{ badge('Restart', variant='warning') }}
                   {% endif %}
@@ -138,6 +183,20 @@
                   <option value="{{ choice | e }}" {% if field.value == choice %}selected{% endif %}>{{ choice | e }}</option>
                   {% endfor %}
                 </select>
+                {% elif spec.secret %}
+                <input
+                  id="{{ spec.key | e }}"
+                  name="{{ spec.key | e }}"
+                  type="password"
+                  autocomplete="new-password"
+                  placeholder="{% if field.has_value %}Saved — leave blank to keep{% else %}Not set{% endif %}"
+                  class="w-full px-4 py-2 bg-panel-raised border border-panel-line rounded-lg font-code text-code text-paper focus:ring-2 focus:ring-amber focus:border-amber transition-all outline-none {% if field.locked %}opacity-60 cursor-not-allowed{% endif %}"
+                  value=""
+                  {% if field.locked %}disabled readonly{% endif %}
+                />
+                {% if spec.key == 'auth_password' and not field.locked %}
+                <input id="auth_password_confirm" name="auth_password_confirm" type="password" autocomplete="new-password" placeholder="Confirm new password" class="w-full px-4 py-2 bg-panel-raised border border-panel-line rounded-lg font-code text-code text-paper focus:ring-2 focus:ring-amber focus:border-amber transition-all outline-none" />
+                {% endif %}
                 {% elif spec.type.value == 'int' %}
                 <input
                   id="{{ spec.key | e }}"
@@ -167,108 +226,88 @@
                 {% endif %}
 
                 <p class="font-label-md text-label-md text-paper-muted opacity-75 leading-relaxed">{{ spec.help_text | e }}</p>
+                {% if spec.key == 'output_root' %}
+                <p class="font-label-md text-label-md text-paper-muted">Compose bind-mount target. Changing this in the official image does not remount the host volume.</p>
+                {% endif %}
+                {% if spec.key == 'extension_public_url' and not field.locked %}
+                <button type="button" class="self-start font-label-md text-label-md text-amber uppercase" data-use-current-origin data-origin="{{ current_origin | e }}">Use current browser address</button>
+                {% endif %}
                 {% if field.error %}
                 <p class="font-label-md text-label-md text-error">{{ field.error | e }}</p>
                 {% endif %}
                 {% if field.warning %}
                 <p class="font-label-md text-label-md text-warning">{{ field.warning | e }}</p>
                 {% endif %}
+                {% if not field.locked and spec.mutable %}
+                <button type="submit" form="reset-{{ spec.key | e }}" class="self-start font-label-md text-label-md text-amber uppercase hover:underline">Reset</button>
+                {% endif %}
               </div>
               {% endif %}
             </div>
             {% endfor %}
+
+            {% if group.id == 'abs' %}
+            <div class="border-t border-panel-line/30 pt-4 flex flex-wrap gap-2">
+              <button type="button" id="abs-test-btn" class="px-4 py-2 rounded-lg border border-panel-line font-label-md text-label-md uppercase">Test Connection</button>
+              <p id="abs-test-status" class="font-label-md text-label-md text-paper-muted self-center"></p>
+            </div>
+            {% endif %}
+
+            {% if group.id == 'extension' %}
+            <div class="border-t border-panel-line/30 pt-4 space-y-4">
+              <h3 class="font-headline-sm text-headline-sm">Pair a Browser</h3>
+              <p class="font-body-md text-body-md text-paper-muted">Generate a one-use code, then paste the advertised URL and code in the extension Options page. No QR code.</p>
+            </div>
+            {% endif %}
           </div>
         </section>
         {% endfor %}
 
-        <section class="settings-card section-entrance section-entrance-3 bg-panel border border-panel-line rounded-xl p-stack-md shadow-lg">
-          <div class="flex items-center gap-2 mb-stack-md">
-            <span class="material-symbols-outlined text-amber">sync_alt</span>
-            <h2 class="font-headline-sm text-headline-sm font-semibold">Audiobookshelf Integration</h2>
-          </div>
-          {% if settings.abs_configured %}
-          <div class="space-y-stack-md opacity-60">
-            <div class="flex flex-col gap-2">
-              <label class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">ABS Server URL</label>
-              <input class="w-full px-4 py-2 bg-panel-raised/40 border border-panel-line rounded-lg font-code text-code cursor-not-allowed" type="text" value="{{ settings.abs_base_url | e }}" disabled readonly />
-            </div>
-            <div class="flex flex-col gap-2 border-t border-panel-line/30 pt-4">
-              <label class="font-label-md text-label-md text-paper-muted uppercase tracking-wider">API Connection</label>
-              <input class="w-full px-4 py-2 bg-panel-raised/40 border border-panel-line rounded-lg font-code text-code cursor-not-allowed" type="password" value="••••••••••••••••" disabled readonly />
-            </div>
-            <p class="font-label-md text-label-md text-paper-muted">Secrets remain environment-only. Scan behavior is controlled in Runtime Behavior.</p>
-          </div>
-          {% else %}
-          <div class="bg-panel-raised border border-panel-line border-dashed rounded-lg p-4 text-center">
-            <span class="material-symbols-outlined text-[32px] text-paper-muted opacity-50 mb-2">sync_disabled</span>
-            <p class="font-body-md text-paper-muted">Audiobookshelf integration is not configured.</p>
-            <p class="font-label-md text-label-md text-paper-muted opacity-75 mt-1">Set <code>ABS_BASE_URL</code>, <code>ABS_API_TOKEN</code>, and <code>ABS_LIBRARY_ID</code> via environment or YAML.</p>
-          </div>
-          {% endif %}
+        <section class="settings-card bg-panel border border-panel-line rounded-xl p-stack-md">
+          <h2 class="font-headline-sm text-headline-sm font-semibold uppercase tracking-wide text-paper mb-4">Deployment / Diagnostics</h2>
+          <dl class="space-y-2 font-code text-code text-paper-muted">
+            <div class="flex justify-between gap-4"><dt>Mode</dt><dd>{{ deployment.config_mode | e }}</dd></div>
+            <div class="flex justify-between gap-4"><dt>Bind</dt><dd>{{ deployment.app_host | e }}:{{ deployment.app_port | e }}</dd></div>
+            <div class="flex justify-between gap-4"><dt>Redis</dt><dd class="break-all">{{ deployment.redis_url | e }}</dd></div>
+            <div class="flex justify-between gap-4"><dt>Database</dt><dd class="break-all">{{ deployment.database_url | e }}</dd></div>
+            <div class="flex justify-between gap-4"><dt>Library root</dt><dd class="break-all">{{ deployment.output_root | e }}</dd></div>
+            <div class="flex justify-between gap-4"><dt>Work dir</dt><dd class="break-all">{{ deployment.work_dir | e }}</dd></div>
+          </dl>
+          <p class="font-label-md text-label-md text-paper-muted mt-3">Infrastructure fields are deployment-only. Restoring encrypted UI secrets requires the instance key file.</p>
         </section>
       </div>
 
       <div class="md:col-span-4 space-y-stack-md">
-        <div class="settings-card section-entrance section-entrance-2 bg-panel border border-panel-line rounded-xl overflow-hidden shadow-lg">
+        <div class="settings-card bg-panel border border-panel-line rounded-xl overflow-hidden shadow-lg">
           <div class="p-stack-md">
             <h3 class="font-headline-sm text-headline-sm font-semibold mb-3">System Status</h3>
             <div class="space-y-3">
               <div class="flex justify-between items-center py-1.5">
                 <span class="font-body-md text-paper-muted">Dry run</span>
                 <span>
-                  {% if settings.dry_run %}
-                  {{ badge('ENABLED', variant='warning') }}
-                  {% else %}
-                  {{ badge('DISABLED', variant='neutral') }}
-                  {% endif %}
+                  {% if settings.dry_run %}{{ badge('ENABLED', variant='warning') }}{% else %}{{ badge('DISABLED', variant='neutral') }}{% endif %}
                 </span>
               </div>
               <div class="flex justify-between items-center py-1.5 border-t border-panel-line/30">
-                <span class="font-body-md text-paper-muted">Playlist URLs</span>
+                <span class="font-body-md text-paper-muted">Extension API</span>
                 <span>
-                  {% if settings.allow_playlists %}
-                  {{ badge('ALLOWED', variant='success') }}
-                  {% else %}
-                  {{ badge('DISABLED', variant='neutral') }}
-                  {% endif %}
+                  {% if settings.extension_api_enabled %}{{ badge('ON', variant='success') }}{% else %}{{ badge('OFF', variant='neutral') }}{% endif %}
                 </span>
               </div>
               <div class="flex justify-between items-center py-1.5 border-t border-panel-line/30">
-                <span class="font-body-md text-paper-muted">Channel URLs</span>
+                <span class="font-body-md text-paper-muted">Web UI auth</span>
                 <span>
-                  {% if settings.allow_channels %}
-                  {{ badge('ALLOWED', variant='success') }}
-                  {% else %}
-                  {{ badge('DISABLED', variant='neutral') }}
-                  {% endif %}
+                  {% if settings.auth_enabled %}{{ badge('ON', variant='success') }}{% else %}{{ badge('OFF', variant='neutral') }}{% endif %}
                 </span>
               </div>
               <div class="flex justify-between items-center py-1.5 border-t border-panel-line/30">
-                <span class="font-body-md text-paper-muted">Collision mode</span>
-                <span class="font-code text-code text-paper-muted">{{ settings.collision_mode | e }}</span>
-              </div>
-              <div class="flex justify-between items-center py-1.5 border-t border-panel-line/30">
-                <span class="font-body-md text-paper-muted">ABS scan</span>
+                <span class="font-body-md text-paper-muted">ABS</span>
                 <span>
-                  {% if settings.abs_configured and settings.abs_scan_after_success %}
-                  {{ badge('ACTIVE', variant='success') }}
-                  {% else %}
-                  {{ badge('INACTIVE', variant='neutral') }}
-                  {% endif %}
+                  {% if settings.abs_configured %}{{ badge('CONFIGURED', variant='success') }}{% else %}{{ badge('OFF', variant='neutral') }}{% endif %}
                 </span>
               </div>
             </div>
           </div>
-        </div>
-
-        <div class="section-entrance section-entrance-3 bg-ink border border-panel-line border-dashed rounded-xl p-stack-md">
-          <h4 class="font-label-md text-label-md text-paper-muted mb-2">PRECEDENCE</h4>
-          <ol class="list-decimal pl-5 space-y-1 font-body-md text-body-md text-paper-muted">
-            <li>Environment / Docker</li>
-            <li>YAML config file</li>
-            <li>Web UI overrides</li>
-            <li>Application defaults</li>
-          </ol>
         </div>
       </div>
 
@@ -282,6 +321,125 @@
         </div>
       </footer>
     </form>
+    {% for group in setting_groups %}
+      {% for field in group.fields %}
+        {% if not field.locked and field.spec.mutable %}
+        <form id="reset-{{ field.spec.key | e }}" method="POST" action="/settings/reset" class="hidden">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token | e }}" />
+          <input type="hidden" name="key" value="{{ field.spec.key | e }}" />
+        </form>
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+
+    <div class="max-w-5xl mt-8 grid grid-cols-1 md:grid-cols-12 gap-gutter">
+      <section class="md:col-span-8 bg-panel border border-panel-line rounded-xl p-stack-md">
+        <h2 class="font-headline-sm text-headline-sm font-semibold uppercase mb-4">Paired browsers</h2>
+        <form method="POST" action="/settings/extension/pair-code" class="mb-4">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token | e }}" />
+          <button type="submit" class="px-4 py-2 bg-amber-container text-on-amber-container rounded-lg font-label-md text-label-md uppercase">Generate pairing code</button>
+        </form>
+        {% if extension_devices %}
+        <ul class="space-y-3">
+          {% for device in extension_devices %}
+          <li class="border border-panel-line rounded-lg p-3 flex justify-between gap-3 items-start">
+            <div>
+              <p class="font-body-md text-body-md">{{ device.display_name | e }}</p>
+              <p class="font-code text-code text-paper-muted">rdx_{{ device.token_prefix | e }}… {% if device.revoked_at %}revoked{% else %}active{% endif %}</p>
+            </div>
+            {% if not device.revoked_at %}
+            <form method="POST" action="/settings/extension/devices/{{ device.id | e }}/revoke">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token | e }}" />
+              <button type="submit" class="font-label-md text-label-md text-error uppercase">Revoke</button>
+            </form>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        <form method="POST" action="/settings/extension/devices/revoke-all" class="mt-4 space-y-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token | e }}" />
+          <label class="font-label-md text-label-md text-paper-muted">Type REVOKE to disconnect every browser
+            <input name="confirm_text" class="mt-1 w-full px-3 py-2 bg-panel-raised border border-panel-line rounded-lg font-code text-code" />
+          </label>
+          <button type="submit" class="px-4 py-2 border border-error text-error rounded-lg font-label-md text-label-md uppercase">Revoke all devices</button>
+        </form>
+        {% else %}
+        <p class="font-body-md text-paper-muted">No paired browsers yet.</p>
+        {% endif %}
+      </section>
+    </div>
   </div>
 </main>
+<script>
+(() => {
+  const copyBtn = document.querySelector("[data-copy-pairing]");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", async () => {
+      const code = document.getElementById("pairing-code-value")?.textContent?.trim() || "";
+      const origin = {{ (pairing_origin if pairing_origin is defined else current_origin) | tojson }};
+      try {
+        await navigator.clipboard.writeText(`${origin}\n${code}`);
+        copyBtn.textContent = "Copied";
+      } catch {
+        copyBtn.textContent = "Copy failed";
+      }
+    });
+  }
+  const useOrigin = document.querySelector("[data-use-current-origin]");
+  if (useOrigin) {
+    useOrigin.addEventListener("click", () => {
+      const input = document.getElementById("extension_public_url");
+      if (input) input.value = useOrigin.dataset.origin || window.location.origin;
+    });
+  }
+  const pwd = document.getElementById("auth_password");
+  const confirm = document.getElementById("auth_password_confirm");
+  const form = document.querySelector("form.settings-form");
+  form?.addEventListener("submit", (event) => {
+    if (pwd && confirm && pwd.value && pwd.value !== confirm.value) {
+      event.preventDefault();
+      alert("Password and confirmation do not match.");
+    }
+  });
+  const absBtn = document.getElementById("abs-test-btn");
+  if (absBtn) {
+    absBtn.addEventListener("click", async () => {
+      const status = document.getElementById("abs-test-status");
+      const body = new FormData();
+      body.set("csrf_token", document.querySelector("form.settings-form [name=csrf_token]")?.value || "");
+      body.set("abs_base_url", document.getElementById("abs_base_url")?.value || "");
+      body.set("abs_api_token", document.getElementById("abs_api_token")?.value || "");
+      status.textContent = "Testing…";
+      try {
+        const res = await fetch("/settings/abs/test", { method: "POST", body });
+        const data = await res.json();
+        if (!data.ok) {
+          status.textContent = data.error || "Connection failed";
+          return;
+        }
+        status.textContent = `Connected (${data.libraries.length} libraries)`;
+        const select = document.getElementById("abs_library_id");
+        if (select && data.libraries.length) {
+          const current = select.value;
+          select.replaceWith(Object.assign(document.createElement("select"), {
+            id: "abs_library_id",
+            name: "abs_library_id",
+            className: select.className,
+          }));
+          const next = document.getElementById("abs_library_id");
+          for (const lib of data.libraries) {
+            const opt = document.createElement("option");
+            opt.value = lib.id;
+            opt.textContent = lib.name;
+            if (lib.id === current) opt.selected = true;
+            next.appendChild(opt);
+          }
+        }
+      } catch {
+        status.textContent = "Connection failed";
+      }
+    });
+  }
+})();
+</script>
 {% endblock %}

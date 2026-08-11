@@ -90,7 +90,22 @@ The app now keeps a database ledger of successfully imported video IDs and rejec
 
 ---
 
-## 6. Missing Chapters or Thumbnails
+## 6. Settings, pairing, and encrypted secrets
+
+### Encrypted settings will not load
+* **Cause**: UI secrets are encrypted with `/config/.reeldock-settings.key` (or `REELDOCK_SETTINGS_KEY`). A new key cannot decrypt an old database.
+* **Solution**: Restore the original key file from backup. ReelDock will not mint a replacement key when ciphertext already exists.
+
+### Pairing code rejected
+* Codes expire after five minutes and can be used once. Generate a new code from Settings. Enable the browser extension API first.
+* Store extensions need a browser-trusted HTTPS origin, not LAN HTTP (`http://192.168.x`, `http://10.x`).
+
+### Web UI password change did nothing
+* Blank password on Save means **keep**. Use Reset to clear a stored secret.
+
+---
+
+## 7. Missing Chapters or Thumbnails
 
 ### Missing Chapters
 * YouTube chapters are extracted directly from the video creator's timestamp list in the video description. If a video does not have timestamps defined in its description, no chapters can be embedded. This is normal behavior.

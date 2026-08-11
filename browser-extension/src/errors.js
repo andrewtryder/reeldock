@@ -13,7 +13,7 @@ export function detailText(detail) {
 export function formatApiError(status, detail) {
   const extra = detailText(detail);
   if (status === 401) {
-    return 'Invalid extension token. Open Options and paste the matching EXTENSION_API_TOKEN.';
+    return 'Not authorized. Open Options and pair this browser, or paste a legacy EXTENSION_API_TOKEN.';
   }
   if (status === 404) {
     return 'Extension API is not enabled on this ReelDock server.';

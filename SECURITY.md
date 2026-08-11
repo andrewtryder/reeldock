@@ -41,7 +41,7 @@ This repository uses GitHub security workflows to catch issues early:
 For security, the application defaults to binding to `127.0.0.1` (localhost) inside `docker-compose.yml` to prevent unintended public exposure.
 
 If you choose to expose the application to your Local Area Network (LAN) or public internet:
-1. Enable Basic Authentication by setting `AUTH_ENABLED=true`, `AUTH_USERNAME`, and `AUTH_PASSWORD` in `.env`. Empty credentials cause startup failure.
-2. Recreate containers so Compose injects values (`env_file` + explicit `AUTH_*` mappings): `docker compose up -d --force-recreate`.
+1. Enable Basic Authentication from Settings or by setting `AUTH_ENABLED=true` with username/password. Empty credentials with auth enabled cause startup failure.
+2. Recreate containers only when changing deployment env (`docker compose up -d --force-recreate`). UI auth/password changes apply on the next request.
 3. Use a reverse proxy (such as Caddy, Nginx, or Cloudflare Tunnels) with SSL/TLS if routing traffic over public networks.
-4. If enabling the browser extension API, set `EXTENSION_API_ENABLED=true` **and** a non-empty `EXTENSION_API_TOKEN`.
+4. Enable the browser extension API and pair browsers from Settings. `EXTENSION_API_TOKEN` is a legacy shared token, not required to start.

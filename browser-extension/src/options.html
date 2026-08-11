@@ -86,6 +86,64 @@
       color: #c4c6d5;
     }
 
+    .group {
+      margin: 0 0 20px;
+      padding: 14px;
+      background: var(--surface);
+      border: 1px solid var(--outline-variant);
+      border-radius: 10px;
+    }
+
+    .group-title {
+      margin: 0 0 12px;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9aa0b5;
+    }
+
+    .connection-summary {
+      margin-bottom: 12px;
+      padding: 10px;
+      border-radius: 8px;
+      background: var(--surface-variant);
+      border: 1px solid var(--outline-variant);
+      font-size: 0.9rem;
+    }
+
+    .connection-summary.ok {
+      border-color: var(--success);
+      background: rgba(76, 175, 80, 0.12);
+    }
+
+    .connection-summary.err {
+      border-color: var(--error);
+      background: rgba(248, 113, 113, 0.08);
+    }
+
+    .connection-summary .meta {
+      margin-top: 6px;
+      font-size: 0.8rem;
+      color: #c4c6d5;
+    }
+
+    dialog {
+      border: 1px solid var(--outline-variant);
+      border-radius: 10px;
+      background: var(--surface);
+      color: #e2e1eb;
+      padding: 16px;
+      max-width: 360px;
+    }
+
+    dialog menu {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin: 16px 0 0;
+      padding: 0;
+    }
+
     .setting-card {
       margin-top: 12px;
       padding: 12px;
@@ -398,157 +456,143 @@
     ReelDock Options
   </h1>
 
-  <label for="serverUrl">ReelDock origin</label>
-  <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8080" />
-  <p class="help-text">Use <code>http://localhost</code> or <code>http://127.0.0.1</code> for a local instance. Store extensions need a browser-trusted HTTPS origin for any other host.</p>
+  <section class="group" id="connection-group" aria-labelledby="connection-heading">
+    <h2 id="connection-heading" class="group-title">Connection</h2>
+    <div id="connection-summary" class="connection-summary"></div>
+    <div id="connection-form">
+      <label for="serverUrl">ReelDock origin</label>
+      <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8080" />
+      <p class="help-text">
+        Private LAN origins are fine. Use <code>http://localhost</code> / <code>http://127.0.0.1</code>
+        for local testing. Store-installed browsers need a browser-trusted <strong>HTTPS</strong>
+        origin for any non-loopback host — HTTP on RFC1918 is rejected.
+      </p>
 
-  <label for="pairingCode">Pairing code</label>
-  <input id="pairingCode" type="text" placeholder="RDK-XXXX-XXXX" autocomplete="off" />
-  <label for="deviceName">Device name</label>
-  <input id="deviceName" type="text" placeholder="This browser" />
-  <button id="pair" type="button">Pair this browser</button>
-  <p class="help-text">Generate a code on the ReelDock Settings page. The code is not saved.</p>
-
-  <details id="legacy-token-wrap">
-    <summary>Advanced / legacy token</summary>
-    <label for="apiToken">API token</label>
-    <input id="apiToken" type="password" placeholder="Legacy EXTENSION_API_TOKEN" />
-    <p class="help-text">Existing installs can still paste a shared <code>EXTENSION_API_TOKEN</code>. Pairing is recommended.</p>
-  </details>
-
-  <div id="legacy-banner" class="help-text hidden">Update ReelDock to enable all extension features.</div>
-  <div id="dest-banner" class="help-text hidden"></div>
-
-  <div id="destination-select-wrap" class="hidden">
-    <label for="destinationSelect">Default destination</label>
-    <select id="destinationSelect"></select>
-  </div>
-
-  <div id="destination-text-wrap">
-    <label for="defaultDestinationFolder">Default destination folder (optional)</label>
-    <input id="defaultDestinationFolder" type="text" placeholder="Podcasts" />
-  </div>
-
-  <div id="quality-wrap" class="hidden">
-    <label>Default quality</label>
-    <div class="row" id="quality-pills">
-      <button type="button" class="quality-pill" data-quality="standard">Standard</button>
-      <button type="button" class="quality-pill" data-quality="high">High</button>
-      <button type="button" class="quality-pill" data-quality="best">Best</button>
-    </div>
-    <input id="defaultQuality" type="hidden" value="standard" />
-  </div>
-
-  <div class="row">
-    <div class="checkbox-wrapper">
-      <input id="embedMetadata" type="checkbox" />
-      <span class="checkbox-custom"></span>
-    </div>
-    <label for="embedMetadata">Embed metadata</label>
-  </div>
-
-  <div class="row">
-    <div class="checkbox-wrapper">
-      <input id="embedThumbnail" type="checkbox" />
-      <span class="checkbox-custom"></span>
-    </div>
-    <label for="embedThumbnail">Embed thumbnail</label>
-  </div>
-
-  <div class="row">
-    <div class="checkbox-wrapper">
-      <input id="embedChapters" type="checkbox" />
-      <span class="checkbox-custom"></span>
-    </div>
-    <label for="embedChapters">Embed chapters</label>
-  </div>
-
-  <div class="row hidden" id="sponsorblock-row">
-    <div class="checkbox-wrapper">
-      <input id="sponsorblockRemove" type="checkbox" />
-      <span class="checkbox-custom"></span>
-    </div>
-    <label for="sponsorblockRemove">Skip sponsor segments (SponsorBlock)</label>
-  </div>
-
-  <div class="row hidden" id="abs-row">
-    <div class="checkbox-wrapper">
-      <input id="triggerAbsScan" type="checkbox" />
-      <span class="checkbox-custom"></span>
-    </div>
-    <label for="triggerAbsScan">Trigger Audiobookshelf scan after success</label>
-  </div>
-
-  <div class="setting-card">
-    <div class="switch-row">
-      <label class="switch-label" for="openReelDockAfterQueue">Open ReelDock after queueing</label>
-      <label class="switch">
-        <input id="openReelDockAfterQueue" type="checkbox" />
-        <span class="slider"></span>
-      </label>
-    </div>
-    <p class="help-text">Off by default. When on, queueing opens the job page on your ReelDock server.</p>
-  </div>
-
-  <div class="row secondary-row">
-    <div class="checkbox-wrapper">
-      <input id="allowReimport" type="checkbox" />
-      <span class="checkbox-custom"></span>
-    </div>
-    <label for="allowReimport">Allow importing this video again (secondary)</label>
-  </div>
-
-  <button id="save">Save settings</button>
-  <button id="test">Test connection</button>
-  <button id="disconnect" type="button">Disconnect and revoke</button>
-  <button id="disconnectLocal" type="button">Disconnect locally without revoking</button>
-  <div id="status"></div>
-
-  <!-- Status Panel -->
-  <div id="status-panel">
-    <div class="status-panel-header">
-      <span class="status-indicator" id="status-indicator"></span>
-      <h2 style="margin: 0; font-size: 1.1rem;">Connection Status</h2>
-    </div>
-
-    <div class="status-section" id="connection-info">
-      <div class="status-row">
-        <span class="status-label">Overall Status</span>
-        <span>
-          <span class="status-indicator" id="overall-status-indicator"></span>
-          <span id="overall-status">Unknown</span>
-        </span>
+      <div id="pair-fields">
+        <label for="pairingCode">Pairing code</label>
+        <input id="pairingCode" type="text" placeholder="RDK-XXXX-XXXX" autocomplete="off" />
+        <label for="deviceName">Device name</label>
+        <input id="deviceName" type="text" placeholder="This browser" />
+        <button id="pair" type="button">Connect</button>
+        <p class="help-text">Generate a one-use code on the ReelDock Settings page. The code is never stored.</p>
       </div>
 
-      <div class="status-row">
-        <span class="status-label">Connection</span>
-        <span>
-          <span id="connection-status">Unknown</span>
-          <span id="api-status" class="status-badge">Unknown</span>
-        </span>
-      </div>
-
-      <div class="status-row">
-        <span class="status-label">Dry Run</span>
-        <span id="dry-run-status">Unknown</span>
-      </div>
-
-      <div class="status-row">
-        <span class="status-label">Audiobookshelf</span>
-        <span id="abs-configured">Unknown</span>
-      </div>
-
-      <div class="status-row">
-        <span class="status-label">Playlists</span>
-        <span id="playlists-allowed">Unknown</span>
-      </div>
-
-      <div class="status-row">
-        <span class="status-label">Channels</span>
-        <span id="channels-allowed">Unknown</span>
+      <div id="connected-actions" class="hidden">
+        <button id="test" type="button">Test connection</button>
+        <button id="change-server" type="button">Change server</button>
+        <button id="disconnect" type="button">Disconnect and revoke</button>
       </div>
     </div>
-  </div>
+    <div id="status" role="status"></div>
+    <div id="legacy-banner" class="help-text hidden">Update ReelDock to enable all extension features.</div>
+  </section>
+
+  <section class="group hidden" id="import-defaults-group" aria-labelledby="import-heading">
+    <h2 id="import-heading" class="group-title">Import defaults</h2>
+    <div id="dest-banner" class="help-text hidden"></div>
+
+    <div id="destination-select-wrap" class="hidden">
+      <label for="destinationSelect">Default destination</label>
+      <select id="destinationSelect"></select>
+    </div>
+
+    <div id="destination-text-wrap">
+      <label for="defaultDestinationFolder">Default destination folder (optional)</label>
+      <input id="defaultDestinationFolder" type="text" placeholder="Podcasts" />
+    </div>
+
+    <div id="quality-wrap" class="hidden">
+      <label>Default quality</label>
+      <div class="row" id="quality-pills">
+        <button type="button" class="quality-pill" data-quality="standard">Standard</button>
+        <button type="button" class="quality-pill" data-quality="high">High</button>
+        <button type="button" class="quality-pill" data-quality="best">Best</button>
+      </div>
+      <input id="defaultQuality" type="hidden" value="standard" />
+    </div>
+
+    <div class="row">
+      <div class="checkbox-wrapper">
+        <input id="embedMetadata" type="checkbox" />
+        <span class="checkbox-custom"></span>
+      </div>
+      <label for="embedMetadata">Embed metadata</label>
+    </div>
+
+    <div class="row">
+      <div class="checkbox-wrapper">
+        <input id="embedThumbnail" type="checkbox" />
+        <span class="checkbox-custom"></span>
+      </div>
+      <label for="embedThumbnail">Embed thumbnail</label>
+    </div>
+
+    <div class="row">
+      <div class="checkbox-wrapper">
+        <input id="embedChapters" type="checkbox" />
+        <span class="checkbox-custom"></span>
+      </div>
+      <label for="embedChapters">Embed chapters</label>
+    </div>
+
+    <div class="row hidden" id="sponsorblock-row">
+      <div class="checkbox-wrapper">
+        <input id="sponsorblockRemove" type="checkbox" />
+        <span class="checkbox-custom"></span>
+      </div>
+      <label for="sponsorblockRemove">Skip sponsor segments (SponsorBlock)</label>
+    </div>
+
+    <div class="row hidden" id="abs-row">
+      <div class="checkbox-wrapper">
+        <input id="triggerAbsScan" type="checkbox" />
+        <span class="checkbox-custom"></span>
+      </div>
+      <label for="triggerAbsScan">Trigger Audiobookshelf scan after success</label>
+    </div>
+
+    <div class="setting-card">
+      <div class="switch-row">
+        <label class="switch-label" for="openReelDockAfterQueue">Open ReelDock after queueing</label>
+        <label class="switch">
+          <input id="openReelDockAfterQueue" type="checkbox" />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <p class="help-text">Off by default. When on, queueing opens the job page on your ReelDock server.</p>
+    </div>
+
+    <div class="row secondary-row">
+      <div class="checkbox-wrapper">
+        <input id="allowReimport" type="checkbox" />
+        <span class="checkbox-custom"></span>
+      </div>
+      <label for="allowReimport">Allow importing this video again (secondary)</label>
+    </div>
+
+    <button id="save" type="button">Save defaults</button>
+  </section>
+
+  <section class="group" id="advanced-group" aria-labelledby="advanced-heading">
+    <h2 id="advanced-heading" class="group-title">Advanced</h2>
+    <details id="legacy-token-wrap">
+      <summary>Legacy shared token</summary>
+      <p class="help-text">Existing installations only. Pairing is recommended for new browsers.</p>
+      <label for="apiToken">Legacy token</label>
+      <input id="apiToken" type="password" placeholder="Paste legacy token" autocomplete="off" />
+      <button id="save-legacy" type="button">Save legacy token</button>
+    </details>
+  </section>
+
+  <dialog id="change-server-dialog">
+    <form method="dialog" id="change-server-form">
+      <p>Change server disconnects this browser from the current ReelDock instance. Continue?</p>
+      <menu>
+        <button type="submit" value="cancel">Cancel</button>
+        <button type="submit" value="confirm" id="change-server-confirm">Change server</button>
+      </menu>
+    </form>
+  </dialog>
 
   <script type="module" src="options.js"></script>
 </body>

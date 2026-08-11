@@ -59,6 +59,7 @@ async def api_extension_pair(body: PairRequest, request: Request) -> dict[str, A
         check_pair_rate_limit,
         consume_pairing_code,
         pair_failures_blocked,
+        remember_pairing_result,
     )
 
     source = request.client.host if request.client else "unknown"
@@ -72,7 +73,7 @@ async def api_extension_pair(body: PairRequest, request: Request) -> dict[str, A
     factory = get_sync_session_factory()
     try:
         with factory() as session:
-            device, token = consume_pairing_code(
+            device, token, pairing_id = consume_pairing_code(
                 session,
                 pairing_code=body.pairing_code,
                 device_name=body.device_name,
@@ -83,6 +84,8 @@ async def api_extension_pair(body: PairRequest, request: Request) -> dict[str, A
         if redis is not None:
             check_pair_rate_limit(redis, source)
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    remember_pairing_result(redis, pairing_id, device)
 
     return {
         "ok": True,
@@ -181,11 +184,14 @@ def _safe_folder_names(names: list[str]) -> list[str]:
 
 @router.get("/status")
 async def api_extension_status(cfg: ExtensionAuthDep) -> dict[str, Any]:
+    from app.services.instance_id import get_or_create_instance_id
+
     return {
         "ok": True,
         "app": "reeldock",
         "api_version": EXTENSION_API_VERSION,
         "supports": dict(EXTENSION_SUPPORTS),
+        "instance_id": get_or_create_instance_id(),
         "extension_api_enabled": cfg.settings.extension_api_enabled,
         "auth_required": True,
         "auth_kind": cfg.auth_kind,

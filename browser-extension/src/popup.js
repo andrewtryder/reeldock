@@ -1,3 +1,4 @@
+import { connectionBadge, deriveConnectionState } from './connection-state.js';
 import { isYouTubeWatchUrl } from './settings.js';
 import { phaseLabel, statusLabel } from './phase-labels.js';
 import { isTerminalStatus } from './recent-jobs.js';
@@ -37,6 +38,7 @@ let publicState = {
   capabilities: { ready: false, supports: {} },
   destinations: { choices: [], selected: '', banner: '' },
   configured: false,
+  connectionState: null,
 };
 
 let selectedQuality = 'standard';
@@ -119,15 +121,28 @@ function applyQualityPills() {
 }
 
 function applyFormDefaults() {
-  const settings = publicState.settings || {};
-  const supports = publicState.capabilities?.supports || {};
-  $('embed-metadata').checked = settings.embedMetadata !== false;
-  $('embed-thumbnail').checked = settings.embedThumbnail !== false;
-  $('embed-chapters').checked = settings.embedChapters !== false;
-  $('allow-reimport').checked = Boolean(settings.allowReimport);
-  const sbRow = $('sponsorblock-row');
-  sbRow?.classList.toggle('hidden', !supports.sponsorblock);
-  $('sponsorblock').checked = Boolean(settings.sponsorblockRemove);
+  if ($('embed-metadata')) $('embed-metadata').checked = publicState.settings.embedMetadata !== false;
+  if ($('embed-thumbnail')) $('embed-thumbnail').checked = publicState.settings.embedThumbnail !== false;
+  if ($('embed-chapters')) $('embed-chapters').checked = publicState.settings.embedChapters !== false;
+  if ($('sponsorblock')) $('sponsorblock').checked = Boolean(publicState.settings.sponsorblockRemove);
+  if ($('allow-reimport')) $('allow-reimport').checked = Boolean(publicState.settings.allowReimport);
+  $('sponsorblock-row')?.classList.toggle(
+    'hidden',
+    !publicState.capabilities?.supports?.sponsorblock,
+  );
+}
+
+function connectionForUi() {
+  return (
+    publicState.connectionState ||
+    deriveConnectionState({
+      settings: publicState.settings,
+      status: publicState.status,
+      capabilities: publicState.capabilities,
+      connectionError: publicState.connectionError,
+      httpStatus: publicState.httpStatus,
+    })
+  );
 }
 
 function renderRecent() {
@@ -136,22 +151,19 @@ function renderRecent() {
   list.replaceChildren();
   const jobs = publicState.jobs || [];
   if (!jobs.length) {
-    const empty = document.createElement('div');
+    const empty = document.createElement('p');
     empty.className = 'job-meta';
-    empty.textContent = 'No recent imports.';
+    empty.textContent = 'No recent imports yet.';
     list.appendChild(empty);
     return;
   }
-  const supports = publicState.capabilities?.supports || {};
   for (const job of jobs) {
     const card = document.createElement('div');
     card.className = 'job';
-
     const title = document.createElement('div');
     title.className = 'job-title';
-    title.textContent = job.title || job.jobId;
+    title.textContent = job.title || job.jobId || 'Import';
     card.appendChild(title);
-
     const meta = document.createElement('div');
     meta.className = 'job-meta';
     const bits = [statusLabel(job.status)];
@@ -159,7 +171,6 @@ function renderRecent() {
     if (job.progressLabel || job.phase) bits.push(job.progressLabel || phaseLabel(job.phase, job.status));
     meta.textContent = bits.join(' · ');
     card.appendChild(meta);
-
     if (!isTerminalStatus(job.status)) {
       const bar = document.createElement('div');
       bar.className = 'progress-bar';
@@ -173,17 +184,15 @@ function renderRecent() {
       bar.appendChild(fill);
       card.appendChild(bar);
     }
-
     const actions = document.createElement('div');
     actions.className = 'job-actions';
-
+    const supports = publicState.capabilities?.supports || {};
     const view = document.createElement('button');
     view.type = 'button';
     view.className = 'ghost';
     view.textContent = 'View';
     view.addEventListener('click', () => send({ action: 'openJob', jobId: job.jobId }));
     actions.appendChild(view);
-
     if (supports.cancel && !isTerminalStatus(job.status)) {
       const cancel = document.createElement('button');
       cancel.type = 'button';
@@ -192,7 +201,6 @@ function renderRecent() {
       cancel.addEventListener('click', () => onCancel(job.jobId));
       actions.appendChild(cancel);
     }
-
     if (supports.retry && (job.status === 'failed' || job.status === 'cancelled')) {
       const retry = document.createElement('button');
       retry.type = 'button';
@@ -201,7 +209,6 @@ function renderRecent() {
       retry.addEventListener('click', () => onRetry(job.jobId));
       actions.appendChild(retry);
     }
-
     card.appendChild(actions);
     list.appendChild(card);
   }
@@ -213,28 +220,55 @@ async function send(message) {
 
 async function refreshState() {
   const res = await send({ action: 'getPublicState' });
-  if (!res?.ok) throw new Error(res?.error || 'Could not load extension state');
-  if ('apiToken' in (res.settings || {})) {
-    delete res.settings.apiToken;
-  }
+  if (!res?.ok) throw new Error(res?.error || 'Failed to load extension state');
   publicState = res;
   return res;
 }
 
 function renderState() {
+  const connection = connectionForUi();
+  const badge = connectionBadge(connection.state);
+  const setupPanel = $('setup-panel');
+  const queueForm = $('queue-form');
+  const needsSetup = ['unconfigured', 'revoked', 'authentication_error', 'server_changed'].includes(
+    connection.state,
+  );
+
+  showBanner(
+    'connection-banner',
+    connection.state === 'connected'
+      ? ''
+      : `${badge.label}${connection.message ? ` — ${connection.message}` : ''}`,
+  );
   showBanner('legacy-banner', publicState.legacyMessage || '');
   showBanner('dest-banner', publicState.destinations?.banner || '');
+
+  setupPanel?.classList.toggle('hidden', !needsSetup);
+  queueForm?.classList.toggle('hidden', needsSetup);
+  if ($('setup-copy')) {
+    $('setup-copy').textContent =
+      connection.state === 'revoked' || connection.state === 'authentication_error'
+        ? 'Pair this browser again from ReelDock Settings.'
+        : connection.state === 'server_changed'
+          ? 'This address now points to a different ReelDock server.'
+          : 'Connect ReelDock before creating audiobooks.';
+  }
+
   fillDestinationSelect();
   applyQualityPills();
   applyFormDefaults();
   renderRecent();
+
   const queueButton = $('queue');
-  const canQueue = publicState.configured && isYouTubeWatchUrl(activeTab.url);
+  const canQueue = connection.state === 'connected' && isYouTubeWatchUrl(activeTab.url);
   if (queueButton) queueButton.disabled = !canQueue;
-  if (!publicState.configured) {
-    setStatus('Set the server URL and token in Options first', 'err');
-  } else if (publicState.connectionError) {
-    setStatus(publicState.connectionError, 'err');
+
+  if (needsSetup) {
+    setStatus(connection.message || 'Connect ReelDock', 'err');
+  } else if (connection.state === 'unreachable') {
+    setStatus(connection.message || 'ReelDock is unavailable', 'err');
+  } else if (connection.state === 'server_too_old') {
+    setStatus(connection.message || 'Update ReelDock', 'err');
   } else if (!isYouTubeWatchUrl(activeTab.url)) {
     setStatus('Open a YouTube video page', 'err');
   } else {
@@ -303,6 +337,9 @@ async function onRetry(jobId) {
 
 $('queue-form')?.addEventListener('submit', onQueue);
 $('open-reeldock')?.addEventListener('click', () => send({ action: 'openReelDock' }));
+$('open-options')?.addEventListener('click', () => {
+  chrome.runtime.openOptionsPage();
+});
 
 for (const button of document.querySelectorAll('[data-quality]')) {
   button.addEventListener('click', () => {
@@ -338,5 +375,6 @@ setExtensionVersionLabel();
     if (hasActiveJobs()) startPopupPoll();
   } catch (err) {
     setStatus(err.message || 'Failed to load extension state', 'err');
+    $('setup-panel')?.classList.remove('hidden');
   }
 })();

@@ -33,15 +33,23 @@ TMP="$(mktemp -d)"
 COMPOSE=(docker compose -f "$ROOT/docker-compose.yml" -f "$TMP/override.yml" --env-file "$TMP/.env")
 cleanup() {
   "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
-  rm -rf "$TMP"
+  if [[ -d "$TMP" ]]; then
+    docker run --rm -v "$TMP:/tmp/smoke" alpine:3.22 \
+      chown -R "$(id -u):$(id -g)" /tmp/smoke >/dev/null 2>&1 || true
+    rm -rf "$TMP" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
 mkdir -p "$TMP/data" "$TMP/config" "$TMP/podcasts"
+SMOKE_PUID="$(id -u)"
+SMOKE_PGID="$(id -g)"
 
 cat >"$TMP/.env" <<EOF
 HOST_AUDIOBOOKS_DIR=$TMP/podcasts
 OUTPUT_ROOT=/media/podcasts
+PUID=$SMOKE_PUID
+PGID=$SMOKE_PGID
 AUTH_ENABLED=false
 EXTENSION_API_ENABLED=false
 RELEASE_SMOKE_FIXTURE=true
@@ -58,6 +66,8 @@ services:
     ports:
       - "127.0.0.1:${PORT}:8080"
     environment:
+      PUID: "$SMOKE_PUID"
+      PGID: "$SMOKE_PGID"
       RELEASE_SMOKE_FIXTURE: "true"
       RELEASE_SMOKE_FIXTURE_DIR: /fixtures/release_smoke
       RELEASE_SMOKE_FAIL_ONCE: "false"
@@ -70,10 +80,17 @@ services:
           create_host_path: false
       - $TMP/config:/config
       - $FIXTURE_DIR:/fixtures/release_smoke:ro
+    healthcheck:
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
   worker:
     env_file: !override
       - $TMP/.env
     environment:
+      PUID: "$SMOKE_PUID"
+      PGID: "$SMOKE_PGID"
       RELEASE_SMOKE_FIXTURE: "true"
       RELEASE_SMOKE_FIXTURE_DIR: /fixtures/release_smoke
       RELEASE_SMOKE_FAIL_ONCE: "false"

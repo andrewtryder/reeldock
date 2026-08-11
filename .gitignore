@@ -175,3 +175,8 @@ coverage/
 browser-extension/dist/
 browser-extension/artifacts/
 node_modules/
+
+# Playwright
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/

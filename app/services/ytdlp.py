@@ -273,6 +273,31 @@ class YtDlpService:
         Raises subprocess.CalledProcessError on failure.
         Raises ValueError if JSON cannot be parsed.
         """
+        if self.settings.release_smoke_fixture:
+            from app.release_smoke import (
+                SMOKE_DURATION_SECONDS,
+                SMOKE_TITLE,
+                SMOKE_UPLOADER,
+                SMOKE_URL,
+                SMOKE_VIDEO_ID,
+                is_smoke_url,
+            )
+
+            if is_smoke_url(url):
+                return VideoMetadata(
+                    id=SMOKE_VIDEO_ID,
+                    title=SMOKE_TITLE,
+                    uploader=SMOKE_UPLOADER,
+                    uploader_id="reeldock_ci",
+                    channel=SMOKE_UPLOADER,
+                    channel_id="reeldock_ci",
+                    duration=SMOKE_DURATION_SECONDS,
+                    upload_date="20260101",
+                    thumbnail=None,
+                    chapters=[],
+                    webpage_url=SMOKE_URL,
+                )
+
         # Pass a list literal so the executable is a fixed first element; the
         # user-controlled URL is only an argument (shell=False).
         safe_url = self._sanitize_command_url(url)

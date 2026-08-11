@@ -228,6 +228,11 @@ class Settings(BaseSettings):
 
     # ── Dev ───────────────────────────────────────────────────────────────────
     dry_run: bool = Field(False, alias="DRY_RUN")
+    # Test-only Compose release-smoke hook (#118). Never enable in production.
+    release_smoke_fixture: bool = Field(False, alias="RELEASE_SMOKE_FIXTURE")
+    release_smoke_fixture_dir: Path | None = Field(None, alias="RELEASE_SMOKE_FIXTURE_DIR")
+    # When true with release_smoke_fixture, fail once after staging download (attempt 1).
+    release_smoke_fail_once: bool = Field(False, alias="RELEASE_SMOKE_FAIL_ONCE")
 
     # ── Validators ────────────────────────────────────────────────────────────
 

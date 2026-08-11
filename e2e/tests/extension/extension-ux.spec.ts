@@ -166,7 +166,7 @@ test("Library root queues beside Theology instead of into it", async ({
   await expect(dest).toBeVisible({ timeout: 15_000 });
   await dest.selectOption("__root__");
   await options.locator("#save").click();
-  await expect(options.locator("#status")).toContainText(/Connected successfully/i, {
+  await expect(options.locator("#status")).toContainText(/Import defaults saved/i, {
     timeout: 30_000,
   });
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.2](https://github.com/andrewtryder/reeldock/compare/v1.10.1...v1.10.2) (2026-08-11)
+
+
+### Bug Fixes
+
+* **extension:** set permanent Firefox id and clarify Android omission ([#129](https://github.com/andrewtryder/reeldock/issues/129)) ([6b8f389](https://github.com/andrewtryder/reeldock/commit/6b8f389239742d020a88b5130439a5ccdd50f21a))
+
 ## [1.10.1](https://github.com/andrewtryder/reeldock/compare/v1.10.0...v1.10.1) (2026-08-11)
 
 

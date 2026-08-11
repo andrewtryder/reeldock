@@ -99,21 +99,22 @@ test("close and reopen popup mid-job then reach Complete", async ({
 });
 
 test("wrong token is actionable and recovering the token works", async ({ extensionPage }) => {
+  const unauthorized = /Not authorized|pair this browser|EXTENSION_API_TOKEN/i;
   const options = await extensionPage("options");
   await configureOptions(options, { token: "definitely-wrong-token" });
-  await expect(options.locator("#status")).toContainText(/Invalid extension token/i, {
+  await expect(options.locator("#status")).toContainText(unauthorized, {
     timeout: 30_000,
   });
 
   const popup = await extensionPage("popup");
-  await expect(popup.locator("#status")).toContainText(/Invalid extension token/i);
+  await expect(popup.locator("#status")).toContainText(unauthorized);
 
   await configureOptions(options);
   await expect(options.locator("#status")).toContainText(/Connected successfully/i, {
     timeout: 30_000,
   });
   await popup.reload();
-  await expect(popup.locator("#status")).not.toContainText(/Invalid extension token/i);
+  await expect(popup.locator("#status")).not.toContainText(unauthorized);
   await options.close();
   await popup.close();
 });

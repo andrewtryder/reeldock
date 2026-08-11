@@ -41,7 +41,6 @@ def schema_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
     monkeypatch.setenv("EXTENSION_API_ENABLED", "false")
     monkeypatch.setenv("AUTH_ENABLED", "false")
-    monkeypatch.setenv("REELDOCK_FETCH_UI_VERSION", "0")
     import app.config as cfg_module
 
     cfg_module._settings = None

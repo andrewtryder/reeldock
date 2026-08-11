@@ -21,7 +21,6 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
     monkeypatch.setenv("OUTPUT_ROOT", str(output_root))
     monkeypatch.setenv("WORK_DIR", str(work_dir))
-    monkeypatch.setenv("REELDOCK_FETCH_UI_VERSION", "0")
     monkeypatch.setenv("EXTENSION_API_ENABLED", "false")
     monkeypatch.delenv("EXTENSION_API_TOKEN", raising=False)
     monkeypatch.setenv("AUTH_ENABLED", "false")

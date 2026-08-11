@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import app.config as config_module
@@ -21,6 +22,7 @@ def _reset_runtime_state() -> None:
     config_module._settings = None
     config_module._pinned_sources = {}
     config_module._db_overrides = {}
+    config_module._bootstrap_values = {}
     db_module._async_engine = None
     db_module._async_session_factory = None
     db_module._sync_engine = None
@@ -97,6 +99,13 @@ def test_save_and_load_custom_settings(settings_env: Path):
     assert rows["dry_run"] == "true"
 
 
+def _csrf(client: TestClient) -> str:
+    html = client.get("/settings").text
+    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert match, "csrf_token missing from settings page"
+    return match.group(1)
+
+
 def test_get_settings_page(settings_env: Path):
     with TestClient(create_app()) as client:
         response = client.get("/settings")
@@ -112,6 +121,7 @@ def test_post_settings_valid(settings_env: Path, tmp_path: Path):
         response = client.post(
             "/settings",
             data={
+                "csrf_token": _csrf(client),
                 "output_root": str(valid_path),
                 "dry_run": "on",
                 "allow_playlists": "on",
@@ -151,6 +161,7 @@ def test_post_settings_relative(settings_env: Path):
         response = client.post(
             "/settings",
             data={
+                "csrf_token": _csrf(client),
                 "output_root": "some/relative/path",
                 "collision_mode": "append_id",
                 "job_timeout_seconds": "10800",
@@ -174,6 +185,7 @@ def test_post_settings_non_writable(settings_env: Path):
         response = client.post(
             "/settings",
             data={
+                "csrf_token": _csrf(client),
                 "output_root": str(fake_file),
                 "collision_mode": "append_id",
                 "job_timeout_seconds": "10800",
@@ -190,8 +202,21 @@ def test_post_settings_non_writable(settings_env: Path):
         assert "not writable" in response.text.lower()
 
 
-def test_env_locks_setting_in_ui(settings_env: Path, monkeypatch: pytest.MonkeyPatch):
+def test_env_is_bootstrap_not_locked_in_ui_mode(
+    settings_env: Path, monkeypatch: pytest.MonkeyPatch
+):
     monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("REELDOCK_CONFIG_MODE", "ui")
+    _reset_runtime_state()
+    sources = get_setting_sources()
+    assert sources["dry_run"]["locked"] is False
+    assert sources["dry_run"]["label"] == "Deployment default"
+    assert reload_settings().dry_run is True
+
+
+def test_env_locks_setting_in_locked_mode(settings_env: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("REELDOCK_CONFIG_MODE", "locked")
     _reset_runtime_state()
     sources = get_setting_sources()
     assert sources["dry_run"]["locked"] is True
@@ -205,6 +230,7 @@ def test_extra_args_reject_shell_injection(settings_env: Path):
         response = client.post(
             "/settings",
             data={
+                "csrf_token": _csrf(client),
                 "output_root": str(valid_path),
                 "ytdlp_extra_args": "--verbose; rm -rf /",
                 "collision_mode": "append_id",

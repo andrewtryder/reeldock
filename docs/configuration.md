@@ -2,16 +2,22 @@
 
 `reeldock` supports flexible configuration using environment variables, a YAML configuration file, and the Web UI.
 
-## Configuration Precedence
+## Configuration Modes
 
-When the application loads its settings, it resolves them in the following order of precedence (highest priority first):
+`REELDOCK_CONFIG_MODE` selects how env/YAML and the Settings page interact.
 
-1. **Environment Variables**: Defined in your `.env` file, Docker, or host shell environment. These **lock** the corresponding field in the Web UI.
-2. **YAML Config File**: Configuration loaded from `/config/config.yaml`. These also **lock** their fields when present.
-3. **Database Overrides**: Settings saved via the Web UI to the `app_settings` table.
-4. **Application Defaults**: Built-in defaults.
+| Mode | Effective value | Settings UI |
+| :--- | :--- | :--- |
+| `ui` (default, Compose) | UI/DB override &gt; env/YAML bootstrap &gt; defaults | Editable. Reset deletes the DB override. |
+| `locked` | env/YAML (non-blank) &gt; DB &gt; defaults | Env/YAML-backed fields show **Deployment locked**. |
 
-If a setting is provided via environment or YAML, the Web UI shows it as read-only with a badge indicating the source.
+Blank env/YAML values are treated as unset. Compose injects empty `AUTH_PASSWORD`, `EXTENSION_API_TOKEN`, and `ABS_*` strings; those empties do **not** pin or lock UI fields.
+
+`OUTPUT_ROOT` is deployment-bound: when Compose/env sets it, the UI shows the path and host-volume note but does not pretend it can remount the volume.
+
+Secrets (`AUTH_PASSWORD`, `ABS_API_TOKEN`) are stored encrypted in `app_settings` using an instance Fernet key at `/config/.reeldock-settings.key` (optional `REELDOCK_SETTINGS_KEY` override). Restoring a database with encrypted settings requires that key. ReelDock does not claim this resists a fully compromised Docker host.
+
+Source badges: **UI override**, **Deployment default**, **Application default**, **Deployment locked**.
 
 ---
 
@@ -44,7 +50,9 @@ The Settings page is driven by a configuration registry. The following settings 
 | Loudness bitrate | `LOUDNESS_AUDIO_BITRATE` | AAC bitrate used when loudness re-encodes. |
 | ABS scan after success | `ABS_SCAN_AFTER_SUCCESS` | Trigger Audiobookshelf scan after import |
 
-**Not editable in UI (secrets / infrastructure):** `AUTH_PASSWORD`, `ABS_API_TOKEN`, `EXTENSION_API_TOKEN`, `REDIS_URL`, `DATABASE_URL`, and binary paths.
+**UI-managed secrets:** `AUTH_PASSWORD`, `ABS_API_TOKEN` (blank on save means keep; Reset clears the stored secret). Device tokens are hashed; pairing codes are HMAC'd. Legacy `EXTENSION_API_TOKEN` remains env/YAML-only.
+
+**Deployment-only (not UI-editable):** `APP_HOST`, `APP_PORT`, `REDIS_URL`, `DATABASE_URL`, `WORK_DIR`, binary paths, `CONFIG_FILE`, `PUID`/`PGID`, Compose bind mounts, `REELDOCK_SETTINGS_KEY`.
 
 ---
 
@@ -58,8 +66,10 @@ The Settings page is driven by a configuration registry. The following settings 
 | `AUTH_ENABLED` | `false` | Enable HTTP Basic Authentication. Set to `true` if exposing to the LAN/WAN. |
 | `AUTH_USERNAME` | — | Username for Basic Authentication. |
 | `AUTH_PASSWORD` | — | Password for Basic Authentication. |
-| `EXTENSION_API_ENABLED` | `false` | Enable `/api/extension/*` for the browser extension. |
-| `EXTENSION_API_TOKEN` | — | Required when extension API is enabled; app refuses to start if missing. |
+| `EXTENSION_API_ENABLED` | `false` | Enable `/api/extension/*` for pairing and the browser extension. |
+| `EXTENSION_PUBLIC_URL` | — | Advertised origin browsers should use (HTTPS for store installs). |
+| `EXTENSION_API_TOKEN` | — | Legacy shared bearer token. Prefer pairing from Settings. |
+| `REELDOCK_CONFIG_MODE` | `ui` | `ui` or `locked`. |
 | **Infrastructure** | | |
 | `REDIS_URL` | `redis://redis:6379/0` | Connection string for Redis queue. |
 | `DATABASE_URL` | `sqlite+aiosqlite:////data/app.db` | SQLAlchemy connection string for SQLite database. |

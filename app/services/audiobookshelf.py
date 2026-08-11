@@ -76,6 +76,48 @@ class AudiobookshelfClient:
             logger.error("ABS scan failed: %s", msg)
             return ScanResult(success=False, error=msg)
 
+    def list_libraries(
+        self,
+        *,
+        base_url: str | None = None,
+        api_token: str | None = None,
+    ) -> tuple[list[dict[str, str]], str | None]:
+        """Return (libraries, error) from GET /api/libraries. Never logs the token."""
+        url_base = (base_url or self.settings.abs_base_url or "").rstrip("/")
+        token = api_token if api_token is not None else self.settings.abs_api_token
+        if not url_base or not token:
+            return [], "Audiobookshelf URL and API token are required"
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        try:
+            response = httpx.get(f"{url_base}/api/libraries", headers=headers, timeout=8)
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            if status_code in {401, 403}:
+                return [], f"Authentication failed (HTTP {status_code})"
+            return [], f"ABS API returned HTTP {status_code}"
+        except httpx.RequestError as exc:
+            return [], f"ABS connection error: {type(exc).__name__}"
+        except Exception:
+            return [], "Could not parse Audiobookshelf response"
+
+        raw_libs = payload.get("libraries") if isinstance(payload, dict) else payload
+        libraries: list[dict[str, str]] = []
+        if isinstance(raw_libs, list):
+            for item in raw_libs:
+                if not isinstance(item, dict):
+                    continue
+                lib_id = str(item.get("id") or "")
+                name = str(item.get("name") or lib_id)
+                if lib_id:
+                    libraries.append({"id": lib_id, "name": name})
+        return libraries, None
+
     def check_connectivity(self, library_id: str | None = None) -> ScanResult:
         """
         Verify ABS URL and API token with a read-only library GET.

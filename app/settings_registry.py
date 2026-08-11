@@ -102,7 +102,10 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         group="paths",
         type=SettingType.PATH,
         default="/media/podcasts",
-        help_text="Folder where finished .m4b audiobooks are written (shared with Audiobookshelf).",
+        help_text=(
+            "Folder where finished .m4b audiobooks are written (shared with Audiobookshelf). "
+            "In the official Compose image this is the bind-mount target and stays read-only."
+        ),
         validate=_validate_absolute_writable_path,
     ),
     SettingSpec(
@@ -129,7 +132,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="collision_mode",
         env_alias="COLLISION_MODE",
         label="If Audiobook File Already Exists",
-        group="download",
+        group="processing",
         type=SettingType.ENUM,
         default="append_id",
         choices=COLLISION_CHOICES,
@@ -142,7 +145,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="output_extension",
         env_alias="OUTPUT_EXTENSION",
         label="Output Extension",
-        group="download",
+        group="processing",
         type=SettingType.STR,
         default="m4b",
         help_text="Legacy setting; final audiobooks are always written as .m4b.",
@@ -152,7 +155,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="allowed_domains",
         env_alias="ALLOWED_DOMAINS",
         label="Allowed Domains",
-        group="download",
+        group="expert",
         type=SettingType.CSV_LIST,
         default="youtube.com,www.youtube.com,m.youtube.com,music.youtube.com,youtu.be",
         help_text="Comma-separated hostnames permitted for import URLs.",
@@ -161,7 +164,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="max_playlist_entries",
         env_alias="MAX_PLAYLIST_ENTRIES",
         label="Max Playlist / Channel Entries",
-        group="download",
+        group="processing",
         type=SettingType.INT,
         default="100",
         help_text=(
@@ -194,7 +197,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="loudness_normalize",
         env_alias="LOUDNESS_NORMALIZE",
         label="Normalize Loudness (EBU R128)",
-        group="download",
+        group="processing",
         type=SettingType.BOOL,
         default="false",
         help_text=(
@@ -206,7 +209,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="loudness_target_lufs",
         env_alias="LOUDNESS_TARGET_LUFS",
         label="Loudness Target (LUFS)",
-        group="download",
+        group="processing",
         type=SettingType.STR,
         default="-16",
         help_text="Integrated loudness target for loudnorm (typically -16 for podcasts).",
@@ -216,7 +219,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="loudness_audio_bitrate",
         env_alias="LOUDNESS_AUDIO_BITRATE",
         label="Loudness Re-encode Bitrate",
-        group="download",
+        group="processing",
         type=SettingType.STR,
         default="192k",
         help_text="AAC bitrate used when loudness normalization re-encodes audio.",
@@ -226,7 +229,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="sponsorblock_remove",
         env_alias="SPONSORBLOCK_REMOVE",
         label="Skip Sponsor Segments (SponsorBlock)",
-        group="download",
+        group="processing",
         type=SettingType.BOOL,
         default="false",
         help_text=("Remove sponsor segments from downloads using yt-dlp SponsorBlock integration."),
@@ -236,7 +239,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="filename_template",
         env_alias="FILENAME_TEMPLATE",
         label="Filename Template",
-        group="naming",
+        group="processing",
         type=SettingType.STR,
         default="{title}.m4b",
         help_text=(
@@ -301,7 +304,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="dry_run",
         env_alias="DRY_RUN",
         label="Dry Run Mode",
-        group="runtime",
+        group="expert",
         type=SettingType.BOOL,
         default="false",
         help_text="Build commands and write a fake output file only.",
@@ -310,7 +313,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="allow_playlists",
         env_alias="ALLOW_PLAYLISTS",
         label="Allow Playlist URLs",
-        group="runtime",
+        group="processing",
         type=SettingType.BOOL,
         default="false",
         help_text=(
@@ -322,7 +325,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="allow_channels",
         env_alias="ALLOW_CHANNELS",
         label="Allow Channel URLs",
-        group="runtime",
+        group="processing",
         type=SettingType.BOOL,
         default="false",
         help_text=(
@@ -334,7 +337,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
         key="abs_scan_after_success",
         env_alias="ABS_SCAN_AFTER_SUCCESS",
         label="Default ABS Scan After Success",
-        group="runtime",
+        group="abs",
         type=SettingType.BOOL,
         default="false",
         help_text=(
@@ -342,20 +345,108 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
             "Each job's submitted value controls whether that job triggers a scan."
         ),
     ),
+    SettingSpec(
+        key="abs_base_url",
+        env_alias="ABS_BASE_URL",
+        label="Audiobookshelf URL",
+        group="abs",
+        type=SettingType.STR,
+        default="",
+        help_text="Base URL of your Audiobookshelf server (for example http://abs:13378).",
+    ),
+    SettingSpec(
+        key="abs_api_token",
+        env_alias="ABS_API_TOKEN",
+        label="Audiobookshelf API token",
+        group="abs",
+        type=SettingType.STR,
+        default="",
+        help_text="API token from Audiobookshelf. Leave blank to keep the current token.",
+        secret=True,
+    ),
+    SettingSpec(
+        key="abs_library_id",
+        env_alias="ABS_LIBRARY_ID",
+        label="Audiobookshelf library",
+        group="abs",
+        type=SettingType.STR,
+        default="",
+        help_text="Library ID to scan after a successful import. Use Test Connection to pick one.",
+    ),
+    SettingSpec(
+        key="extension_api_enabled",
+        env_alias="EXTENSION_API_ENABLED",
+        label="Enable browser extension API",
+        group="extension",
+        type=SettingType.BOOL,
+        default="false",
+        help_text="Allow paired browsers (or a legacy shared token) to queue imports.",
+    ),
+    SettingSpec(
+        key="extension_public_url",
+        env_alias="EXTENSION_PUBLIC_URL",
+        label="Advertised browser connection URL",
+        group="extension",
+        type=SettingType.STR,
+        default="",
+        help_text=(
+            "Origin browsers should use to reach this instance "
+            "(https://reeldock.example.com). Loopback is fine for local installs."
+        ),
+    ),
+    SettingSpec(
+        key="auth_enabled",
+        env_alias="AUTH_ENABLED",
+        label="Require Web UI sign-in",
+        group="security",
+        type=SettingType.BOOL,
+        default="false",
+        help_text="HTTP Basic Authentication for the Web UI. Enabling needs username and password.",
+    ),
+    SettingSpec(
+        key="auth_username",
+        env_alias="AUTH_USERNAME",
+        label="Web UI username",
+        group="security",
+        type=SettingType.STR,
+        default="",
+    ),
+    SettingSpec(
+        key="auth_password",
+        env_alias="AUTH_PASSWORD",
+        label="Web UI password",
+        group="security",
+        type=SettingType.STR,
+        default="",
+        help_text="Leave blank to keep the current password. Never shown after save.",
+        secret=True,
+    ),
 ]
+
+SECURITY_FORM_KEYS = frozenset({"auth_enabled", "auth_username", "auth_password"})
+SECRET_KEEP_KEYS = frozenset({"auth_password", "abs_api_token"})
 
 SETTINGS_BY_KEY: dict[str, SettingSpec] = {spec.key: spec for spec in SETTINGS_REGISTRY}
 
 GROUP_LABELS: dict[str, str] = {
-    "paths": "Library & Paths",
-    "download": "Download & Processing",
-    "naming": "Naming",
-    "jobs": "Job Management",
-    "runtime": "Runtime Behavior",
-    "expert": "Expert Settings",
+    "paths": "Library",
+    "processing": "Audiobook Processing",
+    "abs": "Audiobookshelf",
+    "extension": "Browser Extension",
+    "security": "Security",
+    "jobs": "Jobs",
+    "expert": "Expert",
 }
 
-GROUP_ORDER: tuple[str, ...] = ("paths", "download", "naming", "jobs", "runtime", "expert")
+GROUP_ORDER: tuple[str, ...] = (
+    "paths",
+    "processing",
+    "abs",
+    "extension",
+    "security",
+    "jobs",
+    "expert",
+)
 
 
 def registry_groups() -> list[tuple[str, str, list[SettingSpec]]]:

@@ -93,7 +93,7 @@ def test_auth_enabled_without_credentials_fails_settings(
         cfg_module.Settings(_env_file=None)
 
 
-def test_extension_api_enabled_without_token_fails_settings(
+def test_extension_api_enabled_without_token_is_allowed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EXTENSION_API_ENABLED", "true")
@@ -102,8 +102,9 @@ def test_extension_api_enabled_without_token_fails_settings(
     import app.config as cfg_module
 
     cfg_module._settings = None
-    with pytest.raises(ValidationError, match="EXTENSION_API_TOKEN"):
-        cfg_module.Settings(_env_file=None)
+    settings = cfg_module.Settings(_env_file=None)
+    assert settings.extension_api_enabled is True
+    assert settings.extension_api_token is None
 
 
 def test_basic_auth_and_extension_token_coexist(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -134,3 +135,44 @@ def test_basic_auth_and_extension_token_coexist(monkeypatch: pytest.MonkeyPatch)
         assert client.get("/api/folders", headers=bearer).status_code == 401
         # HTTP on /api/ws/ is not a WebSocket upgrade, so Basic still applies.
         assert client.get("/api/ws/jobs/example").status_code == 401
+
+
+def test_basic_auth_enable_and_password_change_without_restart(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import asyncio
+
+    import app.config as cfg_module
+    import app.db as db_module
+    from app.config import save_settings
+    from app.db import init_db
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'live-auth.db'}")
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.delenv("AUTH_USERNAME", raising=False)
+    monkeypatch.delenv("AUTH_PASSWORD", raising=False)
+    monkeypatch.setattr(cfg_module, "_parse_dotenv_keys", lambda: set())
+    cfg_module._settings = None
+    db_module._sync_engine = None
+    db_module._sync_session_factory = None
+    asyncio.run(init_db())
+
+    with TestClient(create_app()) as client:
+        assert client.get("/").status_code == 200
+        save_settings(
+            {
+                "auth_enabled": "true",
+                "auth_username": "admin",
+                "auth_password": "first-pass",
+            }
+        )
+        cfg_module._settings = None
+        assert client.get("/").status_code == 401
+        assert client.get("/", headers=_basic("admin", "first-pass")).status_code == 200
+        save_settings({"auth_password": "second-pass"})
+        cfg_module._settings = None
+        assert client.get("/", headers=_basic("admin", "first-pass")).status_code == 401
+        assert client.get("/", headers=_basic("admin", "second-pass")).status_code == 200
+        save_settings({"auth_enabled": "false"})
+        cfg_module._settings = None
+        assert client.get("/").status_code == 200

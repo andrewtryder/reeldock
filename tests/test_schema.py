@@ -64,12 +64,14 @@ async def test_init_db_creates_schema_on_fresh_database(schema_db: Path):
             "job_attempts",
             "app_settings",
             "import_batches",
+            "extension_devices",
+            "extension_pairing_codes",
             "alembic_version",
         } <= tables
 
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
         assert version is not None
-        assert version[0] == "0001_baseline"
+        assert version[0] == "0002_extension_devices"
 
         jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
         assert "progress" in jobs_cols
@@ -118,7 +120,7 @@ async def test_init_db_stamps_legacy_database(schema_db: Path):
         assert "app_settings" in tables
         assert "alembic_version" in tables
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert version[0] == "0001_baseline"
+        assert version[0] == "0002_extension_devices"
 
 
 @pytest.mark.asyncio
@@ -153,7 +155,7 @@ async def test_legacy_reconcile_does_not_use_live_orm_metadata(
         assert "sponsorblock_remove" in jobs_cols
         assert "progress" in jobs_cols
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert version[0] == "0001_baseline"
+        assert version[0] == "0002_extension_devices"
 
 
 @pytest.mark.asyncio
@@ -182,7 +184,7 @@ async def test_init_db_stamps_retired_alembic_revision(schema_db: Path, retired_
         assert "app_settings" in tables
         assert "alembic_version" in tables
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert version[0] == "0001_baseline"
+        assert version[0] == "0002_extension_devices"
         jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
         assert "batch_id" in jobs_cols
         assert "sponsorblock_remove" in jobs_cols

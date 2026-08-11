@@ -21,10 +21,19 @@ def clear_settings_cache(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("AUTH_PASSWORD", raising=False)
     monkeypatch.setenv("EXTENSION_API_ENABLED", "false")
     monkeypatch.delenv("EXTENSION_API_TOKEN", raising=False)
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setenv("REELDOCK_SETTINGS_KEY", Fernet.generate_key().decode("ascii"))
 
     cfg_module._settings = None
+    cfg_module._pinned_sources = {}
+    cfg_module._db_overrides = {}
+    cfg_module._bootstrap_values = {}
     yield
     cfg_module._settings = None
+    cfg_module._pinned_sources = {}
+    cfg_module._db_overrides = {}
+    cfg_module._bootstrap_values = {}
 
 
 @pytest.fixture

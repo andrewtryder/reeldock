@@ -35,6 +35,6 @@ describe('public settings', () => {
 
 describe('api errors', () => {
   it('turns 401 into actionable token copy', () => {
-    assert.match(formatApiError(401), /Invalid extension token/);
+    assert.match(formatApiError(401), /pair this browser|legacy EXTENSION_API_TOKEN/);
   });
 });

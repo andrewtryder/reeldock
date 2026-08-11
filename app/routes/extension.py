@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Literal
 
@@ -10,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from app.auth import ExtensionAuthDep
+from app.config import get_settings
 from app.quality import QUALITY_PRESETS, audio_quality_for_preset
 from app.routes import DbDep
 from app.serializers import extension_job_dict
@@ -27,7 +29,109 @@ from app.services.jobs import (
 )
 from app.services.ytdlp import YtDlpService
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/extension", tags=["extension"])
+
+
+class PairRequest(BaseModel):
+    pairing_code: str
+    device_name: str = "Browser"
+    browser: str | None = None
+    platform: str | None = None
+
+
+class WsTicketRequest(BaseModel):
+    job_id: str
+
+
+@router.post("/pair")
+async def api_extension_pair(body: PairRequest, request: Request) -> dict[str, Any]:
+    """Exchange a one-use pairing code for a device token. No prior auth."""
+    cfg = get_settings()
+    if not cfg.extension_api_enabled:
+        raise HTTPException(status_code=404, detail="Extension API not enabled")
+
+    from app.db import get_sync_session_factory
+    from app.queue import get_redis
+    from app.services.pairing import (
+        PairingError,
+        check_pair_rate_limit,
+        consume_pairing_code,
+        pair_failures_blocked,
+    )
+
+    source = request.client.host if request.client else "unknown"
+    try:
+        redis = get_redis()
+    except Exception:
+        redis = None
+    if redis is not None and pair_failures_blocked(redis, source):
+        raise HTTPException(status_code=429, detail="Too many failed pairing attempts")
+
+    factory = get_sync_session_factory()
+    try:
+        with factory() as session:
+            device, token = consume_pairing_code(
+                session,
+                pairing_code=body.pairing_code,
+                device_name=body.device_name,
+                browser=body.browser,
+                platform=body.platform,
+            )
+    except PairingError as exc:
+        if redis is not None:
+            check_pair_rate_limit(redis, source)
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    return {
+        "ok": True,
+        "device_id": device.id,
+        "device_token": token,
+        "api_version": EXTENSION_API_VERSION,
+        "supports": dict(EXTENSION_SUPPORTS),
+    }
+
+
+@router.post("/ws-ticket")
+async def api_extension_ws_ticket(body: WsTicketRequest, cfg: ExtensionAuthDep) -> dict[str, str]:
+    if cfg.auth_kind != "device" or not cfg.device_id:
+        raise HTTPException(
+            status_code=400,
+            detail="WebSocket tickets are for paired devices. Legacy tokens use ?token=.",
+        )
+    from app.queue import get_redis
+    from app.services.ws_tickets import issue_ws_ticket
+
+    try:
+        ticket = issue_ws_ticket(get_redis(), job_id=body.job_id, device_id=cfg.device_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Ticket store unavailable") from exc
+    return {"ticket": ticket, "job_id": body.job_id}
+
+
+@router.post("/devices/me/revoke")
+async def api_extension_revoke_me(cfg: ExtensionAuthDep) -> dict[str, str]:
+    if cfg.auth_kind != "device" or not cfg.device_id:
+        raise HTTPException(status_code=400, detail="Only paired devices can revoke themselves")
+    from app.db import get_sync_session_factory
+    from app.models import ExtensionDevice
+    from app.queue import get_redis
+    from app.services.pairing import revoke_device
+    from app.services.ws_tickets import mark_device_revoked
+
+    factory = get_sync_session_factory()
+    with factory() as session:
+        device = session.get(ExtensionDevice, cfg.device_id)
+        if device is None:
+            raise HTTPException(status_code=404, detail="Device not found")
+        revoke_device(session, device)
+    try:
+        mark_device_revoked(get_redis(), cfg.device_id)
+    except Exception:
+        logger.warning("Could not publish device revocation", exc_info=True)
+    return {"status": "revoked"}
+
 
 EXTENSION_API_VERSION = 1
 EXTENSION_SUPPORTS = {
@@ -82,8 +186,11 @@ async def api_extension_status(cfg: ExtensionAuthDep) -> dict[str, Any]:
         "app": "reeldock",
         "api_version": EXTENSION_API_VERSION,
         "supports": dict(EXTENSION_SUPPORTS),
-        "extension_api_enabled": cfg.extension_api_enabled,
-        "auth_required": bool(cfg.extension_api_token),
+        "extension_api_enabled": cfg.settings.extension_api_enabled,
+        "auth_required": True,
+        "auth_kind": cfg.auth_kind,
+        "device_id": cfg.device_id,
+        "device_name": cfg.device_name,
         "dry_run": cfg.dry_run,
         "abs_configured": cfg.abs_configured,
         "allow_playlists": cfg.allow_playlists,
@@ -93,8 +200,8 @@ async def api_extension_status(cfg: ExtensionAuthDep) -> dict[str, Any]:
 
 @router.get("/destinations")
 async def api_extension_destinations(cfg: ExtensionAuthDep) -> dict[str, Any]:
-    folders = _safe_folder_names(FilesystemService(cfg).list_folders())
-    configured = (cfg.default_destination_folder or "").strip()
+    folders = _safe_folder_names(FilesystemService(cfg.settings).list_folders())
+    configured = (cfg.settings.default_destination_folder or "").strip()
     default = configured if configured in folders else ""
     return {"default": default, "folders": folders}
 
@@ -161,7 +268,7 @@ async def api_extension_queue(
         raise HTTPException(status_code=400, detail="Invalid request body") from exc
 
     url = body.url
-    svc = YtDlpService(cfg)
+    svc = YtDlpService(cfg.settings)
     validation = svc.validate_url(url)
     if not validation.valid:
         raise HTTPException(status_code=400, detail=validation.error)
@@ -196,7 +303,7 @@ async def api_extension_queue(
     )
 
     try:
-        job, rq_id = await submit_job(db, cfg, params)
+        job, rq_id = await submit_job(db, cfg.settings, params)
     except InvalidJobUrlError as exc:
         raise HTTPException(status_code=400, detail=exc.error) from exc
     except DuplicateVideoError as exc:

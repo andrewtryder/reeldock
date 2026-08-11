@@ -44,6 +44,11 @@ describe('normalizeAndValidateServerUrl', () => {
     assert.equal(result.error, HTTPS_REQUIRED_ERROR);
   });
 
+  it('rejects http://10.x and http://reeldock.home.example', () => {
+    assert.equal(normalizeAndValidateServerUrl('http://10.0.0.5:8080').ok, false);
+    assert.equal(normalizeAndValidateServerUrl('http://reeldock.home.example').ok, false);
+  });
+
   it('rejects ftp', () => {
     const result = normalizeAndValidateServerUrl('ftp://reeldock.example.com');
     assert.equal(result.ok, false);

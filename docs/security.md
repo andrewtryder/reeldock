@@ -19,19 +19,18 @@ This prevents external machines on your local network (LAN) or the public intern
 
 If you expose the application beyond your localhost (e.g. by changing the port binding to `"8080:8080"`), you must enable authentication.
 
-To enable basic authentication:
-1. Open `.env` and set `AUTH_ENABLED=true`.
-2. Configure a strong `AUTH_USERNAME` and `AUTH_PASSWORD`.
-3. Recreate the containers so Compose injects the new values (`.env` is loaded via `env_file` and explicit `AUTH_*` mappings in `docker-compose.yml`):
-   ```bash
-   docker compose up -d --force-recreate
-   ```
+Preferred: open **Settings → Security** and enable sign-in with a username and password. Changes apply on the next request (no container restart). Leave `AUTH_PASSWORD` unset in `.env` so the UI can own the secret.
+
+You can still bootstrap auth from `.env` (`AUTH_ENABLED=true` plus username/password). Setting `AUTH_ENABLED=true` without credentials still refuses to start.
 
 > [!WARNING]
 > Do not expose the application to the internet or your general LAN without enabling Basic Authentication and setting a strong password.
-> Setting `AUTH_ENABLED=true` without `AUTH_USERNAME` / `AUTH_PASSWORD` causes the app to refuse to start.
 >
-> If you change the port binding to `"8080:8080"`, enable auth in `.env` first, then recreate.
+> If you change the port binding to `"8080:8080"`, enable auth first.
+
+Pair browsers from **Settings → Pair a Browser**. Codes expire in five minutes and are one-use. Device tokens are stored as SHA-256 hashes. Store-installed extensions need a browser-trusted HTTPS origin; loopback HTTP is for local unpacked testing. This does not resist a fully compromised Docker host.
+
+Legacy `EXTENSION_API_TOKEN` still works if configured; it is not created in the UI.
 
 ---
 

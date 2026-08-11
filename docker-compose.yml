@@ -23,7 +23,11 @@
 #
 # Other mounted volumes:
 #   ./data    → /data       (SQLite database, work/download files, logs)
-#   ./config  → /config     (Optional YAML configuration)
+#   ./config  → /config     (Optional YAML + instance settings key)
+#
+# Blank AUTH_PASSWORD / EXTENSION_API_TOKEN / ABS_* values are treated as unset
+# so the Web UI can configure auth, pairing, and Audiobookshelf. Pairing is the
+# recommended browser onboarding path; EXTENSION_API_TOKEN is legacy.
 #
 # ── NFS note ──────────────────────────────────────────────────────────────────
 # Recommended: Mount your network/NFS share on the Docker HOST machine first,
@@ -39,11 +43,13 @@ x-app-environment: &app-environment
   OUTPUT_ROOT: ${OUTPUT_ROOT:-${CONTAINER_PODCASTS_DIR:-/media/podcasts}}
   WORK_DIR: /data/work
   ARCHIVE_FILE: /data/config/youtube-archive.txt
+  REELDOCK_CONFIG_MODE: ${REELDOCK_CONFIG_MODE:-ui}
   AUTH_ENABLED: ${AUTH_ENABLED:-false}
   AUTH_USERNAME: ${AUTH_USERNAME:-}
   AUTH_PASSWORD: ${AUTH_PASSWORD:-}
   EXTENSION_API_ENABLED: ${EXTENSION_API_ENABLED:-false}
   EXTENSION_API_TOKEN: ${EXTENSION_API_TOKEN:-}
+  EXTENSION_PUBLIC_URL: ${EXTENSION_PUBLIC_URL:-}
   ABS_BASE_URL: ${ABS_BASE_URL:-}
   ABS_API_TOKEN: ${ABS_API_TOKEN:-}
   ABS_LIBRARY_ID: ${ABS_LIBRARY_ID:-}

@@ -33,13 +33,15 @@ async def _websocket_endpoint(
     await websocket.accept()
 
     try:
-        await validate_websocket_token(job_id, websocket, cfg)
+        principal = await validate_websocket_token(job_id, websocket, cfg)
     except HTTPException as e:
         if e.status_code == 404:
             await websocket.close(code=1008)
         else:
             await websocket.close(code=1008, reason=e.detail)
         return
+
+    device_id = principal.device_id if principal is not None else None
 
     job = await get_job(db, job_id)
     if not job:
@@ -62,6 +64,16 @@ async def _websocket_endpoint(
             # Worker writes happen on a different connection. Expire so this
             # long-lived WebSocket session does not keep serving the first
             # identity-map snapshot (status stuck at queued).
+            if device_id:
+                from app.queue import get_redis
+                from app.services.ws_tickets import is_device_revoked
+
+                try:
+                    if is_device_revoked(get_redis(), device_id):
+                        await websocket.close(code=1008, reason="Device token revoked")
+                        return
+                except Exception:
+                    logger.debug("Could not check device revocation", exc_info=True)
             db.expire_all()
             current_job = await get_job(db, job_id)
             if not current_job:

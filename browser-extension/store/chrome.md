@@ -27,7 +27,8 @@ that video for conversion to an `.m4b` audiobook on your server.
 
 The extension talks only to the ReelDock URL you configure (localhost or
 HTTPS). It does not use a ReelDock cloud account. You must enable the
-extension API on your server and paste the matching API token into Options.
+extension API on your server and pair the browser with a one-use code from Settings
+(or paste a legacy shared token in Advanced).
 
 Recent imports stay in the popup with View, Cancel, and Retry. Job progress
 continues in the background after you close the popup. You can also open the

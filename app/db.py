@@ -27,6 +27,15 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 _BASELINE_REVISION = "0001_baseline"
+
+
+def _known_alembic_revisions() -> set[str]:
+    """Revision IDs from alembic/versions (baseline plus later migrations)."""
+    from alembic.script import ScriptDirectory
+
+    return {rev.revision for rev in ScriptDirectory.from_config(_alembic_config()).walk_revisions()}
+
+
 # Historical ReelDock Alembic revision IDs retired when migrations were removed
 # (PR #79) and later replaced by the frozen 0001_baseline revision.
 _RETIRED_REVISIONS = frozenset(
@@ -168,7 +177,7 @@ def _legacy_stamp_reason(connection: Connection) -> str | None:
             return "unversioned"
         return None
 
-    if revision == _BASELINE_REVISION:
+    if revision == _BASELINE_REVISION or revision in _known_alembic_revisions():
         return None
 
     if revision in _RETIRED_REVISIONS:
@@ -176,7 +185,7 @@ def _legacy_stamp_reason(connection: Connection) -> str | None:
 
     raise RuntimeError(
         f"Unknown alembic revision {revision!r}; refusing to migrate. "
-        f"Known baseline is {_BASELINE_REVISION!r}; retired IDs are "
+        f"Known revisions include {_BASELINE_REVISION!r}; retired IDs are "
         f"{sorted(_RETIRED_REVISIONS)}."
     )
 

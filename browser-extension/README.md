@@ -20,9 +20,9 @@ Privacy policy: [PRIVACY.md](PRIVACY.md). Store listing drafts:
   failure notification. Click a notification to open the job. Popup queue does
   not fire a “Queued” toast.
 - **Context menu** “Send to ReelDock” uses your saved defaults.
-- **Options** for server URL, API token, destination, quality, SponsorBlock,
+- **Options** for pairing (origin + one-use code), destination, quality, SponsorBlock,
   embed flags, optional Audiobookshelf scan, and **Open ReelDock after queueing**
-  (off by default).
+  (off by default). Advanced/legacy paste-token remains for existing installs.
 
 ## Server URL rules
 
@@ -37,28 +37,22 @@ Localhost / loopback origins are covered by required host permissions.
 A non-loopback HTTPS origin is requested **only when you save** that specific
 server in Options (`https://your-host/*`), not as a blanket grant.
 
-## 1. Enable the extension API on the backend
+## 1. Enable the extension API and pair a browser
 
-Set these in the backend `.env` (see `.env.example`):
+In ReelDock **Settings → Browser Extension**, enable the API (or set
+`EXTENSION_API_ENABLED=true`), set the advertised HTTPS origin if needed, and
+click **Generate pairing code**. In Options, paste the origin and `RDK-XXXX-XXXX`
+code. The code is one-use and is not stored.
+
+Legacy shared token (optional, not created in the UI):
 
 ```ini
 EXTENSION_API_ENABLED=true
 EXTENSION_API_TOKEN=generate-with-openssl-rand-hex-32
 ```
 
-`EXTENSION_API_TOKEN` is **required** when the API is enabled (the app refuses
-to start without it). Recreate containers after changing `.env`:
-
-```bash
-docker compose up -d --force-recreate
-```
-
-Verify with:
-
-```bash
-curl -H "Authorization: Bearer $EXTENSION_API_TOKEN" \
-  http://127.0.0.1:8080/api/extension/status
-```
+Store-installed browsers need a browser-trusted HTTPS origin they can reach.
+Loopback HTTP is for unpacked local testing only.
 
 ## 2. Build and load the extension
 
@@ -90,8 +84,8 @@ available yet.
 
 Click the extension icon → Options (or the gear icon on the popup) and set:
 
-- **Server URL**: e.g. `http://127.0.0.1:8080` or `https://reeldock.example.com`
-- **API token**: must match `EXTENSION_API_TOKEN`
+- **ReelDock origin** + **pairing code** from Settings (recommended)
+- **Advanced / legacy token** only if you still use `EXTENSION_API_TOKEN`
 - **Default destination**: server default, library root, or a folder from your ReelDock library
 - **Default quality**: Standard / High / Best
 - **Embed metadata / thumbnail / chapters** and optional SponsorBlock

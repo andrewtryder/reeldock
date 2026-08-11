@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from redis import Redis
 from rq import Queue
 
 from app.config import get_settings
 
 QUEUE_NAME = "reeldock"
+
+
+class RedisCommands(Protocol):
+    def incr(self, name: str) -> int: ...
+    def expire(self, name: str, time: int) -> object: ...
+    def get(self, name: str) -> bytes | str | None: ...
+    def setex(self, name: str, time: int, value: str) -> object: ...
+    def delete(self, *names: str) -> object: ...
+
 
 _redis_conn: Redis | None = None
 _queue: Queue | None = None

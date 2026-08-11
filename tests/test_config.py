@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -226,3 +227,73 @@ def test_yaml_blocks_db_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     save_settings({"output_root": "/db/output"})
     settings = reload_settings()
     assert settings.output_root == Path("/yaml/output")
+
+
+def test_get_settings_does_not_mutate_environ(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import app.config as cfg_module
+
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(yaml.dump({"download": {"allow_playlists": True}}))
+    monkeypatch.setattr(cfg_module, "_CONFIG_YAML_PATH", cfg_file)
+    monkeypatch.delenv("ALLOW_PLAYLISTS", raising=False)
+    before = dict(os.environ)
+    cfg_module._settings = None
+    settings = cfg_module.get_settings()
+    assert settings.allow_playlists is True
+    assert "ALLOW_PLAYLISTS" not in os.environ or os.environ.get("ALLOW_PLAYLISTS") == before.get(
+        "ALLOW_PLAYLISTS"
+    )
+
+
+def test_blank_env_does_not_pin_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUTH_PASSWORD", "")
+    monkeypatch.setenv("REELDOCK_CONFIG_MODE", "ui")
+    import app.config as cfg_module
+
+    cfg_module._settings = None
+    pinned = cfg_module._collect_pinned_sources()
+    assert "AUTH_PASSWORD" not in pinned
+
+
+def test_ui_mode_db_overrides_env_operational(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    import app.config as cfg_module
+    import app.db as db_module
+    from app.config import reload_settings, save_settings
+    from app.db import init_db
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'mode.db'}")
+    monkeypatch.setenv("REELDOCK_CONFIG_MODE", "ui")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setattr(cfg_module, "_parse_dotenv_keys", lambda: set())
+    cfg_module._settings = None
+    db_module._sync_engine = None
+    db_module._sync_session_factory = None
+    asyncio.run(init_db())
+    save_settings({"dry_run": "true"})
+    assert reload_settings().dry_run is True
+
+
+def test_locked_mode_env_wins_over_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    import app.config as cfg_module
+    import app.db as db_module
+    from app.config import reload_settings, save_settings
+    from app.db import init_db
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'locked.db'}")
+    monkeypatch.setenv("REELDOCK_CONFIG_MODE", "locked")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.setattr(cfg_module, "_parse_dotenv_keys", lambda: set())
+    cfg_module._settings = None
+    db_module._sync_engine = None
+    db_module._sync_session_factory = None
+    asyncio.run(init_db())
+    save_settings({"dry_run": "true"})
+    assert reload_settings().dry_run is False

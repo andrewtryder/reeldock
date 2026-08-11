@@ -27,18 +27,16 @@ Open `.env` in a text editor and set `HOST_AUDIOBOOKS_DIR` to the directory on y
 # Path on your Docker host (Mac or Linux)
 HOST_AUDIOBOOKS_DIR=/mnt/podcasts
 ```
-Compose loads `.env` into the app/worker containers. If you enable auth or the browser extension API, set credentials there as well:
+Compose loads `.env` into the app/worker containers. Fresh Docker installs can leave `AUTH_PASSWORD`, `ABS_API_TOKEN`, and `EXTENSION_API_TOKEN` unset and configure auth, Audiobookshelf, and browser pairing from the Settings page.
+
+To enable the extension API from env and pair from the UI:
 
 ```env
-AUTH_ENABLED=true
-AUTH_USERNAME=admin
-AUTH_PASSWORD=use-a-strong-password
-
 EXTENSION_API_ENABLED=true
-EXTENSION_API_TOKEN=generate-with-openssl-rand-hex-32
+# EXTENSION_PUBLIC_URL=https://reeldock.example.com
 ```
 
-`AUTH_ENABLED=true` without username/password, or `EXTENSION_API_ENABLED=true` without a token, causes startup to fail. After changing auth settings, recreate containers (`docker compose up -d --force-recreate`). See [Security](security.md).
+Or enable both from Settings after the first start. Pairing is the recommended browser path; `EXTENSION_API_TOKEN` is legacy. See [Security](security.md).
 
 *(Optional)* Restrict permissions or configure Audiobookshelf scan triggers in `.env` as well. See [Configuration Guide](configuration.md) for details.
 

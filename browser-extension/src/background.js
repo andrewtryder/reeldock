@@ -25,6 +25,7 @@ import {
   buildQueuePayload,
   shouldOpenReelDockAfterQueue,
 } from './queue-payload.js';
+import { isDeviceToken } from './pairing.js';
 import {
   DEFAULT_SETTINGS,
   SETTINGS_KEYS,
@@ -34,6 +35,7 @@ import {
   publicSettings,
   requireValidatedServerOrigin,
   saveRecentJobs,
+  saveSettings,
 } from './settings.js';
 
 const CONTEXT_MENU_ID = 'reeldock-queue-video';
@@ -361,6 +363,24 @@ async function handleTestConnection(message = {}) {
   return { ok: true, status, capabilities, destinations: destinationState };
 }
 
+async function handleRevokeDevice() {
+  await refreshSettings();
+  if (!isDeviceToken(settings.apiToken)) {
+    await saveSettings({ apiToken: '', deviceId: '', deviceName: '' });
+    await refreshSettings();
+    return { ok: true, status: 'disconnected' };
+  }
+  try {
+    await apiFetch('/api/extension/devices/me/revoke', { method: 'POST' });
+  } catch (err) {
+    console.warn('Revoke on server failed:', formatCaughtError(err));
+  }
+  closeAllWebSockets('Device disconnected');
+  await saveSettings({ apiToken: '', deviceId: '', deviceName: '' });
+  await refreshSettings();
+  return { ok: true, status: 'revoked' };
+}
+
 async function handleLoadDestinations() {
   await refreshSettings();
   try {
@@ -491,10 +511,21 @@ async function handleOpenReelDock() {
   return { ok: true };
 }
 
-function buildJobWebSocketUrl(jobId) {
+async function buildJobWebSocketUrl(jobId) {
   const base = new URL(configuredServerOrigin());
   const wsProtocol = base.protocol === 'http:' ? 'ws:' : 'wss:';
   const wsUrl = new URL(`${wsProtocol}//${base.host}/api/ws/jobs/${encodeURIComponent(jobId)}`);
+  if (isDeviceToken(settings.apiToken)) {
+    const payload = await apiFetch('/api/extension/ws-ticket', {
+      method: 'POST',
+      body: JSON.stringify({ job_id: jobId }),
+    });
+    if (!payload?.ticket) {
+      throw new Error('ReelDock did not issue a WebSocket ticket.');
+    }
+    wsUrl.searchParams.set('ticket', payload.ticket);
+    return wsUrl.toString();
+  }
   if (settings.apiToken) {
     wsUrl.searchParams.set('token', settings.apiToken);
   }
@@ -529,6 +560,11 @@ function stopSocketsForOtherOrigins() {
 }
 
 function startJobWebSocket(jobId) {
+  void startJobWebSocketAsync(jobId);
+  return activeWebSockets.get(jobId) || null;
+}
+
+async function startJobWebSocketAsync(jobId) {
   if (!settings.serverUrl) return null;
   const job = recentJobs.find((item) => item.jobId === jobId);
   if (job && !jobMatchesServerOrigin(job, currentServerOrigin())) {
@@ -541,7 +577,8 @@ function startJobWebSocket(jobId) {
 
   let ws;
   try {
-    ws = new WebSocket(buildJobWebSocketUrl(jobId));
+    const url = await buildJobWebSocketUrl(jobId);
+    ws = new WebSocket(url);
   } catch (error) {
     console.error(`Cannot start WebSocket for job ${jobId}:`, error);
     return null;
@@ -662,6 +699,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message.action === 'testConnection') {
     return replyAsync(sendResponse, handleTestConnection(message));
+  }
+  if (message.action === 'revokeDevice') {
+    return replyAsync(sendResponse, handleRevokeDevice());
   }
   if (message.action === 'getNotificationIds') {
     return replyAsync(sendResponse, listedNotificationIds().then((ids) => ({ ok: true, ids })));

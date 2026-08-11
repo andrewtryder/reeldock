@@ -1,45 +1,59 @@
-// Background service worker for the reeldock extension.
-// Owns the in-memory settings cache, the context menu, the API call to queue videos,
-// and WebSocket connections for real-time job status updates.
+// Background service worker owns ReelDock HTTP/WS, the recent-job ledger,
+// cancel/retry, notifications, and rehydration. Popup/options only message us.
 
+import { parseCapabilities } from './capabilities.js';
+import { destinationChoices, resolveSavedDestination } from './destinations.js';
+import { formatApiError, formatCaughtError } from './errors.js';
+import {
+  parseNotificationJobId,
+  queuedNotificationSpec,
+  terminalNotificationSpec,
+} from './notifications.js';
+import {
+  applyJobPatch,
+  displayRecentJobs,
+  droppedJobIds,
+  isTerminalStatus,
+  mergeJobFromServer,
+  resetJobForRetry,
+  upsertRecentJob,
+} from './recent-jobs.js';
+import {
+  buildQueuePayload,
+  shouldOpenReelDockAfterQueue,
+} from './queue-payload.js';
 import {
   DEFAULT_SETTINGS,
-  STORAGE_KEYS,
+  SETTINGS_KEYS,
   isYouTubeWatchUrl,
+  loadRecentJobs,
   loadSettings,
+  publicSettings,
   requireValidatedServerOrigin,
+  saveRecentJobs,
 } from './settings.js';
 
 const CONTEXT_MENU_ID = 'reeldock-queue-video';
 
-// In-memory cache of settings, refreshed from storage on startup and on changes.
 let settings = { ...DEFAULT_SETTINGS };
+let recentJobs = [];
+let capabilities = parseCapabilities(null);
+let lastStatus = null;
+let connectionError = '';
+let destinationState = {
+  folders: [],
+  default: '',
+  selected: '',
+  banner: '',
+  choices: destinationChoices([]),
+};
 
-// Active WebSocket connections for job status updates
 const activeWebSockets = new Map();
-
-// Build the request body for the queue endpoint from the current settings + a URL.
-function buildRequestBody(url, options = {}) {
-  const allowReimport =
-    typeof options.allowReimport === 'boolean'
-      ? options.allowReimport
-      : settings.allowReimport;
-  return {
-    url,
-    destination_folder: settings.defaultDestinationFolder || '',
-    output_title: '',
-    embed_metadata: settings.embedMetadata,
-    embed_thumbnail: settings.embedThumbnail,
-    embed_chapters: settings.embedChapters,
-    trigger_abs_scan: settings.triggerAbsScan,
-    allow_reimport: allowReimport,
-  };
-}
 
 function authHeaders() {
   const headers = { 'Content-Type': 'application/json' };
   if (settings.apiToken) {
-    headers['Authorization'] = `Bearer ${settings.apiToken}`;
+    headers.Authorization = `Bearer ${settings.apiToken}`;
   }
   return headers;
 }
@@ -51,152 +65,299 @@ function configuredServerOrigin() {
   return requireValidatedServerOrigin(settings.serverUrl);
 }
 
-function publicSettings() {
-  const { apiToken: _omit, ...rest } = settings;
-  return rest;
+async function persistJobs(next) {
+  const previous = recentJobs;
+  recentJobs = next;
+  for (const jobId of droppedJobIds(previous, recentJobs)) {
+    stopJobWebSocket(jobId, 'Dropped from recent jobs');
+  }
+  await saveRecentJobs(recentJobs);
 }
 
-async function queueVideo(url, options = {}) {
+async function refreshSettings() {
+  const previousOrigin = settings.serverUrl;
+  settings = await loadSettings();
+  recentJobs = await loadRecentJobs();
+  if (previousOrigin && settings.serverUrl && previousOrigin !== settings.serverUrl) {
+    closeAllWebSockets('Server URL changed');
+  }
+}
+
+async function parseErrorResponse(response) {
+  let detail;
+  try {
+    const body = await response.json();
+    detail = body?.detail;
+  } catch {
+    try {
+      detail = await response.text();
+    } catch {
+      detail = response.statusText;
+    }
+  }
+  return new Error(formatApiError(response.status, detail));
+}
+
+async function apiFetch(path, options = {}) {
   const base = configuredServerOrigin();
-  const response = await fetch(`${base}/api/extension/queue`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(buildRequestBody(url, options)),
+  const response = await fetch(`${base}${path}`, {
+    ...options,
+    headers: { ...authHeaders(), ...(options.headers || {}) },
   });
   if (!response.ok) {
-    let detail;
-    try {
-      detail = (await response.json()).detail;
-    } catch {
-      detail = await response.text();
-    }
-    throw new Error(`HTTP ${response.status}: ${detail || response.statusText}`);
+    throw await parseErrorResponse(response);
   }
+  if (response.status === 204) return null;
   return response.json();
 }
 
-function notify(message, title = 'ReelDock') {
+function notifySpec(spec) {
+  if (!spec) return;
   try {
-    chrome.notifications?.create({
+    chrome.notifications?.create(spec.id, {
       type: 'basic',
       iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
-      title,
-      message: String(message),
+      title: spec.title,
+      message: String(spec.message || ''),
     });
   } catch (err) {
     console.error('Notification failed:', err);
   }
 }
 
-async function openJobPage(jobUrl) {
+async function maybeNotifyTerminal(jobId) {
+  const job = recentJobs.find((item) => item.jobId === jobId);
+  const spec = terminalNotificationSpec(job);
+  if (!spec) return;
+  notifySpec(spec);
+  await persistJobs(applyJobPatch(recentJobs, jobId, { terminalNotificationSent: true }));
+}
+
+async function openAbsoluteOrJobUrl(jobUrl, serverOrigin) {
   if (!jobUrl) return;
-  const base = configuredServerOrigin();
+  if (jobUrl.startsWith('http://') || jobUrl.startsWith('https://')) {
+    await chrome.tabs.create({ url: jobUrl });
+    return;
+  }
+  const base = serverOrigin || configuredServerOrigin();
   await chrome.tabs.create({ url: `${base}${jobUrl}` });
 }
 
-async function handleQueue(url, options = {}) {
-  if (!isYouTubeWatchUrl(url)) {
-    const err = new Error('Not a YouTube video URL.');
-    notify(err.message);
-    throw err;
-  }
-  try {
-    const data = await queueVideo(url, options);
-    if (!data?.job_id) {
-      throw new Error('Queue response missing job_id');
-    }
-    const responsePayload = {
-      ok: true,
-      job_id: data.job_id,
-      rq_job_id: data.rq_job_id || null,
-      status: data.status || 'queued',
-      title: data.title || null,
-      uploader: data.uploader || null,
-      job_url: data.job_url || null,
-      serverUrl: configuredServerOrigin(),
-    };
-
-    notify(`Queued successfully: ${responsePayload.title || responsePayload.job_id}`);
-    await openJobPage(responsePayload.job_url);
-
-    // Start WebSocket connection for real-time updates
-    startJobWebSocket(responsePayload.job_id);
-
-    // Send message to popup to update UI
-    chrome.runtime.sendMessage({
-      action: 'queueSuccess',
-      jobId: responsePayload.job_id,
-      job_id: responsePayload.job_id,
-      title: responsePayload.title,
-      uploader: responsePayload.uploader,
-      status: responsePayload.status,
-      progress: 0,
-      progressLabel: 'Queued',
-      jobUrl: responsePayload.job_url,
-      job_url: responsePayload.job_url,
-      serverUrl: responsePayload.serverUrl,
-    }).catch(err => {
-      console.error('Failed to send queue success message to popup:', err);
-    });
-    return responsePayload;
-  } catch (err) {
-    console.error('Queue failed:', err);
-    notify(err.message || 'Failed to queue video');
-
-    // Send error message to popup
-    chrome.runtime.sendMessage({
-      action: 'queueError',
-      error: err.message || 'Failed to queue video',
-    }).catch(err => {
-      console.error('Failed to send queue error message to popup:', err);
-    });
-    throw err;
-  }
-}
-
-function createContextMenus() {
-  chrome.contextMenus.remove(CONTEXT_MENU_ID, () => {
-    // "Cannot find menu item..." is expected on first run.
-    const removeError = chrome.runtime.lastError;
-    if (removeError && !removeError.message?.includes('Cannot find menu item')) {
-      console.error('Context menu cleanup failed:', removeError.message);
-      return;
-    }
-
-    chrome.contextMenus.create({
-      id: CONTEXT_MENU_ID,
-      title: 'Send to ReelDock',
-      contexts: ['page', 'link'],
-      documentUrlPatterns: [
-        'https://www.youtube.com/*',
-        'https://youtube.com/*',
-        'https://m.youtube.com/*',
-        'https://youtu.be/*',
-      ],
-    }, () => {
-      const createError = chrome.runtime.lastError;
-      if (createError && !createError.message?.includes('duplicate id')) {
-        console.error('Context menu setup failed:', createError.message);
-      }
-    });
+function broadcast(message) {
+  chrome.runtime.sendMessage(message).catch(() => {
+    // Popup may be closed.
   });
 }
 
-function urlFromContextMenu(info, tab) {
-  return info.linkUrl || info.pageUrl || tab?.url || '';
+function publicState() {
+  return {
+    ok: true,
+    settings: publicSettings(settings),
+    jobs: displayRecentJobs(recentJobs),
+    capabilities,
+    destinations: destinationState,
+    status: lastStatus,
+    configured: Boolean(settings.serverUrl && settings.apiToken),
+    legacyMessage: connectionError ? '' : capabilities.legacyMessage || '',
+    connectionError,
+  };
 }
 
-async function refreshSettings() {
-  settings = await loadSettings();
+async function fetchStatus() {
+  lastStatus = await apiFetch('/api/extension/status');
+  capabilities = parseCapabilities(lastStatus);
+  return lastStatus;
+}
 
-  // Stop any existing WebSocket connections
-  for (const [jobId, ws] of activeWebSockets) {
-    ws.close(1000, 'Settings updated');
+async function fetchDestinations() {
+  if (!capabilities.supports.destinations) {
+    destinationState = {
+      folders: [],
+      default: '',
+      selected: settings.defaultDestinationFolder || '',
+      banner: '',
+      choices: destinationChoices([]),
+    };
+    return destinationState;
   }
-  activeWebSockets.clear();
+  const data = await apiFetch('/api/extension/destinations');
+  const folders = Array.isArray(data.folders) ? data.folders : [];
+  const resolved = resolveSavedDestination(
+    settings.defaultDestinationFolder || '',
+    folders,
+    data.default || '',
+  );
+  destinationState = {
+    folders,
+    default: data.default || '',
+    selected: resolved.value,
+    banner: resolved.banner,
+    choices: destinationChoices(folders),
+  };
+  return destinationState;
 }
 
-// WebSocket connection manager
+async function fetchJob(jobId) {
+  return apiFetch(`/api/extension/jobs/${encodeURIComponent(jobId)}`);
+}
+
+async function reconcileActiveJobs() {
+  const active = recentJobs.filter((job) => !isTerminalStatus(job.status));
+  for (const job of active) {
+    try {
+      const fresh = await fetchJob(job.jobId);
+      const merged = mergeJobFromServer(fresh, job);
+      await persistJobs(upsertRecentJob(recentJobs, merged));
+      if (isTerminalStatus(merged.status)) {
+        stopJobWebSocket(job.jobId, 'Job finished');
+        await maybeNotifyTerminal(job.jobId);
+      } else {
+        startJobWebSocket(job.jobId);
+      }
+    } catch (err) {
+      // Keep the local record. Do not mark the job failed if the server is down.
+      console.warn(`Reconcile skipped for ${job.jobId}:`, formatCaughtError(err));
+    }
+  }
+}
+
+async function handleTestConnection() {
+  await refreshSettings();
+  const status = await fetchStatus();
+  try {
+    await fetchDestinations();
+  } catch (err) {
+    console.warn('Destinations unavailable:', formatCaughtError(err));
+  }
+  return { ok: true, status, capabilities, destinations: destinationState };
+}
+
+async function handleLoadDestinations() {
+  await refreshSettings();
+  try {
+    await fetchStatus();
+  } catch (err) {
+    console.warn('Status unavailable:', formatCaughtError(err));
+  }
+  await fetchDestinations();
+  return { ok: true, destinations: destinationState, capabilities };
+}
+
+async function handleGetPublicState() {
+  await refreshSettings();
+  connectionError = '';
+  if (settings.serverUrl && settings.apiToken) {
+    try {
+      await fetchStatus();
+      await fetchDestinations();
+    } catch (err) {
+      connectionError = formatCaughtError(err);
+      console.warn('Public state status/destinations failed:', connectionError);
+    }
+    await reconcileActiveJobs();
+  }
+  return publicState();
+}
+
+async function handleQueue(message) {
+  await refreshSettings();
+  const url = message.url || '';
+  if (!isYouTubeWatchUrl(url)) {
+    throw new Error('Not a YouTube video URL.');
+  }
+  const source = message.source === 'contextMenu' ? 'contextMenu' : 'popup';
+  const payload = buildQueuePayload({
+    url,
+    destinationFolder:
+      message.destinationFolder ?? settings.defaultDestinationFolder ?? destinationState.selected,
+    outputTitle: message.outputTitle || '',
+    embedMetadata: message.embedMetadata ?? settings.embedMetadata,
+    embedThumbnail: message.embedThumbnail ?? settings.embedThumbnail,
+    embedChapters: message.embedChapters ?? settings.embedChapters,
+    triggerAbsScan: message.triggerAbsScan ?? settings.triggerAbsScan,
+    allowReimport: message.allowReimport ?? settings.allowReimport,
+    quality: message.quality ?? settings.defaultQuality,
+    sponsorblockRemove: message.sponsorblockRemove ?? settings.sponsorblockRemove,
+  });
+  const data = await apiFetch('/api/extension/queue', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  if (!data?.job_id) {
+    throw new Error('Queue response missing job_id');
+  }
+  const origin = configuredServerOrigin();
+  const record = {
+    jobId: data.job_id,
+    title: data.title || '',
+    uploader: data.uploader || '',
+    status: data.status || 'queued',
+    phase: 'queued',
+    progressPercent: 0,
+    progressLabel: 'Queued',
+    jobUrl: data.job_url || `/jobs/${data.job_id}`,
+    serverOrigin: origin,
+    createdAt: new Date().toISOString(),
+    errorMessage: '',
+    terminalNotificationSent: false,
+  };
+  await persistJobs(upsertRecentJob(recentJobs, record));
+  notifySpec(queuedNotificationSpec(record, { source }));
+  if (shouldOpenReelDockAfterQueue(settings)) {
+    await openAbsoluteOrJobUrl(record.jobUrl, origin);
+  }
+  startJobWebSocket(record.jobId);
+  broadcast({ action: 'jobsChanged', jobs: displayRecentJobs(recentJobs) });
+  return {
+    ok: true,
+    job_id: record.jobId,
+    jobId: record.jobId,
+    status: record.status,
+    title: record.title,
+    uploader: record.uploader,
+    job_url: record.jobUrl,
+    jobUrl: record.jobUrl,
+    serverUrl: origin,
+  };
+}
+
+async function handleCancel(jobId) {
+  await refreshSettings();
+  await apiFetch(`/api/extension/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+  await persistJobs(applyJobPatch(recentJobs, jobId, { status: 'cancelled', phase: 'cancelled' }));
+  stopJobWebSocket(jobId, 'Cancelled');
+  await maybeNotifyTerminal(jobId);
+  broadcast({ action: 'jobsChanged', jobs: displayRecentJobs(recentJobs) });
+  return { ok: true, jobId, status: 'cancelled' };
+}
+
+async function handleRetry(jobId) {
+  await refreshSettings();
+  const data = await apiFetch(`/api/extension/jobs/${encodeURIComponent(jobId)}/retry`, {
+    method: 'POST',
+  });
+  const existing = recentJobs.find((job) => job.jobId === jobId);
+  const reset = resetJobForRetry(existing || { jobId });
+  await persistJobs(upsertRecentJob(recentJobs, reset));
+  startJobWebSocket(jobId);
+  broadcast({ action: 'jobsChanged', jobs: displayRecentJobs(recentJobs) });
+  return { ok: true, jobId, status: 'queued', rq_job_id: data?.rq_job_id || null };
+}
+
+async function handleOpenJob(jobId) {
+  await refreshSettings();
+  const job = recentJobs.find((item) => item.jobId === jobId);
+  await openAbsoluteOrJobUrl(job?.jobUrl || `/jobs/${jobId}`, job?.serverOrigin);
+  return { ok: true };
+}
+
+async function handleOpenReelDock() {
+  await refreshSettings();
+  const base = configuredServerOrigin();
+  await chrome.tabs.create({ url: base });
+  return { ok: true };
+}
+
 function buildJobWebSocketUrl(jobId) {
   const base = new URL(configuredServerOrigin());
   const wsProtocol = base.protocol === 'http:' ? 'ws:' : 'wss:';
@@ -207,16 +368,31 @@ function buildJobWebSocketUrl(jobId) {
   return wsUrl.toString();
 }
 
-function startJobWebSocket(jobId) {
-  if (!settings.serverUrl) {
-    console.error('Cannot start WebSocket: server URL not configured');
-    return null;
+function stopJobWebSocket(jobId, reason = 'Stopped') {
+  const ws = activeWebSockets.get(jobId);
+  if (!ws) return;
+  if (ws.keepaliveInterval) clearInterval(ws.keepaliveInterval);
+  try {
+    ws.close(1000, reason);
+  } catch {
+    // ignore
   }
+  activeWebSockets.delete(jobId);
+}
 
+function closeAllWebSockets(reason) {
+  for (const jobId of [...activeWebSockets.keys()]) {
+    stopJobWebSocket(jobId, reason);
+  }
+}
+
+function startJobWebSocket(jobId) {
+  if (!settings.serverUrl) return null;
   const existing = activeWebSockets.get(jobId);
   if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
     return existing;
   }
+
   let ws;
   try {
     ws = new WebSocket(buildJobWebSocketUrl(jobId));
@@ -225,91 +401,90 @@ function startJobWebSocket(jobId) {
     return null;
   }
 
-  ws.onopen = function() {
-    console.log(`WebSocket connected for job ${jobId}`);
-    // Send keepalive message to prevent timeout
+  ws.onopen = function onOpen() {
     ws.keepaliveInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ping' }));
       }
     }, 30000);
-
-    // Notify popup that WebSocket is connected
-    chrome.runtime.sendMessage({
-      action: 'websocketConnected',
-      jobId: jobId,
-    }).catch(err => {
-      console.error('Failed to notify popup of WebSocket connection:', err);
-    });
   };
 
-  ws.onmessage = function(event) {
+  ws.onmessage = async function onMessage(event) {
     try {
       const data = JSON.parse(event.data);
-
-      if (data.type === 'pong') {
-        // Keepalive response, nothing to do
-        return;
-      }
-
-      if (data.type === 'job_update') {
-        // Forward job update to popup
-        chrome.runtime.sendMessage({
-          action: 'jobUpdate',
-          job: data.job,
-        }).catch(err => {
-          console.error('Failed to forward job update to popup:', err);
-        });
+      if (data.type === 'pong') return;
+      if (data.type !== 'job_update' || !data.job) return;
+      const current = recentJobs.find((job) => job.jobId === jobId) || { jobId };
+      const merged = mergeJobFromServer(data.job, current);
+      await persistJobs(upsertRecentJob(recentJobs, merged));
+      broadcast({ action: 'jobUpdate', job: merged, jobs: displayRecentJobs(recentJobs) });
+      if (isTerminalStatus(merged.status)) {
+        stopJobWebSocket(jobId, 'Job finished');
+        await maybeNotifyTerminal(jobId);
       }
     } catch (error) {
       console.error('Error parsing WebSocket message:', error);
     }
   };
 
-  ws.onclose = function(event) {
-    console.log(`WebSocket closed for job ${jobId}: code=${event.code}, reason=${event.reason}`);
-
-    // Clear keepalive interval
-    if (ws.keepaliveInterval) {
-      clearInterval(ws.keepaliveInterval);
-    }
-
-    // Remove from active connections
+  ws.onclose = function onClose(event) {
+    if (ws.keepaliveInterval) clearInterval(ws.keepaliveInterval);
     activeWebSockets.delete(jobId);
-
-    // Notify popup that WebSocket is disconnected
-    chrome.runtime.sendMessage({
-      action: 'websocketDisconnected',
-      jobId: jobId,
-      code: event.code,
-      reason: event.reason,
-    }).catch(err => {
-      console.error('Failed to notify popup of WebSocket disconnection:', err);
-    });
-
-    // Attempt to reconnect if not a normal closure
     if (event.code !== 1000 && event.code !== 1001) {
-      console.log(`Attempting to reconnect WebSocket for job ${jobId} in 5 seconds...`);
-      setTimeout(() => startJobWebSocket(jobId), 5000);
+      const job = recentJobs.find((item) => item.jobId === jobId);
+      if (job && !isTerminalStatus(job.status)) {
+        setTimeout(() => startJobWebSocket(jobId), 5000);
+      }
     }
   };
 
-  ws.onerror = function(error) {
+  ws.onerror = function onError(error) {
     console.error(`WebSocket error for job ${jobId}:`, error);
-
-    chrome.runtime.sendMessage({
-      action: 'websocketError',
-      jobId: jobId,
-      error: error,
-    }).catch(err => {
-      console.error('Failed to notify popup of WebSocket error:', err);
-    });
   };
 
-  // Store WebSocket connection
   activeWebSockets.set(jobId, ws);
-
   return ws;
+}
+
+function createContextMenus() {
+  chrome.contextMenus.remove(CONTEXT_MENU_ID, () => {
+    const removeError = chrome.runtime.lastError;
+    if (removeError && !removeError.message?.includes('Cannot find menu item')) {
+      console.error('Context menu cleanup failed:', removeError.message);
+      return;
+    }
+    chrome.contextMenus.create(
+      {
+        id: CONTEXT_MENU_ID,
+        title: 'Send to ReelDock',
+        contexts: ['page', 'link'],
+        documentUrlPatterns: [
+          'https://www.youtube.com/*',
+          'https://youtube.com/*',
+          'https://m.youtube.com/*',
+          'https://youtu.be/*',
+        ],
+      },
+      () => {
+        const createError = chrome.runtime.lastError;
+        if (createError && !createError.message?.includes('duplicate id')) {
+          console.error('Context menu setup failed:', createError.message);
+        }
+      },
+    );
+  });
+}
+
+function urlFromContextMenu(info, tab) {
+  return info.linkUrl || info.pageUrl || tab?.url || '';
+}
+
+function replyAsync(sendResponse, promise) {
+  promise.then(
+    (data) => sendResponse(data),
+    (err) => sendResponse({ ok: false, error: formatCaughtError(err) }),
+  );
+  return true;
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -318,44 +493,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  if (message.action === 'getSettings') {
-    sendResponse({ ok: true, settings: publicSettings() });
-    return false;
+  if (message.action === 'getPublicState' || message.action === 'getSettings') {
+    return replyAsync(sendResponse, handleGetPublicState());
   }
-
   if (message.action === 'queue') {
-    handleQueue(message.url, { allowReimport: Boolean(message.allowReimport) }).then(
-      (data) => sendResponse(data),
-      (err) => sendResponse({ ok: false, error: err.message || String(err) })
-    );
-    return true; // keep channel open for async response
+    return replyAsync(sendResponse, handleQueue(message));
   }
-
-  if (message.action === 'startWebSocket') {
-    // Start WebSocket for a job ID
-    const ws = startJobWebSocket(message.jobId);
-    sendResponse({ ok: true, wsActive: ws !== null });
-    return false;
+  if (message.action === 'cancel') {
+    return replyAsync(sendResponse, handleCancel(message.jobId));
   }
-
-  if (message.action === 'stopWebSocket') {
-    // Stop WebSocket for a job ID
-    const ws = activeWebSockets.get(message.jobId);
-    if (ws) {
-      ws.close(1000, 'Stopped by user');
-      activeWebSockets.delete(message.jobId);
-    }
-    sendResponse({ ok: true });
-    return false;
+  if (message.action === 'retry') {
+    return replyAsync(sendResponse, handleRetry(message.jobId));
   }
-
-  if (message.action === 'getActiveWebSockets') {
-    // Return list of active job IDs
-    sendResponse({
-      ok: true,
-      activeJobs: Array.from(activeWebSockets.keys()),
-    });
-    return false;
+  if (message.action === 'openJob') {
+    return replyAsync(sendResponse, handleOpenJob(message.jobId));
+  }
+  if (message.action === 'openReelDock') {
+    return replyAsync(sendResponse, handleOpenReelDock());
+  }
+  if (message.action === 'loadDestinations') {
+    return replyAsync(sendResponse, handleLoadDestinations());
+  }
+  if (message.action === 'testConnection') {
+    return replyAsync(sendResponse, handleTestConnection());
   }
 
   sendResponse({ ok: false, error: `Unknown action: ${message.action}` });
@@ -364,19 +524,53 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== CONTEXT_MENU_ID) return;
-  const url = urlFromContextMenu(info, tab);
-  handleQueue(url).catch((err) => {
+  handleQueue({ url: urlFromContextMenu(info, tab), source: 'contextMenu' }).catch((err) => {
     console.error('Context menu queue failed:', err);
+    notifySpec({
+      id: `reeldock-fail-context-${Date.now()}`,
+      title: 'ReelDock',
+      message: formatCaughtError(err),
+    });
   });
 });
 
-// Keep cache fresh when options page writes to storage.
+chrome.notifications?.onClicked?.addListener((notificationId) => {
+  const jobId = parseNotificationJobId(notificationId);
+  if (!jobId) return;
+  handleOpenJob(jobId).catch((err) => {
+    console.error('Notification click failed:', err);
+  });
+});
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  for (const key of STORAGE_KEYS) {
+  for (const key of SETTINGS_KEYS) {
     if (key in changes) settings[key] = changes[key].newValue;
+  }
+  if (changes.serverUrl) {
+    closeAllWebSockets('Server URL changed');
   }
 });
 
-// Initialize eagerly for the case where the worker wakes up without onInstalled.
-refreshSettings().then(createContextMenus);
+async function boot() {
+  await refreshSettings();
+  createContextMenus();
+  if (settings.serverUrl && settings.apiToken) {
+    try {
+      await fetchStatus();
+    } catch (err) {
+      console.warn('Startup status failed:', formatCaughtError(err));
+    }
+    await reconcileActiveJobs();
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  boot().catch((err) => console.error('onInstalled boot failed:', err));
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  boot().catch((err) => console.error('onStartup boot failed:', err));
+});
+
+boot().catch((err) => console.error('Eager boot failed:', err));

@@ -15,8 +15,11 @@ or extension data, or remove the extension:
 - ReelDock server URL (normalized origin)
 - extension API authentication token
 - default destination folder
-- import defaults (embed metadata / thumbnail / chapters, allow re-import)
+- import defaults (quality, SponsorBlock, embed metadata / thumbnail / chapters,
+  allow re-import, open ReelDock after queueing)
 - Audiobookshelf scan toggle
+- recent-job metadata (job id, title, uploader, status, progress, job URL,
+  server origin, timestamps, error text). No API token is stored in this ledger.
 
 These values stay on the device. They are not encrypted beyond whatever the
 browser already applies to extension storage.
@@ -27,7 +30,8 @@ When you queue or import a video (popup **Queue video** or the YouTube context
 menu), the extension sends **only to the ReelDock server URL you configured**:
 
 - the selected / current YouTube video URL
-- the import options you chose (destination, embed flags, re-import, ABS scan)
+- the import options you chose (destination, quality, SponsorBlock, embed
+  flags, re-import, ABS scan)
 - the extension API authentication token (`Authorization: Bearer …` on HTTP;
   the same token as a WebSocket query parameter for job status)
 

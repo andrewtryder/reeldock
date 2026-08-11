@@ -29,8 +29,9 @@ The extension talks only to the ReelDock URL you configure (localhost or
 HTTPS). It does not use a ReelDock cloud account. You must enable the
 extension API on your server and paste the matching API token into Options.
 
-Job status and progress appear in the popup while your server processes the
-import. You can also open the job page on your ReelDock instance.
+Recent imports stay in the popup with View, Cancel, and Retry. Job progress
+continues in the background after you close the popup. You can also open the
+job page on your ReelDock instance.
 
 This extension is not affiliated with YouTube or Google.
 
@@ -49,9 +50,9 @@ not remote code.
 | Permission | Why |
 |------------|-----|
 | `activeTab` | Read the active tab URL after the user opens the popup, so we can queue that YouTube video. |
-| `storage` | Save the server URL, API token, and import defaults on the device. |
+| `storage` | Save the server URL, API token, import defaults, and recent-job metadata on the device. |
 | `contextMenus` | “Send to ReelDock” on YouTube pages and links. |
-| `notifications` | Confirm queue success or show a failure after a context-menu or popup queue. |
+| `notifications` | Context-menu queue confirmation and one completion or failure notice. |
 | Host: `http(s)://localhost/*`, `127.0.0.1`, `[::1]` | Default local ReelDock API, WebSocket, and job page. |
 | Optional host: `https://*/*` | Requested only for the **specific** HTTPS origin the user saves in Options (not granted eagerly). |
 

@@ -19,8 +19,9 @@ need developer-cloud credentials.
    view).
 7. Click the extension → **Queue video**, or use the page context menu
    **Send to ReelDock**.
-8. The popup should show queued / progress / Done. A job page may open on the
-   local ReelDock UI.
+8. The popup should show the current video title, Create Audiobook, and a
+   Recent list. Progress continues if you close and reopen the popup. A job
+   page opens only if **Open ReelDock after queueing** is enabled.
 
 Non-loopback HTTP URLs must be rejected. An HTTPS LAN or hostname should
 prompt for host permission for **that origin only** when saving Options.

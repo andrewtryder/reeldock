@@ -3,32 +3,56 @@ import {
   saveSettings,
   ensureServerHostPermission,
   normalizeAndValidateServerUrl,
-  requireValidatedServerOrigin,
 } from './settings.js';
 
-function $(id) { return document.getElementById(id); }
+function $(id) {
+  return document.getElementById(id);
+}
+
+function setHidden(id, hidden) {
+  $(id)?.classList.toggle('hidden', hidden);
+}
 
 function populate(settings) {
   $('serverUrl').value = settings.serverUrl || '';
   $('apiToken').value = settings.apiToken || '';
   $('defaultDestinationFolder').value = settings.defaultDestinationFolder || '';
+  $('defaultQuality').value = settings.defaultQuality || 'standard';
   $('embedMetadata').checked = settings.embedMetadata;
   $('embedThumbnail').checked = settings.embedThumbnail;
   $('embedChapters').checked = settings.embedChapters;
+  $('sponsorblockRemove').checked = Boolean(settings.sponsorblockRemove);
   $('triggerAbsScan').checked = settings.triggerAbsScan;
   $('allowReimport').checked = settings.allowReimport;
+  $('openReelDockAfterQueue').checked = Boolean(settings.openReelDockAfterQueue);
+  markQuality(settings.defaultQuality || 'standard');
+}
+
+function markQuality(quality) {
+  $('defaultQuality').value = quality;
+  for (const button of document.querySelectorAll('[data-quality]')) {
+    button.classList.toggle('active', button.dataset.quality === quality);
+  }
 }
 
 function collect() {
+  const destinationSelect = $('destinationSelect');
+  const destinationFromSelect =
+    !$('destination-select-wrap').classList.contains('hidden') && destinationSelect
+      ? destinationSelect.value
+      : $('defaultDestinationFolder').value.trim();
   return {
     serverUrl: $('serverUrl').value.trim(),
     apiToken: $('apiToken').value.trim(),
-    defaultDestinationFolder: $('defaultDestinationFolder').value.trim(),
+    defaultDestinationFolder: destinationFromSelect,
+    defaultQuality: $('defaultQuality').value || 'standard',
     embedMetadata: $('embedMetadata').checked,
     embedThumbnail: $('embedThumbnail').checked,
     embedChapters: $('embedChapters').checked,
+    sponsorblockRemove: $('sponsorblockRemove').checked,
     triggerAbsScan: $('triggerAbsScan').checked,
     allowReimport: $('allowReimport').checked,
+    openReelDockAfterQueue: $('openReelDockAfterQueue').checked,
   };
 }
 
@@ -38,75 +62,41 @@ function setStatus(text, ok = true) {
   el.className = ok ? 'ok' : 'err';
 }
 
-function updateStatusPanel(statusData, settings) {
-  // Status panel elements
-  const statusIndicator = document.getElementById('status-indicator');
-  const statusText = document.getElementById('status-text');
-  const connectionStatus = document.getElementById('connection-status');
-  const dryRunStatus = document.getElementById('dry-run-status');
-  const absConfigured = document.getElementById('abs-configured');
-  const playlistsAllowed = document.getElementById('playlists-allowed');
-  const channelsAllowed = document.getElementById('channels-allowed');
-  const apiStatus = document.getElementById('api-status');
+function applyCapabilities(payload) {
+  const capabilities = payload?.capabilities;
+  const ready = Boolean(capabilities?.ready);
+  const supports = capabilities?.supports || {};
+  const status = payload?.status || {};
+  const destinations = payload?.destinations;
 
-  // Update connection status indicator
-  if (statusData.extension_api_enabled && statusData.auth_required) {
-    statusIndicator.className = 'status-indicator status-connected';
-    statusIndicator.title = 'Extension API enabled with token required';
-    connectionStatus.textContent = 'Connected';
-    apiStatus.textContent = 'API Auth Required';
-    apiStatus.className = 'status-badge status-warning';
-  } else if (statusData.extension_api_enabled && !statusData.auth_required) {
-    statusIndicator.className = 'status-indicator status-connected';
-    statusIndicator.title = 'Extension API enabled without token';
-    connectionStatus.textContent = 'Connected';
-    apiStatus.textContent = 'API No Auth';
-    apiStatus.className = 'status-badge status-success';
+  setHidden('legacy-banner', ready);
+  setHidden('quality-wrap', !supports.quality_presets);
+  setHidden('sponsorblock-row', !supports.sponsorblock);
+  setHidden('abs-row', !status.abs_configured);
+  setHidden('destination-select-wrap', !supports.destinations);
+  setHidden('destination-text-wrap', Boolean(supports.destinations));
+
+  const destBanner = $('dest-banner');
+  if (destinations?.banner) {
+    destBanner.textContent = destinations.banner;
+    destBanner.classList.remove('hidden');
   } else {
-    statusIndicator.className = 'status-indicator status-disconnected';
-    statusIndicator.title = 'Extension API disabled';
-    connectionStatus.textContent = 'Disconnected';
-    apiStatus.textContent = 'API Disabled';
-    apiStatus.className = 'status-badge status-error';
+    destBanner.textContent = '';
+    destBanner.classList.add('hidden');
   }
 
-  // Update dry run status
-  dryRunStatus.textContent = statusData.dry_run ? 'Dry run enabled' : 'Production mode';
-  dryRunStatus.className = `status-badge ${statusData.dry_run ? 'status-warning' : 'status-success'}`;
-
-  // Update ABS configured status
-  const isAbsConfigured = statusData.abs_configured;
-  absConfigured.textContent = isAbsConfigured ? 'Configured' : 'Not configured';
-  absConfigured.className = `status-badge ${isAbsConfigured ? 'status-success' : 'status-error'}`;
-
-  // Update playlists allowed
-  playlistsAllowed.textContent = statusData.allow_playlists ? 'Allowed' : 'Restricted';
-  playlistsAllowed.className = `status-badge ${statusData.allow_playlists ? 'status-success' : 'status-error'}`;
-
-  // Update channels allowed
-  channelsAllowed.textContent = statusData.allow_channels ? 'Allowed' : 'Restricted';
-  channelsAllowed.className = `status-badge ${statusData.allow_channels ? 'status-success' : 'status-error'}`;
-
-  // Update overall status
-  let overallStatus = 'OK';
-  let overallClass = 'status-success';
-
-  if (!statusData.extension_api_enabled) {
-    overallStatus = 'API Disabled';
-    overallClass = 'status-error';
-  } else if (statusData.extension_api_enabled && statusData.auth_required && !statusData.ok) {
-    overallStatus = 'Invalid Token';
-    overallClass = 'status-error';
-  } else if (statusData.dry_run) {
-    overallStatus = 'Dry Run';
-    overallClass = 'status-warning';
-  } else {
-    overallStatus = 'Production';
-    overallClass = 'status-success';
+  if (supports.destinations && destinations?.choices) {
+    const select = $('destinationSelect');
+    select.replaceChildren();
+    for (const choice of destinations.choices) {
+      const option = document.createElement('option');
+      option.value = choice.value;
+      option.textContent = choice.label;
+      select.appendChild(option);
+    }
+    select.value = destinations.selected || '';
+    $('defaultDestinationFolder').value = destinations.selected || '';
   }
-
-  document.getElementById('overall-status').textContent = overallStatus;
-  document.getElementById('overall-status-indicator').className = `status-indicator ${overallClass}`;
 }
 
 function validatedServerOriginOrStatus(serverUrl) {
@@ -116,23 +106,6 @@ function validatedServerOriginOrStatus(serverUrl) {
     return null;
   }
   return result.origin;
-}
-
-async function loadStatusFromServer(serverUrl, apiToken = null) {
-  const base = requireValidatedServerOrigin(serverUrl);
-  try {
-    const headers = {};
-    if (apiToken) headers['Authorization'] = `Bearer ${apiToken}`;
-
-    const res = await fetch(`${base}/api/extension/status`, { headers });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-
-    return await res.json();
-  } catch (err) {
-    throw new Error(`Failed to load server status: ${err.message}`);
-  }
 }
 
 async function requestHostPermission(serverUrl) {
@@ -147,20 +120,14 @@ async function requestHostPermission(serverUrl) {
 async function onSave() {
   try {
     const settings = collect();
-    if (!validatedServerOriginOrStatus(settings.serverUrl)) {
-      return;
-    }
-    if (!(await requestHostPermission(settings.serverUrl))) {
-      return;
-    }
+    if (!validatedServerOriginOrStatus(settings.serverUrl)) return;
+    if (!(await requestHostPermission(settings.serverUrl))) return;
     if (!settings.apiToken) {
       setStatus('API token is required (server requires EXTENSION_API_TOKEN).', false);
       return;
     }
     await saveSettings(settings);
-
-    // Refresh status after saving
-    setStatus('Settings saved, testing connection...', true);
+    setStatus('Settings saved, testing connection…', true);
     await onTest();
   } catch (err) {
     setStatus(`Save failed: ${err.message}`, false);
@@ -169,40 +136,66 @@ async function onSave() {
 
 async function onTest() {
   const { serverUrl, apiToken } = collect();
-
-  if (!validatedServerOriginOrStatus(serverUrl)) {
+  if (!validatedServerOriginOrStatus(serverUrl)) return;
+  if (!(await requestHostPermission(serverUrl))) return;
+  if (!apiToken) {
+    setStatus('API token is required.', false);
     return;
   }
-
-  if (!(await requestHostPermission(serverUrl))) {
-    return;
-  }
-
+  await saveSettings(collect());
   setStatus('Testing connection…', true);
-  // Keep the detailed status panel hidden by default.
-  document.getElementById('status-panel').style.display = 'none';
-
+  $('status-panel').style.display = 'none';
   try {
-    const statusData = await loadStatusFromServer(serverUrl, apiToken);
-    const showDetailedStatus = !statusData.ok;
-    if (showDetailedStatus) {
-      // Only show detailed status when there is a problem.
-      updateStatusPanel(statusData, collect());
-      document.getElementById('status-panel').style.display = 'block';
-    } else {
-      document.getElementById('status-panel').style.display = 'none';
+    const res = await chrome.runtime.sendMessage({ action: 'testConnection' });
+    if (!res?.ok) throw new Error(res?.error || 'Connection failed');
+    applyCapabilities(res);
+    if (res.status && !res.status.ok) {
+      updateStatusPanel(res.status);
+      $('status-panel').style.display = 'block';
+      setStatus('Server responded but not OK', false);
+      return;
     }
-
-    setStatus(statusData.ok ? 'Connected successfully!' : 'Server responded but not OK', statusData.ok ? true : false);
-
+    setStatus('Connected successfully!', true);
   } catch (err) {
     console.error('Test connection failed:', err);
-
-    // Hide status panel on error
-    document.getElementById('status-panel').style.display = 'none';
-
-    setStatus(`Connection failed: ${err.message}`, false);
+    $('status-panel').style.display = 'none';
+    setStatus(err.message || 'Connection failed', false);
   }
+}
+
+function updateStatusPanel(statusData) {
+  const statusIndicator = $('status-indicator');
+  const connectionStatus = $('connection-status');
+  const dryRunStatus = $('dry-run-status');
+  const absConfigured = $('abs-configured');
+  const playlistsAllowed = $('playlists-allowed');
+  const channelsAllowed = $('channels-allowed');
+  const apiStatus = $('api-status');
+
+  if (statusData.extension_api_enabled) {
+    statusIndicator.className = 'status-indicator status-connected';
+    connectionStatus.textContent = 'Connected';
+    apiStatus.textContent = statusData.auth_required ? 'API Auth Required' : 'API No Auth';
+    apiStatus.className = 'status-badge status-success';
+  } else {
+    statusIndicator.className = 'status-indicator status-disconnected';
+    connectionStatus.textContent = 'Disconnected';
+    apiStatus.textContent = 'API Disabled';
+    apiStatus.className = 'status-badge status-error';
+  }
+
+  dryRunStatus.textContent = statusData.dry_run ? 'Dry run enabled' : 'Production mode';
+  absConfigured.textContent = statusData.abs_configured ? 'Configured' : 'Not configured';
+  playlistsAllowed.textContent = statusData.allow_playlists ? 'Allowed' : 'Restricted';
+  channelsAllowed.textContent = statusData.allow_channels ? 'Allowed' : 'Restricted';
+  $('overall-status').textContent = statusData.ok ? 'OK' : 'Not OK';
+}
+
+for (const button of document.querySelectorAll('[data-quality]')) {
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    markQuality(button.dataset.quality);
+  });
 }
 
 (async () => {
@@ -210,27 +203,13 @@ async function onTest() {
   $('save').addEventListener('click', onSave);
   $('test').addEventListener('click', onTest);
 
-  // Optional: Auto-test on page load if server URL is configured
-  const initialSettings = await loadSettings();
-  if (normalizeAndValidateServerUrl(initialSettings.serverUrl).ok) {
-    // Small delay to allow page render
-    setTimeout(async () => {
-      try {
-        const statusData = await loadStatusFromServer(
-          initialSettings.serverUrl,
-          initialSettings.apiToken
-        );
-        if (!statusData.ok) {
-          updateStatusPanel(statusData, initialSettings);
-          document.getElementById('status-panel').style.display = 'block';
-        } else {
-          document.getElementById('status-panel').style.display = 'none';
-        }
-        setStatus('Connection status loaded', true);
-      } catch (err) {
-        console.log('Initial status load failed:', err);
-        document.getElementById('status-panel').style.display = 'none';
-      }
-    }, 500);
+  const initial = await loadSettings();
+  if (normalizeAndValidateServerUrl(initial.serverUrl).ok && initial.apiToken) {
+    try {
+      const res = await chrome.runtime.sendMessage({ action: 'getPublicState' });
+      if (res?.ok) applyCapabilities(res);
+    } catch (err) {
+      console.log('Initial status load failed:', err);
+    }
   }
 })();

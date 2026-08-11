@@ -1,7 +1,7 @@
 // Lightweight lint: validates that every entry point referenced by the manifests
 // exists in src/, and that the JS parses with node --check. Exits non-zero on failure.
 
-import { access, readFile, rm, writeFile, mkdir, cp } from 'node:fs/promises';
+import { access, readFile, readdir, rm, writeFile, mkdir, cp } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve, dirname } from 'node:path';
@@ -45,8 +45,9 @@ for (const name of entryPoints) {
   if (name.endsWith('.js')) await checkSyntax(src);
 }
 
-const sharedModules = ['settings.js', 'ui.js', 'browser-api.js'];
-for (const name of sharedModules) {
+const srcFiles = await readdir(resolve(ROOT, 'src'));
+for (const name of srcFiles) {
+  if (!name.endsWith('.js')) continue;
   await checkSyntax(resolve(ROOT, 'src', name));
 }
 

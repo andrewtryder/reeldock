@@ -23,7 +23,7 @@
 
     body {
       font-family: system-ui, sans-serif;
-      width: 320px;
+      width: 360px;
       margin: 0;
       padding: 12px;
       background: var(--background);
@@ -44,73 +44,102 @@
       border-radius: 6px;
     }
 
-    #status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      display: inline-block;
-      margin-left: 8px;
+    .banner {
+      display: none;
+      margin: 8px 0;
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      background: #3e2f12;
+      border: 1px solid #ffb74d;
+      color: #ffe0b2;
     }
 
-    #status-dot.connected {
-      background: var(--success);
-      box-shadow: 0 0 8px var(--success);
-    }
-
-    #status-dot.disconnected {
-      background: var(--error);
-    }
+    .banner.visible { display: block; }
 
     #video {
       margin: 8px 0;
       font-size: 0.9rem;
-      min-height: 2.4em;
+      min-height: 2.2em;
       padding: 8px;
       background: var(--surface);
       border-radius: 8px;
       border: 1px solid var(--outline-variant);
     }
 
+    .field { margin: 8px 0; }
+    .field label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #c4c6d5;
+      margin-bottom: 4px;
+    }
+
+    select, button, input[type="checkbox"] { font: inherit; }
+
+    select {
+      width: 100%;
+      padding: 6px 8px;
+      background: var(--surface);
+      color: #e2e1eb;
+      border: 1px solid var(--outline-variant);
+      border-radius: 6px;
+    }
+
+    .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+    .pill {
+      flex: 1;
+      padding: 6px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--outline-variant);
+      background: var(--surface);
+      color: #c4c6d5;
+      cursor: pointer;
+      width: auto;
+    }
+    .pill.active {
+      background: var(--primary-container);
+      color: var(--on-primary-container);
+      border-color: var(--primary);
+    }
+
     .row {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin: 8px 0;
+      margin: 6px 0;
       font-size: 0.85rem;
       color: #c4c6d5;
     }
 
-    #video a {
-      word-break: break-all;
-      color: var(--primary);
-      text-decoration: none;
-    }
+    .row.secondary { opacity: 0.85; font-size: 0.8rem; }
 
-    #video a:hover {
-      text-decoration: underline;
-    }
-
-    button {
+    button.primary {
       width: 100%;
       padding: 10px;
-      font: inherit;
       cursor: pointer;
       background: var(--primary);
       color: var(--on-primary-container);
       border: none;
       border-radius: 8px;
       font-weight: 600;
-      transition: background 0.2s;
     }
-
-    button:hover {
-      background: #5a7bd8;
-    }
-
-    button:disabled {
+    button.primary:disabled {
       background: var(--surface-variant);
       color: var(--outline-variant);
       cursor: not-allowed;
+    }
+
+    button.ghost {
+      width: auto;
+      padding: 4px 8px;
+      background: transparent;
+      color: var(--primary);
+      border: 1px solid var(--outline-variant);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.75rem;
     }
 
     #status {
@@ -120,174 +149,109 @@
       padding: 8px;
       border-radius: 6px;
     }
+    #status.err { background: var(--error-container); color: var(--on-error); }
+    #status.ok { background: var(--success-container); color: var(--on-success-container); }
+    #status.pending { background: var(--surface-variant); color: #c4c6d5; }
 
-    #status.err {
-      background: var(--error-container);
-      color: var(--on-error);
-      border: 1px solid var(--error);
-    }
-
-    #status.ok {
-      background: var(--success-container);
-      color: var(--on-success-container);
-      border: 1px solid var(--success);
-    }
-
-    #status.pending {
-      background: var(--surface-variant);
+    #recent { margin-top: 12px; }
+    #recent h2 {
+      font-size: 0.8rem;
+      margin: 0 0 6px;
       color: #c4c6d5;
-      border: 1px solid var(--outline-variant);
     }
-
-    #result {
-      margin-top: 12px;
-      padding: 12px;
+    .job {
+      padding: 8px;
+      margin-bottom: 6px;
       background: var(--surface);
-      border-radius: 8px;
       border: 1px solid var(--outline-variant);
-      display: none;
+      border-radius: 8px;
     }
-
-    #result.visible {
-      display: block;
-    }
-
-    .result-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-
-    .result-title {
-      font-size: 0.9rem;
-      font-weight: 600;
-      color: var(--primary);
-    }
-
-    .result-id {
-      font-size: 0.75rem;
-      color: var(--outline-variant);
-      font-family: monospace;
-    }
-
+    .job-title { font-size: 0.85rem; font-weight: 600; }
+    .job-meta { font-size: 0.75rem; color: #c4c6d5; margin: 2px 0 6px; }
+    .job-actions { display: flex; gap: 6px; flex-wrap: wrap; }
     .progress-bar {
       width: 100%;
-      height: 6px;
+      height: 4px;
       background: var(--surface-variant);
-      border-radius: 3px;
-      margin: 8px 0;
+      border-radius: 2px;
+      margin: 4px 0;
       overflow: hidden;
     }
-
-    .progress-fill {
-      height: 100%;
-      background: var(--primary);
-      border-radius: 3px;
-      transition: width 0.3s ease;
-    }
-
-    .status-badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      margin-right: 4px;
-    }
-
-    .status-queued {
-      background: var(--primary-container);
-      color: var(--on-primary-container);
-    }
-
-    .status-running {
-      background: #fff3e0;
-      color: #e65100;
-    }
-
-    .status-succeeded {
-      background: var(--success-container);
-      color: var(--on-success-container);
-    }
-
-    .status-failed {
-      background: var(--error-container);
-      color: var(--on-error);
-    }
-
-    .status-cancelled {
-      background: var(--surface-variant);
-      color: #c4c6d5;
-    }
+    .progress-fill { height: 100%; background: var(--primary); }
 
     footer {
       margin-top: 12px;
       font-size: 0.75rem;
       color: var(--outline-variant);
-      text-align: center;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
-
-    /* Mobile responsive adjustments */
-    @media (max-width: 360px) {
-      body {
-        width: 300px;
-        padding: 8px;
-      }
-
-      button {
-        padding: 12px;
-      }
-    }
+    footer button { margin: 0; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <h1>
     <img class="app-icon" src="icons/icon.svg" alt="ReelDock icon" />
     ReelDock
-    <div id="status-dot" class="disconnected"></div>
   </h1>
+
+  <div id="legacy-banner" class="banner"></div>
+  <div id="dest-banner" class="banner"></div>
 
   <div id="video">Checking current tab…</div>
 
-  <div id="queue-form">
-    <button id="queue" disabled>Queue video</button>
-    <label class="row" for="allow-reimport">
+  <form id="queue-form">
+    <div id="destination-field" class="field hidden">
+      <label for="destination">Save to</label>
+      <select id="destination"></select>
+    </div>
+
+    <div id="quality-field" class="field hidden">
+      <label>Quality</label>
+      <div class="pills" role="group" aria-label="Audio quality">
+        <button type="button" class="pill active" data-quality="standard">Standard</button>
+        <button type="button" class="pill" data-quality="high">High</button>
+        <button type="button" class="pill" data-quality="best">Best</button>
+      </div>
+    </div>
+
+    <label class="row" for="embed-metadata">
+      <input id="embed-metadata" type="checkbox" checked />
+      Embed metadata
+    </label>
+    <label class="row" for="embed-thumbnail">
+      <input id="embed-thumbnail" type="checkbox" checked />
+      Embed thumbnail
+    </label>
+    <label class="row" for="embed-chapters">
+      <input id="embed-chapters" type="checkbox" checked />
+      Embed chapters
+    </label>
+    <label class="row hidden" id="sponsorblock-row" for="sponsorblock">
+      <input id="sponsorblock" type="checkbox" />
+      Skip sponsor segments
+    </label>
+    <label class="row secondary" for="allow-reimport">
       <input id="allow-reimport" type="checkbox" />
       Allow importing this video again
     </label>
-  </div>
 
-  <div id="result">
-    <div class="result-header">
-      <div class="result-title">Queued Video</div>
-      <div class="result-id">ID: <span id="job-id">...</span></div>
-    </div>
-    <div id="queued-title">Loading...</div>
-    <div id="queued-uploader">by ...</div>
+    <button type="submit" class="primary" id="queue" disabled>Create Audiobook</button>
+  </form>
 
-    <div class="progress-bar">
-      <div class="progress-fill" id="progress-bar-fill" style="width: 0%"></div>
-    </div>
+  <div id="status" class="pending">Ready</div>
 
-    <div id="job-status">
-      <span class="status-badge status-queued" id="status-badge">queued</span>
-      <span id="status-text">Queued</span>
-    </div>
+  <section id="recent">
+    <h2>Recent</h2>
+    <div id="recent-list"></div>
+  </section>
 
-    <div id="progress-info" style="margin-top: 8px; font-size: 0.85rem;">
-      <span id="progress-label">Processing...</span>
-      <span id="progress-percentage">0%</span>
-    </div>
-
-    <div style="margin-top: 8px;">
-      <a href="#/jobs/" id="job-link" target="_blank" style="color: var(--primary); text-decoration: none;">View job details</a>
-    </div>
-  </div>
-
-  <div id="status" class="pending">Ready to queue</div>
-
-  <footer>v<span id="extension-version">...</span></footer>
+  <footer>
+    <button type="button" class="ghost" id="open-reeldock">Open ReelDock</button>
+    <span>v<span id="extension-version">...</span></span>
+  </footer>
 
   <script type="module" src="popup.js"></script>
 </body>

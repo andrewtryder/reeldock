@@ -1,8 +1,13 @@
+import { MAX_RECENT_JOBS, RECENT_JOBS_KEY } from './recent-jobs.js';
+
 // Default settings used on first install and as the in-memory state seed.
 export const DEFAULT_SETTINGS = Object.freeze({
   serverUrl: '',
   apiToken: '',
   defaultDestinationFolder: '',
+  defaultQuality: 'standard',
+  sponsorblockRemove: false,
+  openReelDockAfterQueue: false,
   triggerAbsScan: false,
   embedMetadata: true,
   embedThumbnail: true,
@@ -11,16 +16,29 @@ export const DEFAULT_SETTINGS = Object.freeze({
 });
 
 // Storage keys we persist. Keep this list in sync with options.js.
-export const STORAGE_KEYS = [
+export const SETTINGS_KEYS = [
   'serverUrl',
   'apiToken',
   'defaultDestinationFolder',
+  'defaultQuality',
+  'sponsorblockRemove',
+  'openReelDockAfterQueue',
   'triggerAbsScan',
   'embedMetadata',
   'embedThumbnail',
   'embedChapters',
   'allowReimport',
 ];
+
+export const STORAGE_KEYS = SETTINGS_KEYS;
+
+export { RECENT_JOBS_KEY };
+
+export const SMOKE_VIDEO_IDS = Object.freeze([
+  'reeldockSmoke01',
+  'reeldockSmokeFail01',
+  'reeldockSmokeSlow01',
+]);
 
 export const HTTPS_REQUIRED_ERROR =
   'HTTPS is required for ReelDock servers other than localhost.';
@@ -129,10 +147,15 @@ export async function ensureServerHostPermission(serverUrl) {
   return chrome.permissions.request({ origins: [originPattern] });
 }
 
+export function publicSettings(settings) {
+  const { apiToken: _omit, ...rest } = settings;
+  return rest;
+}
+
 // Load settings from storage, filling in defaults for missing keys.
 // Valid server URLs are rewritten to the normalized origin.
 export async function loadSettings() {
-  const result = await chrome.storage.local.get(STORAGE_KEYS);
+  const result = await chrome.storage.local.get(SETTINGS_KEYS);
   const settings = { ...DEFAULT_SETTINGS, ...result };
   if (settings.serverUrl) {
     const validated = normalizeAndValidateServerUrl(settings.serverUrl);
@@ -147,7 +170,7 @@ export async function loadSettings() {
 // Save a settings object to storage. serverUrl is stored as a validated origin.
 export async function saveSettings(settings) {
   const payload = {};
-  for (const key of STORAGE_KEYS) {
+  for (const key of SETTINGS_KEYS) {
     if (key in settings) payload[key] = settings[key];
   }
   if (payload.serverUrl) {
@@ -157,8 +180,27 @@ export async function saveSettings(settings) {
   return payload;
 }
 
+export async function loadRecentJobs() {
+  const result = await chrome.storage.local.get(RECENT_JOBS_KEY);
+  const jobs = result[RECENT_JOBS_KEY];
+  return Array.isArray(jobs) ? jobs.slice(0, MAX_RECENT_JOBS) : [];
+}
+
+export async function saveRecentJobs(jobs) {
+  const next = Array.isArray(jobs) ? jobs.slice(0, MAX_RECENT_JOBS) : [];
+  await chrome.storage.local.set({ [RECENT_JOBS_KEY]: next });
+  return next;
+}
+
+export function isAllowedVideoId(id) {
+  if (!id) return false;
+  if (SMOKE_VIDEO_IDS.includes(id)) return true;
+  return /^[A-Za-z0-9_-]{11,12}$/.test(id);
+}
+
 // Return true if the URL points to a single YouTube video.
-// Matches youtube.com/watch?v=ID and youtu.be/ID (11-12 char IDs).
+// Matches youtube.com/watch?v=ID and youtu.be/ID (11-12 char IDs),
+// plus reserved ReelDock smoke fixture IDs used by E2E.
 export function isYouTubeWatchUrl(url) {
   if (!url) return false;
   let parsed;
@@ -169,15 +211,15 @@ export function isYouTubeWatchUrl(url) {
   }
   const host = parsed.hostname.toLowerCase();
   if (host === 'youtu.be') {
-    return /^\/[\w-]{11,12}$/.test(parsed.pathname);
+    const id = parsed.pathname.replace(/^\//, '');
+    return isAllowedVideoId(id) && !id.includes('/');
   }
   if (host === 'www.youtube.com' || host === 'youtube.com' || host === 'm.youtube.com') {
     if (parsed.pathname === '/watch') {
-      return /^[A-Za-z0-9_-]{11,12}$/.test(parsed.searchParams.get('v') || '');
+      return isAllowedVideoId(parsed.searchParams.get('v') || '');
     }
-    // youtu.be short links can also appear as /shorts/ID
     if (parsed.pathname.startsWith('/shorts/')) {
-      return /^\/shorts\/[\w-]{11,12}$/.test(parsed.pathname);
+      return isAllowedVideoId(parsed.pathname.slice('/shorts/'.length));
     }
   }
   return false;

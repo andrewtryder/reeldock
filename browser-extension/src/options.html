@@ -163,6 +163,36 @@
       display: none;
     }
 
+    select {
+      width: 100%;
+      padding: 8px;
+      font: inherit;
+      box-sizing: border-box;
+      background: var(--surface);
+      border: 1px solid var(--outline-variant);
+      border-radius: 6px;
+      color: #e2e1eb;
+    }
+
+    .quality-pill {
+      margin-top: 0;
+      padding: 6px 10px;
+      background: var(--surface);
+      color: #c4c6d5;
+      border: 1px solid var(--outline-variant);
+      border-radius: 999px;
+    }
+
+    .quality-pill.active {
+      background: var(--primary-container);
+      color: var(--on-primary-container);
+      border-color: var(--primary);
+    }
+
+    .secondary-row {
+      opacity: 0.85;
+    }
+
     .checkbox-wrapper {
       position: relative;
       display: inline-block;
@@ -376,8 +406,28 @@
   <input id="apiToken" type="password" placeholder="EXTENSION_API_TOKEN from backend" />
   <p class="help-text">Required. Must match <code>EXTENSION_API_TOKEN</code> on the ReelDock server.</p>
 
-  <label for="defaultDestinationFolder">Default destination folder (optional)</label>
-  <input id="defaultDestinationFolder" type="text" placeholder="Podcasts" />
+  <div id="legacy-banner" class="help-text hidden">Update ReelDock to enable all extension features.</div>
+  <div id="dest-banner" class="help-text hidden"></div>
+
+  <div id="destination-select-wrap" class="hidden">
+    <label for="destinationSelect">Default destination</label>
+    <select id="destinationSelect"></select>
+  </div>
+
+  <div id="destination-text-wrap">
+    <label for="defaultDestinationFolder">Default destination folder (optional)</label>
+    <input id="defaultDestinationFolder" type="text" placeholder="Podcasts" />
+  </div>
+
+  <div id="quality-wrap" class="hidden">
+    <label>Default quality</label>
+    <div class="row" id="quality-pills">
+      <button type="button" class="quality-pill" data-quality="standard">Standard</button>
+      <button type="button" class="quality-pill" data-quality="high">High</button>
+      <button type="button" class="quality-pill" data-quality="best">Best</button>
+    </div>
+    <input id="defaultQuality" type="hidden" value="standard" />
+  </div>
 
   <div class="row">
     <div class="checkbox-wrapper">
@@ -403,7 +453,15 @@
     <label for="embedChapters">Embed chapters</label>
   </div>
 
-  <div class="row">
+  <div class="row hidden" id="sponsorblock-row">
+    <div class="checkbox-wrapper">
+      <input id="sponsorblockRemove" type="checkbox" />
+      <span class="checkbox-custom"></span>
+    </div>
+    <label for="sponsorblockRemove">Skip sponsor segments (SponsorBlock)</label>
+  </div>
+
+  <div class="row hidden" id="abs-row">
     <div class="checkbox-wrapper">
       <input id="triggerAbsScan" type="checkbox" />
       <span class="checkbox-custom"></span>
@@ -411,12 +469,23 @@
     <label for="triggerAbsScan">Trigger Audiobookshelf scan after success</label>
   </div>
 
-  <div class="row">
+  <div class="setting-card">
+    <div class="switch-row">
+      <label class="switch-label" for="openReelDockAfterQueue">Open ReelDock after queueing</label>
+      <label class="switch">
+        <input id="openReelDockAfterQueue" type="checkbox" />
+        <span class="slider"></span>
+      </label>
+    </div>
+    <p class="help-text">Off by default. When on, queueing opens the job page on your ReelDock server.</p>
+  </div>
+
+  <div class="row secondary-row">
     <div class="checkbox-wrapper">
       <input id="allowReimport" type="checkbox" />
       <span class="checkbox-custom"></span>
     </div>
-    <label for="allowReimport">Allow importing this video again</label>
+    <label for="allowReimport">Allow importing this video again (secondary)</label>
   </div>
 
   <button id="save">Save settings</button>

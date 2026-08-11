@@ -49,3 +49,26 @@ def job_dict(job: Job) -> dict[str, Any]:
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
     }
+
+
+def extension_job_dict(job: Job) -> dict[str, Any]:
+    """Slim job payload for the extension control plane.
+
+    Omits filesystem paths, RQ internals, and config fields the popup
+    does not need.
+    """
+    return {
+        "id": job.id,
+        "status": job.status,
+        "phase": job.phase,
+        "title": job.output_title or job.source_title,
+        "uploader": job.uploader,
+        "progress": job.progress,
+        "progress_percent": job.progress_percent,
+        "progress_eta": job.progress_eta,
+        "progress_speed": job.progress_speed,
+        "progress_label": job.progress_label,
+        "error_message": job.error_message,
+        "job_url": f"/jobs/{job.id}",
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+    }

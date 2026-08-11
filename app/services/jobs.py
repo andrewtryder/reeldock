@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -33,6 +34,28 @@ class InvalidJobUrlError(ValueError):
     def __init__(self, error: str) -> None:
         self.error = error
         super().__init__(error)
+
+
+class JobNotFoundError(LookupError):
+    """Raised when a job id does not exist."""
+
+
+class JobConflictError(ValueError):
+    """Raised when a job action is not allowed in the current status."""
+
+
+# Queued plus in-progress pipeline statuses (Web UI "running").
+CANCELLABLE_STATUSES = {
+    JobStatus.queued,
+    JobStatus.running,
+    JobStatus.downloading,
+    JobStatus.postprocessing,
+    JobStatus.converting,
+    JobStatus.verifying,
+    JobStatus.scanning,
+}
+
+RETRYABLE_STATUSES = {JobStatus.failed, JobStatus.cancelled}
 
 
 @dataclass
@@ -465,6 +488,44 @@ async def get_job(session: AsyncSession, job_id: str) -> Job | None:
         .where(Job.id == job_id)
     )
     return result.scalar_one_or_none()
+
+
+async def cancel_job(session: AsyncSession, job_id: str) -> Job:
+    """Cancel a queued or in-progress job. Raises JobNotFoundError / JobConflictError."""
+    job = await get_job(session, job_id)
+    if job is None:
+        raise JobNotFoundError(job_id)
+    if job.status not in CANCELLABLE_STATUSES:
+        raise JobConflictError(f"Job status is '{job.status}', can only cancel queued/running jobs")
+    if job.rq_job_id:
+        with contextlib.suppress(Exception):
+            from rq.job import Job as RqJob
+
+            from app.queue import get_redis
+
+            rq_job = RqJob.fetch(job.rq_job_id, connection=get_redis())
+            rq_job.cancel()
+    updated = await update_job_status(session, job_id, JobStatus.cancelled)
+    if updated is None:
+        raise JobNotFoundError(job_id)
+    return updated
+
+
+async def retry_job(session: AsyncSession, job_id: str) -> tuple[Job, str]:
+    """Re-queue a failed or cancelled job. Raises JobNotFoundError / JobConflictError."""
+    job = await get_job(session, job_id)
+    if job is None:
+        raise JobNotFoundError(job_id)
+    if job.status not in RETRYABLE_STATUSES:
+        raise JobConflictError(
+            f"Job status is '{job.status}', can only retry failed/cancelled jobs"
+        )
+    await update_job_status(session, job_id, JobStatus.queued, phase="queued", error_message="")
+    rq_id = enqueue_job_task(job_id)
+    updated = await update_job_status(session, job_id, JobStatus.queued, rq_job_id=rq_id)
+    if updated is None:
+        raise JobNotFoundError(job_id)
+    return updated, rq_id
 
 
 async def get_recent_jobs(session: AsyncSession, limit: int = 50) -> list[Job]:

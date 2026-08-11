@@ -95,8 +95,13 @@ def attach_basic_auth(app: FastAPI, settings: Settings) -> None:
             request: Request,
             call_next: Callable[[Request], Awaitable[Response]],
         ) -> Response:
-            # Skip health/readiness endpoints (used by Docker healthchecks)
-            if request.url.path in ("/health", "/ready"):
+            # Skip health/readiness endpoints (used by Docker healthchecks).
+            # Also skip extension and WebSocket prefixes: the extension never
+            # stores UI Basic credentials, and those routes already enforce
+            # ExtensionAuthDep / validate_websocket_token. Do not exempt
+            # /api/jobs/* or / — those stay behind Basic when AUTH_ENABLED.
+            path = request.url.path
+            if path in ("/health", "/ready") or path.startswith(("/api/extension/", "/api/ws/")):
                 return await call_next(request)
 
             auth_header = request.headers.get("Authorization", "")

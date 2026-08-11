@@ -8,10 +8,25 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-# Reserved allowlisted YouTube URL — never fetched when the fixture shim is on.
+# Reserved allowlisted YouTube URLs — never fetched when the fixture shim is on.
 SMOKE_VIDEO_ID = "reeldockSmoke01"
+SMOKE_FAIL_VIDEO_ID = "reeldockSmokeFail01"
+SMOKE_SLOW_VIDEO_ID = "reeldockSmokeSlow01"
+# Longer ids first so prefix checks stay unambiguous.
+SMOKE_VIDEO_IDS: tuple[str, ...] = (
+    SMOKE_FAIL_VIDEO_ID,
+    SMOKE_SLOW_VIDEO_ID,
+    SMOKE_VIDEO_ID,
+)
 SMOKE_URL = f"https://www.youtube.com/watch?v={SMOKE_VIDEO_ID}"
 SMOKE_TITLE = "ReelDock Release Smoke"
+SMOKE_FAIL_TITLE = "ReelDock Smoke Fail"
+SMOKE_SLOW_TITLE = "ReelDock Smoke Slow"
+SMOKE_TITLES: dict[str, str] = {
+    SMOKE_VIDEO_ID: SMOKE_TITLE,
+    SMOKE_FAIL_VIDEO_ID: SMOKE_FAIL_TITLE,
+    SMOKE_SLOW_VIDEO_ID: SMOKE_SLOW_TITLE,
+}
 SMOKE_UPLOADER = "ReelDock CI"
 SMOKE_DURATION_SECONDS = 3
 
@@ -19,8 +34,21 @@ SMOKE_DURATION_SECONDS = 3
 DEFAULT_FIXTURE_DIR = Path("/fixtures/release_smoke")
 
 
+def smoke_video_id_from_url(url: str) -> str | None:
+    """Return the reserved fixture id contained in *url*, if any."""
+    text = url or ""
+    for video_id in SMOKE_VIDEO_IDS:
+        if video_id in text:
+            return video_id
+    return None
+
+
 def is_smoke_url(url: str) -> bool:
-    return SMOKE_VIDEO_ID in (url or "")
+    return smoke_video_id_from_url(url) is not None
+
+
+def smoke_title_for_id(video_id: str) -> str:
+    return SMOKE_TITLES.get(video_id, SMOKE_TITLE)
 
 
 def resolve_fixture_dir(configured: Path | None) -> Path:

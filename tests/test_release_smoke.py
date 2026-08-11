@@ -6,11 +6,14 @@ from pathlib import Path
 
 import pytest
 from app.release_smoke import (
+    SMOKE_FAIL_VIDEO_ID,
+    SMOKE_SLOW_VIDEO_ID,
     SMOKE_TITLE,
     SMOKE_URL,
     SMOKE_VIDEO_ID,
     is_smoke_url,
     resolve_fixture_dir,
+    smoke_video_id_from_url,
     stage_download_fixture,
 )
 from app.services.ytdlp import YtDlpService
@@ -19,6 +22,10 @@ from app.services.ytdlp import YtDlpService
 def test_is_smoke_url() -> None:
     assert is_smoke_url(SMOKE_URL)
     assert is_smoke_url(f"https://youtu.be/{SMOKE_VIDEO_ID}")
+    assert is_smoke_url(f"https://www.youtube.com/watch?v={SMOKE_FAIL_VIDEO_ID}")
+    assert is_smoke_url(f"https://www.youtube.com/watch?v={SMOKE_SLOW_VIDEO_ID}")
+    assert smoke_video_id_from_url(f"https://youtu.be/{SMOKE_FAIL_VIDEO_ID}") == SMOKE_FAIL_VIDEO_ID
+    assert smoke_video_id_from_url(f"https://youtu.be/{SMOKE_SLOW_VIDEO_ID}") == SMOKE_SLOW_VIDEO_ID
     assert not is_smoke_url("https://www.youtube.com/watch?v=jNQXAC9IVRw")
 
 

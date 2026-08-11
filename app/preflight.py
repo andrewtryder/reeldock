@@ -59,7 +59,8 @@ def _format_error(name: str, path: Path, error: str) -> str:
     return "\n".join(
         [
             f"ERROR: {name} '{path}' is not writable: {error}",
-            "- Confirm HOST_PODCASTS_DIR in .env points to an existing host directory"
+            "- Confirm HOST_AUDIOBOOKS_DIR (or legacy HOST_PODCASTS_DIR) in .env "
+            "points to an existing host directory"
             if name == "OUTPUT_ROOT"
             else f"- Confirm {name} is mounted and accessible inside the container",
             "- On macOS, mount the share and add /Volumes to Docker Desktop File Sharing",

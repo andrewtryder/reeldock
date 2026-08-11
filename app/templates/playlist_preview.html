@@ -138,7 +138,7 @@
                 <option value="">{{ blank_folder_label | e }}</option>
                 {% for folder in folders %}
                 <option value="{{ folder | e }}"
-                  {% if folder == default_folder or folder == meta.uploader_id or folder == meta.uploader or folder == meta.channel %}
+                  {% if folder == selected_folder %}
                   selected
                   {% endif %}
                 >{{ folder | e }}</option>

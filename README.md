@@ -23,7 +23,7 @@ A self-hosted sidecar that turns YouTube videos (and selected playlist/channel b
 git clone https://github.com/andrewtryder/reeldock.git
 cd reeldock
 cp .env.example .env
-# Edit HOST_PODCASTS_DIR (and AUTH_* if you will expose beyond localhost)
+# Edit HOST_AUDIOBOOKS_DIR (and AUTH_* if you will expose beyond localhost)
 mkdir -p data config
 docker compose up -d --build
 ```
@@ -69,9 +69,8 @@ Images are also published to Docker Hub / GHCR after CI on `main`. See the [Quic
 
 ## Path Model Summary
 
-* **`HOST_PODCASTS_DIR`**: Directory on the Docker host (Audiobookshelf media).
-* **`CONTAINER_PODCASTS_DIR`**: Mount inside the container (usually `/media/podcasts`).
-* **`OUTPUT_ROOT`**: Where the app writes; must match `CONTAINER_PODCASTS_DIR` in Docker.
+* **`HOST_AUDIOBOOKS_DIR`**: Directory on the Docker host (Audiobookshelf media). Legacy alias: `HOST_PODCASTS_DIR`.
+* **`OUTPUT_ROOT`**: Container path where the app writes; Compose uses the same value as the bind-mount target (default `/media/podcasts`). Legacy alias for the mount target: `CONTAINER_PODCASTS_DIR`.
 
 > [!IMPORTANT]
 > In Docker, Settings should normally keep `OUTPUT_ROOT=/media/podcasts` — the container path, not the host path.

@@ -57,7 +57,7 @@ class FfmpegProgress:
                 ms_val = int(raw_out_time_ms)
                 out_time_ms = ms_val
                 out_time_seconds = ms_val / 1_000_000.0
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
 
         if out_time_seconds is None:
@@ -66,7 +66,7 @@ class FfmpegProgress:
                 try:
                     us_val = int(raw_out_time_us)
                     out_time_seconds = us_val / 1_000_000.0
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
         if out_time_seconds is None:
@@ -77,7 +77,7 @@ class FfmpegProgress:
                     if len(parts) == 3:
                         h, m, s = parts
                         out_time_seconds = int(h) * 3600 + int(m) * 60 + float(s)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
         return cls(

@@ -43,7 +43,7 @@ def test_run_preflight_fails_on_unwritable_output(
     assert preflight.run_preflight() == 1
     captured = capsys.readouterr()
     assert "OUTPUT_ROOT" in captured.err
-    assert "HOST_PODCASTS_DIR" in captured.err
+    assert "HOST_AUDIOBOOKS_DIR" in captured.err or "HOST_PODCASTS_DIR" in captured.err
 
 
 def test_run_preflight_fails_on_unwritable_work_dir(

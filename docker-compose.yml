@@ -14,9 +14,12 @@
 # wins over accidental host/Redis overrides in `.env`.
 #
 # Volume layout is driven by these environment variables:
-#   HOST_PODCASTS_DIR       → Path on the Docker host (e.g. /mnt/podcasts or /Volumes/Synology/Media/Podcasts)
-#   CONTAINER_PODCASTS_DIR  → Path inside the containers (default: /media/podcasts, usually do not change)
-#   OUTPUT_ROOT             → Path where the application writes podcasts (should match CONTAINER_PODCASTS_DIR)
+#   HOST_AUDIOBOOKS_DIR     → Path on the Docker host (e.g. /mnt/podcasts or /Volumes/.../Podcasts)
+#   OUTPUT_ROOT             → Path inside the containers (default: /media/podcasts); also used as the bind-mount target
+#
+# Legacy aliases (still accepted):
+#   HOST_PODCASTS_DIR       → same as HOST_AUDIOBOOKS_DIR
+#   CONTAINER_PODCASTS_DIR  → same as OUTPUT_ROOT (container mount target)
 #
 # Other mounted volumes:
 #   ./data    → /data       (SQLite database, work/download files, logs)
@@ -24,7 +27,7 @@
 #
 # ── NFS note ──────────────────────────────────────────────────────────────────
 # Recommended: Mount your network/NFS share on the Docker HOST machine first,
-# then bind-mount it here via HOST_PODCASTS_DIR. This avoids Docker NFS driver quirks.
+# then bind-mount it here via HOST_AUDIOBOOKS_DIR. This avoids Docker NFS driver quirks.
 #
 #   /etc/fstab example (Proxmox/Linux host):
 #     nas.local:/volume1/podcasts  /mnt/podcasts  nfs  defaults,_netdev,nofail  0  0
@@ -33,7 +36,7 @@
 x-app-environment: &app-environment
   REDIS_URL: redis://redis:6379/0
   DATABASE_URL: sqlite+aiosqlite:////data/app.db
-  OUTPUT_ROOT: ${OUTPUT_ROOT:-/media/podcasts}
+  OUTPUT_ROOT: ${OUTPUT_ROOT:-${CONTAINER_PODCASTS_DIR:-/media/podcasts}}
   WORK_DIR: /data/work
   ARCHIVE_FILE: /data/config/youtube-archive.txt
   AUTH_ENABLED: ${AUTH_ENABLED:-false}
@@ -68,8 +71,8 @@ services:
     volumes:
       - ./data:/data
       - type: bind
-        source: ${HOST_PODCASTS_DIR:-/mnt/podcasts}
-        target: ${CONTAINER_PODCASTS_DIR:-/media/podcasts}
+        source: ${HOST_AUDIOBOOKS_DIR:-${HOST_PODCASTS_DIR:-/mnt/podcasts}}
+        target: ${OUTPUT_ROOT:-${CONTAINER_PODCASTS_DIR:-/media/podcasts}}
         bind:
           create_host_path: false
       - ./config:/config
@@ -98,8 +101,8 @@ services:
     volumes:
       - ./data:/data
       - type: bind
-        source: ${HOST_PODCASTS_DIR:-/mnt/podcasts}
-        target: ${CONTAINER_PODCASTS_DIR:-/media/podcasts}
+        source: ${HOST_AUDIOBOOKS_DIR:-${HOST_PODCASTS_DIR:-/mnt/podcasts}}
+        target: ${OUTPUT_ROOT:-${CONTAINER_PODCASTS_DIR:-/media/podcasts}}
         bind:
           create_host_path: false
       - ./config:/config
@@ -107,6 +110,8 @@ services:
       <<: *app-environment
     depends_on:
       redis:
+        condition: service_healthy
+      app:
         condition: service_healthy
 
   redis:

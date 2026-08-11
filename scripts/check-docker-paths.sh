@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# check-docker-paths.sh — validate HOST_PODCASTS_DIR before compose up
+# check-docker-paths.sh — validate HOST_AUDIOBOOKS_DIR before compose up
 # ============================================================
 set -euo pipefail
 
@@ -18,12 +18,13 @@ load_env() {
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [HOST_PODCASTS_DIR]
+Usage: $(basename "$0") [HOST_AUDIOBOOKS_DIR]
 
-Validate that the podcast output directory exists and is writable on the host
+Validate that the audiobook output directory exists and is writable on the host
 before running docker compose up.
 
-If HOST_PODCASTS_DIR is omitted, the value from .env (or /mnt/podcasts) is used.
+If HOST_AUDIOBOOKS_DIR is omitted, the value from .env is used
+(HOST_AUDIOBOOKS_DIR, else legacy HOST_PODCASTS_DIR, else /mnt/podcasts).
 EOF
 }
 
@@ -31,7 +32,7 @@ print_mac_hints() {
     cat <<EOF
 macOS tips:
   - Mount the network share first (Finder -> Connect to Server)
-  - Ensure the path exists: ls -la "$HOST_PODCASTS_DIR"
+  - Ensure the path exists: ls -la "$HOST_DIR"
   - Docker Desktop -> Settings -> Resources -> File sharing -> add /Volumes
 EOF
 }
@@ -53,34 +54,34 @@ main() {
     fi
 
     load_env
-    HOST_PODCASTS_DIR="${1:-${HOST_PODCASTS_DIR:-/mnt/podcasts}}"
+    HOST_DIR="${1:-${HOST_AUDIOBOOKS_DIR:-${HOST_PODCASTS_DIR:-/mnt/podcasts}}}"
 
-    echo "Checking HOST_PODCASTS_DIR: $HOST_PODCASTS_DIR"
+    echo "Checking host audiobook directory: $HOST_DIR"
 
-    if [[ ! -e "$HOST_PODCASTS_DIR" ]]; then
-        echo "ERROR: Directory does not exist: $HOST_PODCASTS_DIR" >&2
+    if [[ ! -e "$HOST_DIR" ]]; then
+        echo "ERROR: Directory does not exist: $HOST_DIR" >&2
         echo "Docker Compose will not auto-create this path (create_host_path: false)." >&2
-        if [[ "$HOST_PODCASTS_DIR" == /Volumes/* ]]; then
+        if [[ "$HOST_DIR" == /Volumes/* ]]; then
             echo >&2
             print_mac_hints >&2
         fi
         exit 1
     fi
 
-    if [[ ! -d "$HOST_PODCASTS_DIR" ]]; then
-        echo "ERROR: Path exists but is not a directory: $HOST_PODCASTS_DIR" >&2
+    if [[ ! -d "$HOST_DIR" ]]; then
+        echo "ERROR: Path exists but is not a directory: $HOST_DIR" >&2
         exit 1
     fi
 
-    test_file="$HOST_PODCASTS_DIR/.reeldock-write-test"
+    test_file="$HOST_DIR/.reeldock-write-test"
     if ! touch "$test_file" 2>/dev/null; then
-        echo "ERROR: Directory is not writable: $HOST_PODCASTS_DIR" >&2
+        echo "ERROR: Directory is not writable: $HOST_DIR" >&2
         print_puid_hint >&2
         exit 1
     fi
     rm -f "$test_file"
 
-    echo "OK: $HOST_PODCASTS_DIR exists and is writable on the host."
+    echo "OK: $HOST_DIR exists and is writable on the host."
     print_puid_hint
 }
 

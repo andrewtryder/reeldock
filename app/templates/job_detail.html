@@ -54,7 +54,7 @@
 {% set _active_statuses = ['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning'] %}
 {% set show_progress = status in _active_statuses or job.progress_percent is not none or job.progress is not none or job.progress_label %}
 {% set _raw_pct = job.progress_percent if job.progress_percent is not none else (job.progress if job.progress is not none else none) %}
-{% set _stage_names = ['Queued', 'Download', 'Convert', 'Verify', 'Save', 'Scan', 'Done'] %}
+{% set _stage_names = ['Queued', 'Download', 'Convert', 'Verify', 'Save', 'Finalize', 'Done'] %}
 {% set _can_be_determinate = _cur in [1, 2] %}
 {% set _show_pct = _can_be_determinate and _raw_pct is not none %}
 {% set _bar_pct = _raw_pct if _show_pct else 0 %}
@@ -126,9 +126,9 @@
           <span class="tl-icon">{% if ns.s[4] == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">save</span>{% endif %}</span>
           <span>Save</span>
         </li>
-        <li class="timeline-step timeline-step-{{ ns.s[5] }}" data-timeline-step="scan">
-          <span class="tl-icon">{% if ns.s[5] == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">travel_explore</span>{% endif %}</span>
-          <span>Scan</span>
+        <li class="timeline-step timeline-step-{{ ns.s[5] }}" data-timeline-step="finalize">
+          <span class="tl-icon">{% if ns.s[5] == 'active' %}{{ reel_spinner(spinning=true, size=16) }}{% else %}<span class="material-symbols-outlined text-[16px]">task_alt</span>{% endif %}</span>
+          <span>Finalize</span>
         </li>
         <li class="timeline-step timeline-step-{{ ns.s[6] }}" data-timeline-step="done">
           <span class="tl-icon"><span class="material-symbols-outlined text-[16px]">done_all</span></span>
@@ -294,7 +294,7 @@
       </div>
       <div class="flex items-center gap-3 text-paper-muted">
         <span class="material-symbols-outlined text-[18px] text-amber">info</span>
-        <p class="font-body-md" id="job-progress-label">{{ job.progress_label or (('Stage: ' + phase) if phase else 'Initializing...') }}</p>
+        <p class="font-body-md" id="job-progress-label">{% if job.progress_label %}{{ job.progress_label }}{% elif phase == 'scanning' or status == 'scanning' %}Refreshing Audiobookshelf…{% elif phase == 'cleanup' %}Cleaning up temporary files…{% elif phase %}Stage: {{ phase }}{% else %}Initializing...{% endif %}</p>
       </div>
     </div>
 
@@ -415,11 +415,11 @@
 
 const ACTIVE    = new Set(['queued', 'running', 'downloading', 'postprocessing', 'converting', 'verifying', 'scanning']);
 const TERMINAL  = new Set(['succeeded', 'failed', 'cancelled']);
-const TIMELINE_ORDER = ['queued', 'download', 'convert', 'verify', 'save', 'scan', 'done'];
-const STAGE_NAMES    = ['Queued', 'Download', 'Convert', 'Verify', 'Save', 'Scan', 'Done'];
+const TIMELINE_ORDER = ['queued', 'download', 'convert', 'verify', 'save', 'finalize', 'done'];
+const STAGE_NAMES    = ['Queued', 'Download', 'Convert', 'Verify', 'Save', 'Finalize', 'Done'];
 const STEP_ICONS     = {
   queued: 'schedule', download: 'download', convert: 'library_music',
-  verify: 'fact_check', save: 'save', scan: 'travel_explore', done: 'done_all'
+  verify: 'fact_check', save: 'save', finalize: 'task_alt', done: 'done_all'
 };
 const REEL_SVG = `<svg class="reel-spinner inline-block shrink-0 animate-spin-slow" width="14" height="9" viewBox="0 0 36 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="12" r="6"/><circle cx="28" cy="12" r="6"/><line x1="14" y1="12" x2="22" y2="12"/><line x1="8" y1="7" x2="8" y2="10"/><line x1="8" y1="14" x2="8" y2="17"/><line x1="4" y1="12" x2="7" y2="12"/><line x1="9" y1="12" x2="12" y2="12"/><line x1="28" y1="7" x2="28" y2="10"/><line x1="28" y1="14" x2="28" y2="17"/><line x1="24" y1="12" x2="27" y2="12"/><line x1="29" y1="12" x2="32" y2="12"/></svg>`;
 
@@ -618,7 +618,17 @@ function renderJobState(job) {
     if (speedEtaRow) speedEtaRow.style.display = showPct ? '' : 'none';
     if (speedEl) speedEl.textContent = (showPct && job.progress_speed) ? job.progress_speed : '—';
     if (etaEl)   etaEl.textContent   = (showPct && job.progress_eta)   ? job.progress_eta   : '—';
-    if (progressLabel) progressLabel.textContent = job.progress_label || `Stage: ${phase || status}`;
+    if (progressLabel) {
+      if (job.progress_label) {
+        progressLabel.textContent = job.progress_label;
+      } else if (phase === 'scanning' || status === 'scanning') {
+        progressLabel.textContent = 'Refreshing Audiobookshelf…';
+      } else if (phase === 'cleanup') {
+        progressLabel.textContent = 'Cleaning up temporary files…';
+      } else {
+        progressLabel.textContent = `Stage: ${phase || status}`;
+      }
+    }
 
   } else if (status === 'succeeded') {
     if (progressRow) progressRow.style.display = '';
@@ -679,42 +689,11 @@ function refreshLog() {
     .catch(() => {});
 }
 
-// ─── WebSocket with reconnect ──────────────────────────────────────────────
-
-let _ws        = null;
-let _wsTimeout = null;
-
-function _connectWS() {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  _ws = new WebSocket(`${proto}//${location.host}/api/ws/jobs/${JOB_ID}`);
-
-  _ws.onopen = () => {
-    if (_wsTimeout) { clearTimeout(_wsTimeout); _wsTimeout = null; }
-  };
-
-  _ws.onmessage = (ev) => {
-    try {
-      const data = JSON.parse(ev.data);
-      if (data.type === 'job_update') renderJobState(data.job);
-    } catch (e) { console.error('[reeldock] WS parse error', e); }
-  };
-
-  _ws.onerror = () => {};
-
-  _ws.onclose = () => {
-    if (ACTIVE.has(_currentStatus) && !_didReload) {
-      _wsTimeout = setTimeout(_connectWS, 5000);
-    }
-  };
-}
-
-// ─── Polling (always-on fallback while active) ────────────────────────────
+// ─── HTTP polling while active ─────────────────────────────────────────────
 
 if (ACTIVE.has(_currentStatus)) {
-  _connectWS();
   setInterval(() => {
     refreshLog();
-    // Always poll for reconciliation; WS is preferred for low-latency updates.
     fetch(`/api/jobs/${JOB_ID}`)
       .then(r => r.json())
       .then(renderJobState)

@@ -1,7 +1,7 @@
 # ============================================================
 # reeldock — Dockerfile
 # ============================================================
-# Python 3.12-slim base with yt-dlp, ffmpeg, and app deps.
+# Python 3.14-slim base with yt-dlp, ffmpeg, and app deps.
 # Supports PUID/PGID for volume permissions via entrypoint.sh
 #
 # Supply-chain pins (bump intentionally via Dependabot/manual PR):
@@ -36,7 +36,7 @@ RUN curl -sL "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION
 # ── Python dependencies ─────────────────────────────────────
 FROM base AS deps
 
-COPY --from=ghcr.io/astral-sh/uv:0.8.22@sha256:9874eb7afe5ca16c363fe80b294fe700e460df29a55532bbfea234a0f12eddb1 \
+COPY --from=ghcr.io/astral-sh/uv:0.11.26@sha256:3d868e555f8f1dbc324afa005066cd11e1053fc4743b9808ca8025283e65efa5 \
     /uv /usr/local/bin/uv
 
 WORKDIR /build
@@ -59,7 +59,7 @@ COPY alembic/ alembic/
 COPY alembic.ini pyproject.toml ./
 
 # Register package metadata so importlib.metadata.version() works at runtime
-COPY --from=ghcr.io/astral-sh/uv:0.8.22@sha256:9874eb7afe5ca16c363fe80b294fe700e460df29a55532bbfea234a0f12eddb1 \
+COPY --from=ghcr.io/astral-sh/uv:0.11.26@sha256:3d868e555f8f1dbc324afa005066cd11e1053fc4743b9808ca8025283e65efa5 \
     /uv /usr/local/bin/uv
 RUN uv pip install --python /app/.venv/bin/python --no-deps .
 

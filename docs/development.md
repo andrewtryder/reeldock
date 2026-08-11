@@ -144,3 +144,28 @@ Those DBs are reconciled to the **frozen 0001** schema in `app/baseline_schema.p
 ### Worker-only startup
 
 The RQ worker does not initialize the schema. In Docker Compose the `worker` service waits for the `app` service to become healthy (`/ready`), so Alembic migrations finish before the worker starts. Both share the same `./data` volume. For worker-only local setups, start the app once before the worker.
+
+---
+
+## 7. Release-smoke (Compose real conversion gate)
+
+Issue [#118](https://github.com/andrewtryder/reeldock/issues/118): run the **shipping** Docker image with a real worker + ffmpeg path and assert a valid `.m4b` **without live YouTube**.
+
+Fixtures live in `tests/fixtures/release_smoke/`. When `RELEASE_SMOKE_FIXTURE=true`, the worker stages canned audio instead of calling yt-dlp, then runs the normal remux/verify/commit path. Preview of the reserved URL `https://www.youtube.com/watch?v=reeldockSmoke01` returns fixture metadata.
+
+Local run (Docker + host `ffprobe` required):
+
+```bash
+./scripts/compose-release-smoke.sh
+```
+
+Playwright golden path (home → preview → queue → Done):
+
+```bash
+cd e2e && npm ci && npx playwright install chromium
+cd .. && ./scripts/compose-playwright-smoke.sh
+```
+
+CI workflow: `.github/workflows/release-smoke.yml` (workflow_dispatch, `v*` tags, and PRs that touch pipeline/Docker/e2e paths). Unit `ci.yml` stays fast and separate.
+
+Do **not** enable `RELEASE_SMOKE_FIXTURE` in production.

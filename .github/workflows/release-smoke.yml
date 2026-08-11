@@ -1,0 +1,72 @@
+name: Release smoke
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - "app/services/import_pipeline.py"
+      - "app/services/ffmpeg.py"
+      - "app/services/filesystem.py"
+      - "app/services/ytdlp.py"
+      - "app/release_smoke.py"
+      - "app/config.py"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - "scripts/compose-release-smoke.sh"
+      - "tests/fixtures/release_smoke/**"
+      - "e2e/**"
+      - ".github/workflows/release-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose-release-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
+
+      - name: Install ffmpeg (host ffprobe assertions)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Run Compose release-smoke
+        run: ./scripts/compose-release-smoke.sh
+
+  playwright-golden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: compose-release-smoke
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903  # v6.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright golden path against Compose
+        run: ./scripts/compose-playwright-smoke.sh

@@ -443,37 +443,65 @@ class ImportPipeline:
             # record success before conversion/commit finishes. Allow-reimport
             # also bypasses so intentional redownloads are not blocked.
             bypass_archive = bool(job.allow_reimport) or (job.attempts or 1) > 1
-            dl_cmd = ytdlp_svc.build_download_command(
-                job.url,
-                self.job_id,
-                dl_template,
-                embed_metadata=job.embed_metadata,
-                embed_thumbnail=job.embed_thumbnail,
-                embed_chapters=job.embed_chapters,
-                force_archive_bypass=bypass_archive,
-                audio_format=eff_audio_format,
-                audio_quality=eff_audio_quality,
-                sponsorblock_remove=job.sponsorblock_remove,
-                cookies_file=eff_cookies,
-                extra_args=eff_ytdlp_extra,
-            )
-            if bypass_archive:
+
+            if self.settings.release_smoke_fixture:
+                from app.release_smoke import resolve_fixture_dir, stage_download_fixture
+
+                fixture_dir = resolve_fixture_dir(self.settings.release_smoke_fixture_dir)
                 log(
-                    "[download] Bypassing yt-dlp download-archive "
-                    f"(allow_reimport={bool(job.allow_reimport)} attempts={job.attempts})"
+                    "[download] RELEASE_SMOKE_FIXTURE=1 — staging canned audio "
+                    f"from {fixture_dir} (skipping yt-dlp network)"
                 )
+                staged = stage_download_fixture(self.job_id, self.settings.work_dir, fixture_dir)
+                log(f"[download] Staged fixture at {staged}")
+                # Simulate yt-dlp having written the archive on a prior attempt.
+                if bypass_archive and self.settings.archive_file:
+                    self.settings.archive_file.parent.mkdir(parents=True, exist_ok=True)
+                    self.settings.archive_file.touch(exist_ok=True)
+                if self.settings.release_smoke_fail_once and (job.attempts or 1) == 1:
+                    if self.settings.archive_file and job.video_id:
+                        self.settings.archive_file.parent.mkdir(parents=True, exist_ok=True)
+                        with self.settings.archive_file.open("a", encoding="utf-8") as fh:
+                            fh.write(f"{job.video_id}\n")
+                        log(
+                            f"[download] RELEASE_SMOKE_FAIL_ONCE: wrote {job.video_id} "
+                            "to archive, failing first attempt"
+                        )
+                    raise PipelineFailedError(
+                        "release smoke intentional first-attempt failure after download"
+                    )
+            else:
+                dl_cmd = ytdlp_svc.build_download_command(
+                    job.url,
+                    self.job_id,
+                    dl_template,
+                    embed_metadata=job.embed_metadata,
+                    embed_thumbnail=job.embed_thumbnail,
+                    embed_chapters=job.embed_chapters,
+                    force_archive_bypass=bypass_archive,
+                    audio_format=eff_audio_format,
+                    audio_quality=eff_audio_quality,
+                    sponsorblock_remove=job.sponsorblock_remove,
+                    cookies_file=eff_cookies,
+                    extra_args=eff_ytdlp_extra,
+                )
+                if bypass_archive:
+                    log(
+                        "[download] Bypassing yt-dlp download-archive "
+                        f"(allow_reimport={bool(job.allow_reimport)} attempts={job.attempts})"
+                    )
 
-            # Ensure archive parent dir exists
-            if self.settings.archive_file:
-                self.settings.archive_file.parent.mkdir(parents=True, exist_ok=True)
+                # Ensure archive parent dir exists
+                if self.settings.archive_file:
+                    self.settings.archive_file.parent.mkdir(parents=True, exist_ok=True)
 
-            dl_success = self._run_subprocess(
-                dl_cmd, log, check_cancelled, is_download=True, job=job
-            )
-            if not dl_success:
-                if check_cancelled():
-                    raise PipelineCancelledError()
-                raise PipelineFailedError("yt-dlp download failed")
+                dl_success = self._run_subprocess(
+                    dl_cmd, log, check_cancelled, is_download=True, job=job
+                )
+                if not dl_success:
+                    if check_cancelled():
+                        raise PipelineCancelledError()
+                    raise PipelineFailedError("yt-dlp download failed")
 
             if check_cancelled():
                 raise PipelineCancelledError()

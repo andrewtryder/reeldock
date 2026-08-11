@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/andrewtryder/reeldock/compare/v1.10.0...v1.10.1) (2026-08-11)
+
+
+### Bug Fixes
+
+* harden 1.10.x for Python 3.14, offline CSS, and Compose races ([#125](https://github.com/andrewtryder/reeldock/issues/125)) ([7efbad3](https://github.com/andrewtryder/reeldock/commit/7efbad3209bd4da4fbac0bf9d4a987b2a72d433b))
+
 ## [1.10.0](https://github.com/andrewtryder/reeldock/compare/v1.9.0...v1.10.0) (2026-08-10)
 
 

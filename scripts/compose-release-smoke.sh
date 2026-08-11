@@ -48,27 +48,36 @@ trap cleanup EXIT
 
 mkdir -p "$TMP/data" "$TMP/config" "$TMP/podcasts" "$TMP/data/work" "$TMP/data/logs" "$TMP/data/config"
 
-cat >"$TMP/.env" <<EOF
+# docker-compose.yml lists env_file: .env; CI runners have none. Point services
+# at our temp env via Compose merge override (!override replaces the list).
+write_smoke_env() {
+  local fail_once="${1:-false}"
+  cat >"$TMP/.env" <<EOF
 HOST_AUDIOBOOKS_DIR=$TMP/podcasts
 OUTPUT_ROOT=/media/podcasts
 AUTH_ENABLED=false
 EXTENSION_API_ENABLED=false
 RELEASE_SMOKE_FIXTURE=true
 RELEASE_SMOKE_FIXTURE_DIR=/fixtures/release_smoke
-RELEASE_SMOKE_FAIL_ONCE=false
+RELEASE_SMOKE_FAIL_ONCE=$fail_once
 ABS_SCAN_AFTER_SUCCESS=false
 COLLISION_MODE=append_id
 EOF
+}
 
-cat >"$TMP/override.yml" <<EOF
+write_smoke_override() {
+  local fail_once="${1:-false}"
+  cat >"$TMP/override.yml" <<EOF
 services:
   app:
+    env_file: !override
+      - $TMP/.env
     ports:
       - "127.0.0.1:${PORT}:8080"
     environment:
       RELEASE_SMOKE_FIXTURE: "true"
       RELEASE_SMOKE_FIXTURE_DIR: /fixtures/release_smoke
-      RELEASE_SMOKE_FAIL_ONCE: "false"
+      RELEASE_SMOKE_FAIL_ONCE: "$fail_once"
     volumes:
       - $TMP/data:/data
       - type: bind
@@ -79,10 +88,12 @@ services:
       - $TMP/config:/config
       - $FIXTURE_DIR:/fixtures/release_smoke:ro
   worker:
+    env_file: !override
+      - $TMP/.env
     environment:
       RELEASE_SMOKE_FIXTURE: "true"
       RELEASE_SMOKE_FIXTURE_DIR: /fixtures/release_smoke
-      RELEASE_SMOKE_FAIL_ONCE: "false"
+      RELEASE_SMOKE_FAIL_ONCE: "$fail_once"
     volumes:
       - $TMP/data:/data
       - type: bind
@@ -93,7 +104,10 @@ services:
       - $TMP/config:/config
       - $FIXTURE_DIR:/fixtures/release_smoke:ro
 EOF
+}
 
+write_smoke_env false
+write_smoke_override false
 echo "==> Building and starting Compose stack for release-smoke..."
 "${COMPOSE[@]}" up -d --build
 
@@ -239,51 +253,8 @@ echo "PASS: collision append_id"
 # ── Retry after intentional first-attempt failure ───────────────────────────
 echo "==> Retry after fail-once"
 "${COMPOSE[@]}" stop worker >/dev/null
-# Flip fail-once on for worker only via env file + recreate
-cat >"$TMP/.env" <<EOF
-HOST_AUDIOBOOKS_DIR=$TMP/podcasts
-OUTPUT_ROOT=/media/podcasts
-AUTH_ENABLED=false
-EXTENSION_API_ENABLED=false
-RELEASE_SMOKE_FIXTURE=true
-RELEASE_SMOKE_FIXTURE_DIR=/fixtures/release_smoke
-RELEASE_SMOKE_FAIL_ONCE=true
-ABS_SCAN_AFTER_SUCCESS=false
-COLLISION_MODE=append_id
-EOF
-cat >"$TMP/override.yml" <<EOF
-services:
-  app:
-    ports:
-      - "127.0.0.1:${PORT}:8080"
-    environment:
-      RELEASE_SMOKE_FIXTURE: "true"
-      RELEASE_SMOKE_FIXTURE_DIR: /fixtures/release_smoke
-      RELEASE_SMOKE_FAIL_ONCE: "true"
-    volumes:
-      - $TMP/data:/data
-      - type: bind
-        source: $TMP/podcasts
-        target: /media/podcasts
-        bind:
-          create_host_path: false
-      - $TMP/config:/config
-      - $FIXTURE_DIR:/fixtures/release_smoke:ro
-  worker:
-    environment:
-      RELEASE_SMOKE_FIXTURE: "true"
-      RELEASE_SMOKE_FIXTURE_DIR: /fixtures/release_smoke
-      RELEASE_SMOKE_FAIL_ONCE: "true"
-    volumes:
-      - $TMP/data:/data
-      - type: bind
-        source: $TMP/podcasts
-        target: /media/podcasts
-        bind:
-          create_host_path: false
-      - $TMP/config:/config
-      - $FIXTURE_DIR:/fixtures/release_smoke:ro
-EOF
+write_smoke_env true
+write_smoke_override true
 "${COMPOSE[@]}" up -d --force-recreate app worker >/dev/null
 for _ in $(seq 1 60); do
   curl -fsS "$BASE/ready" >/dev/null 2>&1 && break
@@ -294,50 +265,8 @@ JOB="$(create_job "Retry Smoke" "SmokeRetry" "overwrite")"
 wait_job "$JOB" failed
 
 # Turn off fail-once and retry
-cat >"$TMP/.env" <<EOF
-HOST_AUDIOBOOKS_DIR=$TMP/podcasts
-OUTPUT_ROOT=/media/podcasts
-AUTH_ENABLED=false
-EXTENSION_API_ENABLED=false
-RELEASE_SMOKE_FIXTURE=true
-RELEASE_SMOKE_FIXTURE_DIR=/fixtures/release_smoke
-RELEASE_SMOKE_FAIL_ONCE=false
-ABS_SCAN_AFTER_SUCCESS=false
-COLLISION_MODE=append_id
-EOF
-cat >"$TMP/override.yml" <<EOF
-services:
-  app:
-    ports:
-      - "127.0.0.1:${PORT}:8080"
-    environment:
-      RELEASE_SMOKE_FIXTURE: "true"
-      RELEASE_SMOKE_FIXTURE_DIR: /fixtures/release_smoke
-      RELEASE_SMOKE_FAIL_ONCE: "false"
-    volumes:
-      - $TMP/data:/data
-      - type: bind
-        source: $TMP/podcasts
-        target: /media/podcasts
-        bind:
-          create_host_path: false
-      - $TMP/config:/config
-      - $FIXTURE_DIR:/fixtures/release_smoke:ro
-  worker:
-    environment:
-      RELEASE_SMOKE_FIXTURE: "true"
-      RELEASE_SMOKE_FIXTURE_DIR: /fixtures/release_smoke
-      RELEASE_SMOKE_FAIL_ONCE: "false"
-    volumes:
-      - $TMP/data:/data
-      - type: bind
-        source: $TMP/podcasts
-        target: /media/podcasts
-        bind:
-          create_host_path: false
-      - $TMP/config:/config
-      - $FIXTURE_DIR:/fixtures/release_smoke:ro
-EOF
+write_smoke_env false
+write_smoke_override false
 "${COMPOSE[@]}" up -d --force-recreate app worker >/dev/null
 for _ in $(seq 1 60); do
   curl -fsS "$BASE/ready" >/dev/null 2>&1 && break

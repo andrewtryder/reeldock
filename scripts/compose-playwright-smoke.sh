@@ -53,6 +53,8 @@ EOF
 cat >"$TMP/override.yml" <<EOF
 services:
   app:
+    env_file: !override
+      - $TMP/.env
     ports:
       - "127.0.0.1:${PORT}:8080"
     environment:
@@ -69,6 +71,8 @@ services:
       - $TMP/config:/config
       - $FIXTURE_DIR:/fixtures/release_smoke:ro
   worker:
+    env_file: !override
+      - $TMP/.env
     environment:
       RELEASE_SMOKE_FIXTURE: "true"
       RELEASE_SMOKE_FIXTURE_DIR: /fixtures/release_smoke

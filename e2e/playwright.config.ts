@@ -25,5 +25,10 @@ export default defineConfig({
       name: "extension",
       testMatch: "**/extension/**/*.spec.ts",
     },
+    {
+      name: "abs",
+      testMatch: "**/abs-integration.spec.ts",
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
 });

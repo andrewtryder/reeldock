@@ -7,12 +7,12 @@ async function configureAbs(page: import("@playwright/test").Page) {
   await page.locator("#abs_base_url").fill("http://fake-abs:13378");
   await page.locator("#abs_api_token").fill("fake-abs-token");
   await page.locator("#abs-test-btn").click();
-  await expect(page.locator("#abs-test-status")).toContainText(/Connected/i, {
+  await expect(page.locator("#abs-test-status")).toContainText(/Connected \(/, {
     timeout: 30_000,
   });
   const library = page.locator("#abs_library_id");
   await expect(library).toBeVisible();
-  await library.selectOption({ label: "E2E Audiobooks" });
+  await library.selectOption({ label: "E2E Audiobooks (book)" });
   const scanToggle = page.locator('input[name="abs_scan_after_success"]');
   if (!(await scanToggle.isChecked())) {
     await scanToggle.check();

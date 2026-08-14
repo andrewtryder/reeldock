@@ -50,9 +50,11 @@ jobs:
       - name: Run Mypy
         run: uv run --frozen mypy app worker
 
-      - name: Run tests
+      - name: Run tests with coverage
         timeout-minutes: 2
-        run: uv run --frozen pytest -v --tb=short
+        run: |
+          uv run --frozen coverage run -m pytest -v --tb=short
+          uv run --frozen coverage report
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
@@ -85,8 +87,8 @@ jobs:
       - name: Lint extension
         run: npm --prefix browser-extension run lint
 
-      - name: Test extension URL validation
-        run: npm --prefix browser-extension test
+      - name: Test extension with coverage
+        run: npm --prefix browser-extension run test:coverage
 
       - name: Check extension version consistency
         run: npm --prefix browser-extension run check:version

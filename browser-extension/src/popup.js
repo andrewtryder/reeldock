@@ -335,34 +335,34 @@ async function onRetry(jobId) {
   }
 }
 
-$('queue-form')?.addEventListener('submit', onQueue);
-$('open-reeldock')?.addEventListener('click', () => send({ action: 'openReelDock' }));
-$('open-options')?.addEventListener('click', () => {
-  chrome.runtime.openOptionsPage();
-});
+export async function startPopup() {
+  $('queue-form')?.addEventListener('submit', onQueue);
+  $('open-reeldock')?.addEventListener('click', () => send({ action: 'openReelDock' }));
+  $('open-options')?.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+  });
 
-for (const button of document.querySelectorAll('[data-quality]')) {
-  button.addEventListener('click', () => {
-    selectedQuality = button.dataset.quality;
-    for (const other of document.querySelectorAll('[data-quality]')) {
-      other.classList.toggle('active', other === button);
+  for (const button of document.querySelectorAll('[data-quality]')) {
+    button.addEventListener('click', () => {
+      selectedQuality = button.dataset.quality;
+      for (const other of document.querySelectorAll('[data-quality]')) {
+        other.classList.toggle('active', other === button);
+      }
+    });
+  }
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (!message || typeof message.action !== 'string') return;
+    if (message.action === 'jobUpdate' || message.action === 'jobsChanged') {
+      if (Array.isArray(message.jobs)) publicState.jobs = message.jobs;
+      renderRecent();
+      if (hasActiveJobs()) startPopupPoll();
+      else stopPopupPoll();
     }
   });
-}
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (!message || typeof message.action !== 'string') return;
-  if (message.action === 'jobUpdate' || message.action === 'jobsChanged') {
-    if (Array.isArray(message.jobs)) publicState.jobs = message.jobs;
-    renderRecent();
-    if (hasActiveJobs()) startPopupPoll();
-    else stopPopupPoll();
-  }
-});
+  setExtensionVersionLabel();
 
-setExtensionVersionLabel();
-
-(async () => {
   try {
     activeTab = await getActiveTabInfo();
   } catch {
@@ -377,4 +377,8 @@ setExtensionVersionLabel();
     setStatus(err.message || 'Failed to load extension state', 'err');
     $('setup-panel')?.classList.remove('hidden');
   }
-})();
+}
+
+if (globalThis.chrome?.runtime?.id && !globalThis.__REELDOCK_TEST__) {
+  startPopup();
+}

@@ -106,3 +106,19 @@ exclude = ["tests/"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+
+# ---------------------------------------------------------------------------
+# coverage.py (app/ + worker/ only; fail_under is the CI/pre-commit gate)
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["app", "worker"]
+branch = true
+omit = [
+    "app/main.py",
+    "app/routes/pages.py",
+    "app/routes/ws.py",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

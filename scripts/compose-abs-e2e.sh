@@ -169,4 +169,16 @@ done
 curl -fsS "$BASE/ready" >/dev/null
 
 echo "==> Running Playwright ABS integration..."
+set +e
 REELDOCK_BASE_URL="$BASE" npm --prefix e2e run test:abs
+status=$?
+set -e
+if [[ "$status" -ne 0 ]]; then
+  echo "==> app logs"
+  "${COMPOSE[@]}" logs --tail 80 app || true
+  echo "==> worker logs"
+  "${COMPOSE[@]}" logs --tail 80 worker || true
+  echo "==> fake-abs logs"
+  "${COMPOSE[@]}" logs --tail 40 fake-abs || true
+  exit "$status"
+fi

@@ -44,7 +44,7 @@ case "$MODE" in
   worker)
     echo "Starting RQ worker..."
     export RQ_REDIS_URL="${REDIS_URL:-redis://redis:6379/0}"
-    exec gosu "$PUID:$PGID" python -m rq.cli worker reeldock
+    exec gosu "$PUID:$PGID" python -m rq.cli worker --with-scheduler reeldock
     ;;
   *)
     exec gosu "$PUID:$PGID" "$@"

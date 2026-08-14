@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.12.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.11.0...browser-extension-v1.12.0) (2026-08-14)
+
+
+### Features
+
+* **audiobookshelf:** add indexing status and library integration ([#139](https://github.com/andrewtryder/reeldock/issues/139)) ([78f2ebb](https://github.com/andrewtryder/reeldock/commit/78f2ebbf714543ab2837b76451c82a16f0aa3a91))
+* **destination:** default omitted folder to channel name ([#140](https://github.com/andrewtryder/reeldock/issues/140)) ([2ebc8db](https://github.com/andrewtryder/reeldock/commit/2ebc8dbe84d79a02e5766383ddf1ce5fa7b7de38))
+* **extension:** polish connection and pairing onboarding ([#138](https://github.com/andrewtryder/reeldock/issues/138)) ([06ca22a](https://github.com/andrewtryder/reeldock/commit/06ca22a49689e7004526ffae7e74c25d40d01faa))
+* **settings:** add UI-managed configuration and browser pairing ([5c3c7cc](https://github.com/andrewtryder/reeldock/commit/5c3c7cc48063d19832eab80450f053505a77da30))
+
 ## [1.11.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.10.1...browser-extension-v1.11.0) (2026-08-11)
 
 

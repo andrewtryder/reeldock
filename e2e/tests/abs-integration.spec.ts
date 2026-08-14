@@ -12,7 +12,7 @@ async function configureAbs(page: import("@playwright/test").Page) {
   });
   const library = page.locator("#abs_library_id");
   await expect(library).toBeVisible();
-  await library.selectOption({ label: /E2E Audiobooks/i });
+  await library.selectOption({ label: "E2E Audiobooks" });
   const scanToggle = page.locator('input[name="abs_scan_after_success"]');
   if (!(await scanToggle.isChecked())) {
     await scanToggle.check();

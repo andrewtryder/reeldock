@@ -21,7 +21,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: docker-publish-${{ github.event.workflow_run.head_branch || github.ref_name || github.sha }}
@@ -42,14 +41,21 @@ jobs:
         github.event.workflow_run.head_branch == 'main'
       )
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          # For CI-triggered runs, check out the commit that CI validated.
-          # Tag pushes and manual dispatches use the default ref.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # workflow_run: check out main (job already requires CI success on a
+          # push to main). Do not use workflow_run.head_sha — CodeQL flags that
+          # as an untrusted checkout. A newer main commit may land in the gap;
+          # concurrency already cancels overlapping publishes.
+          # Tag pushes and manual dispatches use github.sha.
+          ref: ${{ github.event_name == 'workflow_run' && 'main' || github.sha }}
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Set up QEMU

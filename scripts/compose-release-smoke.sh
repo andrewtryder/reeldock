@@ -144,8 +144,10 @@ wait_job() {
   local job_id="$1"
   local want="$2"
   local i st
+  local body="$TMP/job.json"
   for i in $(seq 1 120); do
-    st="$(curl -fsS "$BASE/api/jobs/$job_id" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status",""))')"
+    curl -fsS "$BASE/api/jobs/$job_id" -o "$body"
+    st="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "$body")"
     echo "    job $job_id status=$st"
     if [[ "$st" == "$want" ]]; then
       return 0

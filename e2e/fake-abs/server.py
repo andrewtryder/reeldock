@@ -155,6 +155,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"fake-abs listening on {HOST}:{PORT} media={MEDIA_ROOT}", flush=True)
     server.serve_forever()

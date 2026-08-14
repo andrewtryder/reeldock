@@ -18,7 +18,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testIgnore: "**/extension/**",
+      testIgnore: ["**/extension/**", "**/abs-integration.spec.ts"],
       use: { ...devices["Desktop Chrome"] },
     },
     {

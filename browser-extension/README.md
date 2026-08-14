@@ -23,6 +23,7 @@ Privacy policy: [PRIVACY.md](PRIVACY.md). Store listing drafts:
 - **Options** for pairing (origin + one-use code), destination, quality, SponsorBlock,
   embed flags, optional Audiobookshelf scan, and **Open ReelDock after queueing**
   (off by default). Advanced/legacy paste-token remains for existing installs.
+  Pairing is the 2.0.0 onboarding path.
 
 ## Server URL rules
 

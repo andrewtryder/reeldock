@@ -13,8 +13,6 @@ def clear_settings_cache(monkeypatch: pytest.MonkeyPatch):
     """Reset the settings singleton between tests."""
     import app.config as cfg_module
 
-    # Avoid background GitHub release lookups during app lifespan in tests.
-    monkeypatch.setenv("REELDOCK_FETCH_UI_VERSION", "0")
     # Override host `.env` fail-closed auth/extension settings unless a test opts in.
     monkeypatch.setenv("AUTH_ENABLED", "false")
     monkeypatch.delenv("AUTH_USERNAME", raising=False)

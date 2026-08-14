@@ -15,7 +15,6 @@ from pydantic import ValidationError
 def isolated_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     db_path = tmp_path / "test-auth.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
-    monkeypatch.setenv("REELDOCK_FETCH_UI_VERSION", "0")
     monkeypatch.setenv("EXTENSION_API_ENABLED", "false")
     monkeypatch.delenv("EXTENSION_API_TOKEN", raising=False)
     monkeypatch.setenv("AUTH_ENABLED", "false")

@@ -82,12 +82,21 @@ def _escape_html(text: str | None) -> str:
     return html.escape(text or "")
 
 
-def _job_page_redirect(job_id: str) -> RedirectResponse:
+def _canonical_uuid(value: str, *, detail: str = "Not found") -> str:
     try:
-        canonical = str(UUID(job_id))
+        return str(UUID(value))
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Job not found") from exc
+        raise HTTPException(status_code=404, detail=detail) from exc
+
+
+def _job_page_redirect(job_id: str) -> RedirectResponse:
+    canonical = _canonical_uuid(job_id, detail="Job not found")
     return RedirectResponse(f"/jobs/{canonical}", status_code=303)
+
+
+def _jobs_batch_redirect(batch_id: str) -> RedirectResponse:
+    canonical = _canonical_uuid(batch_id, detail="Batch not found")
+    return RedirectResponse(f"/jobs?batch={canonical}", status_code=303)
 
 
 templates.env.filters["duration"] = _format_duration
@@ -602,7 +611,7 @@ async def page_create_batch(
             status_code=400,
         )
 
-    return RedirectResponse(f"/jobs?batch={result.batch_id}", status_code=303)
+    return _jobs_batch_redirect(result.batch_id)
 
 
 def _or_empty(value: object) -> str | None:
@@ -644,14 +653,15 @@ async def page_retry_batch_abs_scan(
     form = {key: str(value) for key, value in (await request.form()).items()}
     if not validate_csrf_token(form.get("csrf_token")):
         raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    canonical = _canonical_uuid(batch_id, detail="Batch not found")
     db = get_sync_db()
     try:
-        retry_batch_abs_scan(db, batch_id, cfg)
+        retry_batch_abs_scan(db, canonical, cfg)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Batch not found") from exc
     finally:
         db.close()
-    return RedirectResponse(f"/jobs?batch={batch_id}", status_code=303)
+    return _jobs_batch_redirect(canonical)
 
 
 @router.post("/jobs/{job_id}/abs-scan", response_class=HTMLResponse)

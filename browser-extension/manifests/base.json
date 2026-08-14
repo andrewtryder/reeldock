@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ReelDock",
   "description": "Queue YouTube videos into a local ReelDock instance.",
-  "version": "1.11.0",
+  "version": "2.0.0",
   "homepage_url": "https://github.com/andrewtryder/reeldock",
   "icons": {
     "16": "icons/icon-16.png",

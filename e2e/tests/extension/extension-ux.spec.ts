@@ -55,6 +55,10 @@ async function ensureConnected(
   return options;
 }
 
+function jobCard(page: import("@playwright/test").Page, title: string) {
+  return page.locator("#recent-list .job", { hasText: title });
+}
+
 test("queue Standard smoke video to Complete and notify once", async ({
   extensionPage,
 }) => {
@@ -63,7 +67,10 @@ test("queue Standard smoke video to Complete and notify once", async ({
   await options.close();
 
   const popup = await extensionPage("popup");
-  await expect(popup.locator("#recent-list")).toContainText(/Complete/i, { timeout: 120_000 });
+  await expect(jobCard(popup, "ReelDock Release Smoke").locator(".job-meta")).toContainText(
+    /Complete/i,
+    { timeout: 120_000 },
+  );
 
   await expect
     .poll(
@@ -89,12 +96,14 @@ test("close and reopen popup mid-job then reach Complete", async ({
   await options.close();
 
   const popup = await extensionPage("popup");
-  await expect(popup.locator("#recent-list")).toContainText("ReelDock Smoke Slow");
+  await expect(jobCard(popup, "ReelDock Smoke Slow")).toBeVisible();
   await popup.close();
 
   const again = await extensionPage("popup");
-  await expect(again.locator("#recent-list")).toContainText("ReelDock Smoke Slow");
-  await expect(again.locator("#recent-list")).toContainText(/Complete/i, { timeout: 120_000 });
+  await expect(jobCard(again, "ReelDock Smoke Slow").locator(".job-meta")).toContainText(
+    /Complete/i,
+    { timeout: 120_000 },
+  );
   await again.close();
 });
 
@@ -125,9 +134,10 @@ test("slow fixture can be cancelled", async ({ extensionPage }) => {
   await options.close();
 
   const popup = await extensionPage("popup");
-  await expect(popup.locator("#recent-list")).toContainText("ReelDock Smoke Slow");
-  await popup.getByRole("button", { name: "Cancel" }).first().click();
-  await expect(popup.locator("#recent-list")).toContainText(/Cancelled/i, { timeout: 30_000 });
+  const slow = jobCard(popup, "ReelDock Smoke Slow");
+  await expect(slow.getByRole("button", { name: "Cancel" })).toBeVisible();
+  await slow.getByRole("button", { name: "Cancel" }).click();
+  await expect(slow.locator(".job-meta")).toContainText(/Cancelled/i, { timeout: 30_000 });
   await popup.close();
 });
 
@@ -137,13 +147,14 @@ test("fail fixture can be retried to Complete", async ({ extensionPage }) => {
   await options.close();
 
   const popup = await extensionPage("popup");
-  await expect(popup.locator("#recent-list")).toContainText(/Failed/i, { timeout: 120_000 });
+  const fail = jobCard(popup, "ReelDock Smoke Fail");
+  await expect(fail.locator(".job-meta")).toContainText(/Failed/i, { timeout: 120_000 });
 
   const before = await notificationIds(popup);
   const beforeDone = before.filter((id) => id.startsWith("reeldock-done-"));
 
-  await popup.getByRole("button", { name: "Retry" }).first().click();
-  await expect(popup.locator("#recent-list")).toContainText(/Complete/i, { timeout: 120_000 });
+  await fail.getByRole("button", { name: "Retry" }).click();
+  await expect(fail.locator(".job-meta")).toContainText(/Complete/i, { timeout: 120_000 });
 
   await expect
     .poll(
@@ -183,7 +194,10 @@ test("Library root queues beside Theology instead of into it", async ({
   expect((await job.json()).destination_folder).toBe("");
 
   const popup = await extensionPage("popup");
-  await expect(popup.locator("#recent-list")).toContainText(/Complete/i, { timeout: 120_000 });
+  await expect(jobCard(popup, "Library Root Smoke").locator(".job-meta")).toContainText(
+    /Complete/i,
+    { timeout: 120_000 },
+  );
   await popup.close();
   await options.close();
 

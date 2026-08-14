@@ -27,20 +27,20 @@ def isolated_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 def test_fallback_ui_version_prefixes_and_preserves_v() -> None:
-    assert _fallback_ui_version("1.10.2") == "v1.10.2"
-    assert _fallback_ui_version("v1.10.2") == "v1.10.2"
+    assert _fallback_ui_version("4.5.6") == "v4.5.6"
+    assert _fallback_ui_version("v4.5.6") == "v4.5.6"
 
 
-def test_package_version_1_10_2_renders_v1_10_2() -> None:
+def test_package_version_renders_in_footer() -> None:
     with (
-        patch("app.factory._package_version", return_value="1.10.2"),
+        patch("app.factory._package_version", return_value="4.5.6"),
         TestClient(create_app()) as client,
     ):
-        assert client.app.state.ui_version == "v1.10.2"
-        assert templates.env.globals["app_ui_version"] == "v1.10.2"
+        assert client.app.state.ui_version == "v4.5.6"
+        assert templates.env.globals["app_ui_version"] == "v4.5.6"
         response = client.get("/")
         assert response.status_code == 200
-        assert "reeldock v1.10.2" in response.text
+        assert "reeldock v4.5.6" in response.text
 
 
 def test_factory_does_not_import_httpx() -> None:
@@ -51,9 +51,9 @@ def test_factory_does_not_import_httpx() -> None:
 
 def test_browser_extension_release_name_cannot_affect_ui_version() -> None:
     with (
-        patch("app.factory._package_version", return_value="1.10.2"),
+        patch("app.factory._package_version", return_value="4.5.6"),
         TestClient(create_app()) as client,
     ):
-        assert client.app.state.ui_version == "v1.10.2"
+        assert client.app.state.ui_version == "v4.5.6"
         assert client.app.state.ui_version != "browser-extension-v1.10.1"
         assert "browser-extension" not in client.app.state.ui_version

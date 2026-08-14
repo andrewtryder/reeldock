@@ -112,7 +112,7 @@ export async function configureOptions(
     (el as HTMLDetailsElement).open = true;
   });
   await page.locator("#apiToken").fill(options.token ?? extensionToken());
-  await page.locator("#save").click();
+  await page.locator("#save-legacy").click();
   await page.evaluate(async () => {
     const api = (globalThis as unknown as { chrome?: { storage: { local: { set: (v: object) => Promise<void> } } } }).chrome;
     if (api) await api.storage.local.set({ allowReimport: true });

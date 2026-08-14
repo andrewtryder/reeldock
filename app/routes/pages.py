@@ -989,7 +989,7 @@ async def page_create_pairing_code(request: Request, cfg: SettingsDep) -> HTMLRe
 
     factory = get_sync_session_factory()
     with factory() as session:
-        _row, code = create_pairing_code(
+        row, code = create_pairing_code(
             session,
             created_by=cfg.auth_username,
             user_agent=request.headers.get("user-agent"),
@@ -998,8 +998,30 @@ async def page_create_pairing_code(request: Request, cfg: SettingsDep) -> HTMLRe
         request, cfg, success="Pairing code created. It expires in 5 minutes."
     )
     ctx["pairing_code"] = code
+    ctx["pairing_id"] = row.id
+    ctx["pairing_expires_at"] = row.expires_at.isoformat() + "Z"
     ctx["pairing_origin"] = cfg.extension_public_url or str(request.base_url).rstrip("/")
     return templates.TemplateResponse(request, "settings.html", ctx)
+
+
+@router.get("/api/settings/extension/pairing/{pairing_id}/status")
+async def api_pairing_status(pairing_id: str, cfg: SettingsDep) -> JSONResponse:
+    """Authenticated Web-UI poll for pairing progress. No HMAC, token, or hash."""
+    from app.db import get_sync_session_factory
+    from app.queue import get_redis
+    from app.services.pairing import PairingError, pairing_status
+
+    try:
+        redis = get_redis()
+    except Exception:
+        redis = None
+    factory = get_sync_session_factory()
+    try:
+        with factory() as session:
+            payload = pairing_status(session, pairing_id, redis=redis)
+    except PairingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    return JSONResponse(payload)
 
 
 @router.post("/settings/extension/devices/{device_id}/revoke", response_class=HTMLResponse)

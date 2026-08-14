@@ -122,7 +122,7 @@ def consume_pairing_code(
     device_name: str,
     browser: str | None = None,
     platform: str | None = None,
-) -> tuple[ExtensionDevice, str]:
+) -> tuple[ExtensionDevice, str, str]:
     normalized = normalize_pairing_code(pairing_code)
     if not normalized.startswith("RDK-") or len(normalized) != 13:
         raise PairingError("Invalid pairing code")
@@ -142,6 +142,12 @@ def consume_pairing_code(
     if int(getattr(claimed, "rowcount", 0) or 0) != 1:
         _raise_consume_failure(session, code_hash)
 
+    pairing_row = session.scalar(
+        select(ExtensionPairingCode).where(ExtensionPairingCode.code_hmac == code_hash)
+    )
+    if pairing_row is None:
+        raise PairingError("Invalid pairing code", status_code=401)
+
     token = mint_device_token()
     name = (device_name or "Browser").strip()[:80] or "Browser"
     device = ExtensionDevice(
@@ -156,7 +162,71 @@ def consume_pairing_code(
     purge_expired_pairing_codes(session)
     session.commit()
     session.refresh(device)
-    return device, token
+    return device, token, pairing_row.id
+
+
+def remember_pairing_result(
+    redis: RedisCommands | None,
+    pairing_id: str,
+    device: ExtensionDevice,
+    *,
+    ttl_seconds: int = 600,
+) -> None:
+    if redis is None or not pairing_id:
+        return
+    import json
+
+    payload = json.dumps({"id": device.id, "display_name": device.display_name})
+    try:
+        redis.setex(f"reeldock:pair:result:{pairing_id}", ttl_seconds, payload)
+    except Exception:
+        logger.warning("Could not store pairing result for status polling", exc_info=True)
+
+
+def pairing_status(
+    session: Session, pairing_id: str, redis: RedisCommands | None = None
+) -> dict[str, object]:
+    """Web-UI poll payload: pending | paired | expired. Never includes tokens."""
+    import json
+
+    row = session.get(ExtensionPairingCode, pairing_id)
+    if row is None:
+        raise PairingError("Pairing code not found", status_code=404)
+
+    expires_at = _aware(row.expires_at).isoformat().replace("+00:00", "Z")
+    if row.consumed_at is not None:
+        device_payload: dict[str, str] | None = None
+        if redis is not None:
+            try:
+                raw = redis.get(f"reeldock:pair:result:{pairing_id}")
+                if raw:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict) and parsed.get("id"):
+                        device_payload = {
+                            "id": str(parsed["id"]),
+                            "display_name": str(parsed.get("display_name") or "Browser"),
+                        }
+            except Exception:
+                logger.warning("Could not read pairing result cache", exc_info=True)
+        if device_payload is None:
+            # Fallback when Redis missed: nearest device created around consume time.
+            window_start = row.consumed_at
+            device = session.scalar(
+                select(ExtensionDevice)
+                .where(ExtensionDevice.created_at >= window_start)
+                .order_by(ExtensionDevice.created_at.asc())
+                .limit(1)
+            )
+            if device is not None:
+                device_payload = {"id": device.id, "display_name": device.display_name}
+        result: dict[str, object] = {"status": "paired", "expires_at": expires_at}
+        if device_payload is not None:
+            result["device"] = device_payload
+        return result
+
+    if _aware(row.expires_at) <= datetime.now(tz=UTC):
+        return {"status": "expired", "expires_at": expires_at}
+    return {"status": "pending", "expires_at": expires_at}
 
 
 def lookup_device_by_token(session: Session, token: str) -> ExtensionDevice | None:

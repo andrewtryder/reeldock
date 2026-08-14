@@ -23,7 +23,7 @@
       <span class="material-symbols-outlined shrink-0">https</span>
       <div>
         <p class="font-body-md text-body-md">This Settings page is on private HTTP.</p>
-        <p class="font-label-md text-label-md mt-1">Store-installed browsers need a <strong>browser-trusted HTTPS origin</strong> they can reach — not an exposed Internet URL. Pair with a reverse-proxied HTTPS address, or use loopback for unpacked local testing.</p>
+        <p class="font-label-md text-label-md mt-1">Private network is fine. Store-installed browsers need a <strong>browser-trusted HTTPS origin</strong> they can reach for any non-loopback host — not an exposed Internet URL. Use loopback HTTP for unpacked local testing.</p>
       </div>
     </div>
     {% endif %}
@@ -67,11 +67,24 @@
     {% endif %}
 
     {% if pairing_code is defined and pairing_code %}
-    <div class="bg-panel border border-amber/40 rounded-xl p-4 mb-6 shadow-md">
+    <div
+      class="bg-panel border border-amber/40 rounded-xl p-4 mb-6 shadow-md"
+      id="pairing-waiting-panel"
+      data-pairing-id="{{ pairing_id | e }}"
+      data-pairing-expires-at="{{ pairing_expires_at | e }}"
+    >
       <p class="font-label-md text-label-md text-paper-muted uppercase tracking-wider mb-2">Pair a browser</p>
-      <p class="font-body-md text-body-md mb-2">Copy the origin and code into the extension Options page. The code expires in 5 minutes and can be used once.</p>
+      <p class="font-body-md text-body-md mb-2">
+        Copy the origin and code into the extension Options page. Private LAN is fine;
+        store-installed browsers need browser-trusted HTTPS off localhost.
+      </p>
       <p class="font-code text-code break-all mb-1"><span class="text-paper-muted">Origin</span> {{ pairing_origin | e }}</p>
       <p class="font-code text-headline-sm text-amber tracking-widest" id="pairing-code-value">{{ pairing_code | e }}</p>
+      <p class="font-body-md text-body-md text-paper-muted mt-3" id="pairing-wait-status">Waiting for browser… <span id="pairing-countdown"></span></p>
+      <div id="pairing-success" class="hidden mt-3">
+        <p class="font-body-md text-body-md text-on-success-container" id="pairing-success-text"></p>
+        <button type="button" class="mt-3 px-4 py-2 rounded-lg border border-panel-line font-label-md text-label-md uppercase" id="pairing-done-btn">Done</button>
+      </div>
       <button type="button" class="mt-3 px-4 py-2 rounded-lg border border-panel-line font-label-md text-label-md uppercase" data-copy-pairing>Copy origin + code</button>
     </div>
     {% endif %}
@@ -439,6 +452,74 @@
         status.textContent = "Connection failed";
       }
     });
+  }
+
+  const waiting = document.getElementById("pairing-waiting-panel");
+  if (waiting) {
+    const pairingId = waiting.dataset.pairingId || "";
+    const expiresAt = Date.parse(waiting.dataset.pairingExpiresAt || "");
+    const countdownEl = document.getElementById("pairing-countdown");
+    const waitStatus = document.getElementById("pairing-wait-status");
+    const successBox = document.getElementById("pairing-success");
+    const successText = document.getElementById("pairing-success-text");
+    const doneBtn = document.getElementById("pairing-done-btn");
+    let timer = null;
+    let poll = null;
+
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      if (poll) clearInterval(poll);
+      timer = null;
+      poll = null;
+    };
+
+    const tickCountdown = () => {
+      if (!countdownEl || !Number.isFinite(expiresAt)) return;
+      const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+      const minutes = Math.floor(remaining / 60);
+      const seconds = remaining % 60;
+      countdownEl.textContent = remaining
+        ? `(${minutes}:${String(seconds).padStart(2, "0")} left)`
+        : "(expired)";
+    };
+
+    const markPaired = (device) => {
+      stop();
+      const name = (device && device.display_name) || "Browser";
+      if (waitStatus) waitStatus.classList.add("hidden");
+      if (successBox) successBox.classList.remove("hidden");
+      if (successText) successText.textContent = `${name} connected`;
+      if (copyBtn) copyBtn.classList.add("hidden");
+    };
+
+    doneBtn?.addEventListener("click", () => {
+      waiting.remove();
+      window.location.assign("/settings");
+    });
+
+    tickCountdown();
+    timer = setInterval(tickCountdown, 1000);
+
+    const pollOnce = async () => {
+      if (!pairingId) return;
+      try {
+        const res = await fetch(`/api/settings/extension/pairing/${encodeURIComponent(pairingId)}/status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.status === "paired") {
+          markPaired(data.device);
+          return;
+        }
+        if (data.status === "expired" && waitStatus) {
+          waitStatus.textContent = "Pairing code expired. Generate a new code.";
+          stop();
+        }
+      } catch {
+        // Keep waiting; network blips should not drop the panel.
+      }
+    };
+    pollOnce();
+    poll = setInterval(pollOnce, 2000);
   }
 })();
 </script>

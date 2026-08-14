@@ -27,6 +27,7 @@ const ALLOWED = new Set([
   'phase-labels.js',
   'errors.js',
   'pairing.js',
+  'connection-state.js',
   'icons/icon-16.png',
   'icons/icon-32.png',
   'icons/icon-48.png',

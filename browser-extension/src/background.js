@@ -2,6 +2,7 @@
 // cancel/retry, notifications, and rehydration. Popup/options only message us.
 
 import { parseCapabilities } from './capabilities.js';
+import { deriveConnectionState } from './connection-state.js';
 import { destinationChoices, resolveSavedDestination } from './destinations.js';
 import { formatApiError, formatCaughtError } from './errors.js';
 import {
@@ -45,6 +46,7 @@ let recentJobs = [];
 let capabilities = parseCapabilities(null);
 let lastStatus = null;
 let connectionError = '';
+let lastHttpStatus = null;
 let destinationState = {
   folders: [],
   default: '',
@@ -111,21 +113,46 @@ async function parseErrorResponse(response) {
       detail = response.statusText;
     }
   }
-  return new Error(formatApiError(response.status, detail));
+  const error = new Error(formatApiError(response.status, detail));
+  error.status = response.status;
+  return error;
 }
 
 async function apiFetch(path, options = {}) {
   const { serverOrigin, apiToken, ...fetchOptions } = options;
   const base = serverOrigin || configuredServerOrigin();
-  const response = await fetch(`${base}${path}`, {
-    ...fetchOptions,
-    headers: { ...authHeaders(apiToken), ...(fetchOptions.headers || {}) },
-  });
+  let response;
+  try {
+    response = await fetch(`${base}${path}`, {
+      ...fetchOptions,
+      headers: { ...authHeaders(apiToken), ...(fetchOptions.headers || {}) },
+    });
+  } catch (err) {
+    lastHttpStatus = null;
+    throw err;
+  }
   if (!response.ok) {
+    lastHttpStatus = response.status;
     throw await parseErrorResponse(response);
   }
+  lastHttpStatus = response.status;
   if (response.status === 204) return null;
   return response.json();
+}
+
+async function rememberSuccessfulConnection(status) {
+  const patch = { lastConnectedAt: Date.now() };
+  if (status?.instance_id) {
+    patch.pairedServerInstanceId = String(status.instance_id);
+  }
+  if (status?.device_id) {
+    patch.deviceId = String(status.device_id);
+  }
+  if (status?.device_name) {
+    patch.deviceName = String(status.device_name);
+  }
+  await saveSettings(patch);
+  settings = { ...settings, ...patch };
 }
 
 const CREATED_NOTIFICATION_IDS_KEY = 'createdNotificationIds';
@@ -217,6 +244,13 @@ function broadcast(message) {
 }
 
 function publicState() {
+  const connectionState = deriveConnectionState({
+    settings,
+    status: lastStatus,
+    capabilities,
+    connectionError,
+    httpStatus: lastHttpStatus,
+  });
   return {
     ok: true,
     settings: publicSettings(settings),
@@ -227,12 +261,17 @@ function publicState() {
     configured: Boolean(settings.serverUrl && settings.apiToken),
     legacyMessage: connectionError ? '' : capabilities.legacyMessage || '',
     connectionError,
+    httpStatus: lastHttpStatus,
+    connectionState,
   };
 }
 
 async function fetchStatus() {
   lastStatus = await apiFetch('/api/extension/status');
   capabilities = parseCapabilities(lastStatus);
+  if (lastStatus?.ok) {
+    await rememberSuccessfulConnection(lastStatus);
+  }
   return lastStatus;
 }
 
@@ -338,34 +377,70 @@ async function tickReconcile() {
 }
 
 async function handleTestConnection(message = {}) {
-  const ephemeralUrl = typeof message.serverUrl === 'string' ? message.serverUrl.trim() : '';
-  const hasEphemeralToken = typeof message.apiToken === 'string';
-  if (ephemeralUrl || hasEphemeralToken) {
-    const origin = requireValidatedServerOrigin(ephemeralUrl || settings.serverUrl);
-    const token = hasEphemeralToken ? message.apiToken : settings.apiToken;
-    const fetchOptions = { serverOrigin: origin, apiToken: token };
-    lastStatus = await apiFetch('/api/extension/status', fetchOptions);
-    capabilities = parseCapabilities(lastStatus);
+  connectionError = '';
+  lastHttpStatus = null;
+  try {
+    const ephemeralUrl = typeof message.serverUrl === 'string' ? message.serverUrl.trim() : '';
+    const hasEphemeralToken = typeof message.apiToken === 'string';
+    if (ephemeralUrl || hasEphemeralToken) {
+      const origin = requireValidatedServerOrigin(ephemeralUrl || settings.serverUrl);
+      const token = hasEphemeralToken ? message.apiToken : settings.apiToken;
+      const fetchOptions = { serverOrigin: origin, apiToken: token };
+      lastStatus = await apiFetch('/api/extension/status', fetchOptions);
+      capabilities = parseCapabilities(lastStatus);
+      if (lastStatus?.ok) {
+        await rememberSuccessfulConnection(lastStatus);
+      }
+      try {
+        await fetchDestinations(fetchOptions);
+      } catch (err) {
+        console.warn('Destinations unavailable:', formatCaughtError(err));
+      }
+      return {
+        ...publicState(),
+        ok: true,
+        status: lastStatus,
+        capabilities,
+        destinations: destinationState,
+      };
+    }
+    await refreshSettings();
+    const status = await fetchStatus();
     try {
-      await fetchDestinations(fetchOptions);
+      await fetchDestinations();
     } catch (err) {
       console.warn('Destinations unavailable:', formatCaughtError(err));
     }
-    return { ok: true, status: lastStatus, capabilities, destinations: destinationState };
-  }
-  await refreshSettings();
-  const status = await fetchStatus();
-  try {
-    await fetchDestinations();
+    return {
+      ...publicState(),
+      ok: true,
+      status,
+      capabilities,
+      destinations: destinationState,
+    };
   } catch (err) {
-    console.warn('Destinations unavailable:', formatCaughtError(err));
+    connectionError = formatCaughtError(err);
+    if (typeof err?.status === 'number') lastHttpStatus = err.status;
+    return {
+      ...publicState(),
+      ok: false,
+      error: connectionError,
+    };
   }
-  return { ok: true, status, capabilities, destinations: destinationState };
 }
 
 async function clearLocalDeviceSession(reason) {
   closeAllWebSockets(reason);
-  await saveSettings({ apiToken: '', deviceId: '', deviceName: '' });
+  await saveSettings({
+    apiToken: '',
+    deviceId: '',
+    deviceName: '',
+    pairedServerInstanceId: '',
+    lastConnectedAt: 0,
+  });
+  lastStatus = null;
+  lastHttpStatus = null;
+  connectionError = '';
   await refreshSettings();
 }
 
@@ -401,12 +476,14 @@ async function handleLoadDestinations() {
 async function handleGetPublicState() {
   await refreshSettings();
   connectionError = '';
+  lastHttpStatus = null;
   if (settings.serverUrl && settings.apiToken) {
     try {
       await fetchStatus();
       await fetchDestinations();
     } catch (err) {
       connectionError = formatCaughtError(err);
+      if (typeof err?.status === 'number') lastHttpStatus = err.status;
       console.warn('Public state status/destinations failed:', connectionError);
     }
     await reconcileActiveJobs();

@@ -6,6 +6,7 @@ import html
 import logging
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -79,6 +80,14 @@ def _format_date(date_str: str | None) -> str:
 
 def _escape_html(text: str | None) -> str:
     return html.escape(text or "")
+
+
+def _job_page_redirect(job_id: str) -> RedirectResponse:
+    try:
+        canonical = str(UUID(job_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    return RedirectResponse(f"/jobs/{canonical}", status_code=303)
 
 
 templates.env.filters["duration"] = _format_duration
@@ -663,7 +672,7 @@ async def page_retry_job_abs_scan(
         db.commit()
     finally:
         db.close()
-    return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+    return _job_page_redirect(job_id)
 
 
 @router.post("/jobs/{job_id}/abs-check", response_class=HTMLResponse)
@@ -684,7 +693,7 @@ async def page_check_job_abs_index(
         db.commit()
     finally:
         db.close()
-    return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+    return _job_page_redirect(job_id)
 
 
 @router.get("/jobs/{job_id}", response_class=HTMLResponse)

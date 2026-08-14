@@ -478,10 +478,22 @@ const ABS_LIBRARY_FALLBACK = {{ (settings.abs_library_id or '') | tojson }};
 
 function absOpenHref(job) {
   if (!ABS_BASE_URL) return null;
-  const base = ABS_BASE_URL.replace(/\/$/, '');
-  if (job.abs_library_item_id) return `${base}/#/item/${job.abs_library_item_id}`;
+  let parsed;
+  try {
+    parsed = new URL(ABS_BASE_URL);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  if (job.abs_library_item_id) {
+    parsed.hash = `/item/${encodeURIComponent(String(job.abs_library_item_id))}`;
+    return parsed.toString();
+  }
   const lid = job.abs_library_id || ABS_LIBRARY_FALLBACK;
-  if (lid) return `${base}/#/library/${lid}`;
+  if (lid) {
+    parsed.hash = `/library/${encodeURIComponent(String(lid))}`;
+    return parsed.toString();
+  }
   return null;
 }
 
@@ -516,8 +528,15 @@ function renderAbsCard(job) {
   const link = document.getElementById('abs-open-link');
   const href = absOpenHref(job);
   if (link && href) {
-    link.href = href;
-    link.style.display = '';
+    try {
+      const parsed = new URL(href);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        link.setAttribute('href', parsed.toString());
+        link.style.display = '';
+      }
+    } catch {
+      /* ignore invalid ABS URLs */
+    }
   }
 }
 

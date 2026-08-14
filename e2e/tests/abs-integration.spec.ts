@@ -15,7 +15,7 @@ async function configureAbs(page: import("@playwright/test").Page) {
   await library.selectOption({ label: "E2E Audiobooks (book)" });
   const scanToggle = page.locator('input[name="abs_scan_after_success"]');
   if (!(await scanToggle.isChecked())) {
-    await scanToggle.check();
+    await scanToggle.check({ force: true });
   }
   await page.locator('form.settings-form').getByRole("button", { name: /^Save$/i }).click();
   await expect(page.getByText("Settings saved successfully and reloaded.")).toBeVisible({

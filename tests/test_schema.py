@@ -72,7 +72,7 @@ async def test_init_db_creates_schema_on_fresh_database(schema_db: Path):
 
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
         assert version is not None
-        assert version[0] == "0003_import_ledger"
+        assert version[0] == "0004_abs_job_index"
 
         batch_cols = {row[1] for row in conn.execute("PRAGMA table_info(import_batches)")}
         assert "abs_scan_requested" in batch_cols
@@ -88,6 +88,13 @@ async def test_init_db_creates_schema_on_fresh_database(schema_db: Path):
         assert "owned_import" in jobs_cols
         assert "batch_id" in jobs_cols
         assert "sponsorblock_remove" in jobs_cols
+        assert "abs_library_id" in jobs_cols
+        assert "abs_library_item_id" in jobs_cols
+        assert "abs_index_status" in jobs_cols
+        assert "abs_indexed_at" in jobs_cols
+        assert "abs_index_error" in jobs_cols
+        assert "abs_last_checked_at" in jobs_cols
+        assert "abs_index_attempts" in jobs_cols
 
 
 @pytest.mark.asyncio
@@ -130,7 +137,7 @@ async def test_init_db_stamps_legacy_database(schema_db: Path):
         assert "app_settings" in tables
         assert "alembic_version" in tables
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert version[0] == "0003_import_ledger"
+        assert version[0] == "0004_abs_job_index"
 
 
 @pytest.mark.asyncio
@@ -165,7 +172,7 @@ async def test_legacy_reconcile_does_not_use_live_orm_metadata(
         assert "sponsorblock_remove" in jobs_cols
         assert "progress" in jobs_cols
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert version[0] == "0003_import_ledger"
+        assert version[0] == "0004_abs_job_index"
 
 
 @pytest.mark.asyncio
@@ -194,7 +201,7 @@ async def test_init_db_stamps_retired_alembic_revision(schema_db: Path, retired_
         assert "app_settings" in tables
         assert "alembic_version" in tables
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert version[0] == "0003_import_ledger"
+        assert version[0] == "0004_abs_job_index"
         jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
         assert "batch_id" in jobs_cols
         assert "sponsorblock_remove" in jobs_cols

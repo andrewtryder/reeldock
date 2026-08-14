@@ -1,6 +1,6 @@
 # Audiobookshelf Setup & Integration
 
-`reeldock` is designed to run alongside [Audiobookshelf](https://www.audiobookshelf.org/) (ABS). It writes files to a directory that ABS monitors and can automatically trigger an ABS library scan when a job completes.
+`reeldock` is designed to run alongside [Audiobookshelf](https://www.audiobookshelf.org/) (ABS). It writes files to a directory that ABS monitors, can trigger a library scan when a job completes, and tracks when each audiobook appears in ABS.
 
 ## 1. Directory Alignment
 
@@ -31,30 +31,29 @@ Audiobookshelf scans files based on directory groupings. By default, it expects 
 
 ---
 
-## 3. Automatic Library Scan API Integration
+## 3. Connect Audiobookshelf in Settings
 
-You can configure `reeldock` to automatically tell Audiobookshelf to scan for new files as soon as a download finishes.
+Prefer configuring ABS from **Settings → Audiobookshelf** (no need to copy a library ID from the ABS URL):
 
-### Configuration
+1. Enter the Audiobookshelf base URL (reachable from the ReelDock container).
+2. Paste an API token (Settings → Users → API Tokens in ABS). Leave the field blank on later saves to keep the stored token.
+3. Click **Test Connection** — ReelDock lists libraries by name (audiobook/`book` libraries first).
+4. Pick a library from the dropdown. If a previously saved library disappeared from the server, ReelDock warns you and does **not** silently switch.
+5. Optionally enable **Default ABS scan after success**, then **Save**.
 
-Add the following variables to your `.env` file:
+You can still set the same values via environment / `.env` if you prefer infrastructure config:
 
 ```env
-# Enable library scan after success
 ABS_SCAN_AFTER_SUCCESS=true
-
-# The URL of your Audiobookshelf server (accessible from the importer container)
-# If on the same Docker network, you can use the service name:
 ABS_BASE_URL=http://audiobookshelf:13378
-# Otherwise, use the host IP or domain:
-# ABS_BASE_URL=http://192.168.1.50:13378
-
-# Audiobookshelf API Token
-# Create this in ABS under Settings -> Users -> Root/Admin User -> API Tokens
 ABS_API_TOKEN=your-long-api-token-string
-
-# Audiobookshelf Library ID
-# You can find this in ABS under Settings -> Libraries -> Click your Podcasts/Audiobooks library.
-# The ID is visible in the URL of your browser (e.g., settings/libraries/bc7f781a-...)
 ABS_LIBRARY_ID=bc7f781a-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
+
+After a successful import with scan enabled, Job Detail shows indexing status (`Waiting…` → `Added to Audiobookshelf`) and an Open in Audiobookshelf link when the item is matched by relative path.
+
+---
+
+## 4. Future channel subscriptions
+
+Channel/playlist **subscriptions** (automatic polling of new uploads) are not implemented yet. When they ship, ReelDock will discover new videos with **yt-dlp** and dedupe against the existing **ImportedVideo** ledger — no YouTube Data API key will be required.

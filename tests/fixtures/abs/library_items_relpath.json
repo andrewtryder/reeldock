@@ -1,0 +1,67 @@
+{
+  "results": [
+    {
+      "id": "li-file-1",
+      "libraryId": "lib-books",
+      "path": "/host/abs/Theology/Scan Video.m4b",
+      "relPath": "Theology/Scan Video.m4b",
+      "isFile": true,
+      "mediaType": "book",
+      "media": {
+        "metadata": {
+          "title": "Scan Video"
+        }
+      }
+    },
+    {
+      "id": "li-folder-1",
+      "libraryId": "lib-books",
+      "path": "/host/abs/Series/Book One",
+      "relPath": "Series/Book One",
+      "isFile": false,
+      "mediaType": "book",
+      "media": {
+        "metadata": {
+          "title": "Book One"
+        },
+        "audioFiles": [
+          {
+            "index": 1,
+            "metadata": {
+              "filename": "chapter01.m4b",
+              "path": "/host/abs/Series/Book One/chapter01.m4b",
+              "relPath": "chapter01.m4b"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "li-title-a",
+      "libraryId": "lib-books",
+      "path": "/host/abs/Other/Dup Title.m4b",
+      "relPath": "Other/Dup Title.m4b",
+      "isFile": true,
+      "mediaType": "book",
+      "media": {
+        "metadata": {
+          "title": "Ambiguous Title"
+        }
+      }
+    },
+    {
+      "id": "li-title-b",
+      "libraryId": "lib-books",
+      "path": "/host/abs/Alt/Dup Title.m4b",
+      "relPath": "Alt/Dup Title.m4b",
+      "isFile": true,
+      "mediaType": "book",
+      "media": {
+        "metadata": {
+          "title": "Ambiguous Title"
+        }
+      }
+    }
+  ],
+  "total": 4
+}

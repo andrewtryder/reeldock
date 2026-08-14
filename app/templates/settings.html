@@ -254,15 +254,23 @@
                 {% if not field.locked and spec.mutable %}
                 <button type="submit" form="reset-{{ spec.key | e }}" class="self-start font-label-md text-label-md text-amber uppercase hover:underline">Reset</button>
                 {% endif %}
+                {% if spec.key == 'abs_api_token' %}
+                <div class="flex flex-wrap gap-2 items-center pt-1">
+                  <button type="button" id="abs-test-btn" class="px-4 py-2 rounded-lg border border-panel-line font-label-md text-label-md uppercase">Test Connection</button>
+                  <p id="abs-test-status" class="font-label-md text-label-md text-paper-muted"></p>
+                </div>
+                {% endif %}
+                {% if spec.key == 'abs_library_id' %}
+                <p id="abs-library-warning" class="font-label-md text-label-md text-warning hidden" role="status"></p>
+                {% endif %}
               </div>
               {% endif %}
             </div>
             {% endfor %}
 
             {% if group.id == 'abs' %}
-            <div class="border-t border-panel-line/30 pt-4 flex flex-wrap gap-2">
-              <button type="button" id="abs-test-btn" class="px-4 py-2 rounded-lg border border-panel-line font-label-md text-label-md uppercase">Test Connection</button>
-              <p id="abs-test-status" class="font-label-md text-label-md text-paper-muted self-center"></p>
+            <div class="border-t border-panel-line/30 pt-4">
+              <p class="font-label-md text-label-md text-paper-muted">Connect with URL + token, pick a library by name, then Save. The API token is never shown after save.</p>
             </div>
             {% endif %}
 
@@ -418,11 +426,17 @@
   if (absBtn) {
     absBtn.addEventListener("click", async () => {
       const status = document.getElementById("abs-test-status");
+      const warn = document.getElementById("abs-library-warning");
       const body = new FormData();
       body.set("csrf_token", document.querySelector("form.settings-form [name=csrf_token]")?.value || "");
       body.set("abs_base_url", document.getElementById("abs_base_url")?.value || "");
       body.set("abs_api_token", document.getElementById("abs_api_token")?.value || "");
+      body.set("abs_library_id", document.getElementById("abs_library_id")?.value || "");
       status.textContent = "Testing…";
+      if (warn) {
+        warn.textContent = "";
+        warn.classList.add("hidden");
+      }
       try {
         const res = await fetch("/settings/abs/test", { method: "POST", body });
         const data = await res.json();
@@ -431,22 +445,44 @@
           return;
         }
         status.textContent = `Connected (${data.libraries.length} libraries)`;
+        if (warn && data.warning) {
+          warn.textContent = data.warning;
+          warn.classList.remove("hidden");
+        }
         const select = document.getElementById("abs_library_id");
         if (select && data.libraries.length) {
-          const current = select.value;
-          select.replaceWith(Object.assign(document.createElement("select"), {
-            id: "abs_library_id",
-            name: "abs_library_id",
-            className: select.className,
-          }));
-          const next = document.getElementById("abs_library_id");
-          for (const lib of data.libraries) {
+          const current = data.current_library_id || select.value;
+          const preferred = new Set(data.preferred_library_ids || []);
+          const sorted = [...data.libraries].sort((a, b) => {
+            const ap = preferred.has(a.id) ? 0 : 1;
+            const bp = preferred.has(b.id) ? 0 : 1;
+            if (ap !== bp) return ap - bp;
+            return String(a.name || "").localeCompare(String(b.name || ""));
+          });
+          const next = document.createElement("select");
+          next.id = "abs_library_id";
+          next.name = "abs_library_id";
+          next.className = select.className;
+          let matched = false;
+          for (const lib of sorted) {
             const opt = document.createElement("option");
             opt.value = lib.id;
-            opt.textContent = lib.name;
-            if (lib.id === current) opt.selected = true;
+            const media = lib.mediaType ? ` (${lib.mediaType})` : "";
+            opt.textContent = `${lib.name}${media}`;
+            if (lib.id === current) {
+              opt.selected = true;
+              matched = true;
+            }
             next.appendChild(opt);
           }
+          if (!matched && current) {
+            const orphan = document.createElement("option");
+            orphan.value = current;
+            orphan.textContent = `Saved library (missing on server)`;
+            orphan.selected = true;
+            next.insertBefore(orphan, next.firstChild);
+          }
+          select.replaceWith(next);
         }
       } catch {
         status.textContent = "Connection failed";

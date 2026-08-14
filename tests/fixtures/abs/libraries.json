@@ -1,0 +1,14 @@
+{
+  "libraries": [
+    {
+      "id": "lib-books",
+      "name": "Audiobooks",
+      "mediaType": "book"
+    },
+    {
+      "id": "lib-podcasts",
+      "name": "Podcasts",
+      "mediaType": "podcast"
+    }
+  ]
+}

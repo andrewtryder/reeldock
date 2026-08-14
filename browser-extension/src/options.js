@@ -405,6 +405,7 @@ for (const button of document.querySelectorAll('[data-quality]')) {
   $('disconnect')?.addEventListener('click', onDisconnect);
   $('change-server')?.addEventListener('click', onChangeServer);
   const { connection } = await refreshView();
+  document.documentElement.dataset.reeldockReady = '1';
   if (connection?.state === 'connected' || connection?.hasCredential) {
     // refreshView already applied capabilities when public state was available.
   }

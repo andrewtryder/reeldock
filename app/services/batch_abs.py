@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models import ImportBatch, Job, JobStatus
+from app.services.abs_index import mark_batch_children_indexing
 from app.services.audiobookshelf import AudiobookshelfClient
 
 logger = logging.getLogger(__name__)
@@ -175,6 +176,8 @@ def maybe_coalesce_batch_abs_scan(
                     return True
                 continue
             batch.abs_scan_status = "succeeded"
+            session.commit()
+            mark_batch_children_indexing(session, batch_id, settings)
             session.commit()
             return True
         batch.abs_scan_status = "failed"

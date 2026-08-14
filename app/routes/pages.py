@@ -6,6 +6,7 @@ import html
 import logging
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -15,6 +16,7 @@ from app.config import Settings, get_setting_sources, reload_settings, reset_set
 from app.csrf import issue_csrf_token, validate_csrf_token
 from app.db import get_sync_db
 from app.diagnostics import format_free_space
+from app.models import Job
 from app.path_checks import check_writable_directory
 from app.routes import DbDep, SettingsDep
 from app.services.batch_abs import retry_batch_abs_scan
@@ -78,6 +80,14 @@ def _format_date(date_str: str | None) -> str:
 
 def _escape_html(text: str | None) -> str:
     return html.escape(text or "")
+
+
+def _job_page_redirect(job_id: str) -> RedirectResponse:
+    try:
+        canonical = str(UUID(job_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    return RedirectResponse(f"/jobs/{canonical}", status_code=303)
 
 
 templates.env.filters["duration"] = _format_duration
@@ -644,6 +654,48 @@ async def page_retry_batch_abs_scan(
     return RedirectResponse(f"/jobs?batch={batch_id}", status_code=303)
 
 
+@router.post("/jobs/{job_id}/abs-scan", response_class=HTMLResponse)
+async def page_retry_job_abs_scan(
+    request: Request, job_id: str, cfg: SettingsDep
+) -> RedirectResponse:
+    form = {key: str(value) for key, value in (await request.form()).items()}
+    if not validate_csrf_token(form.get("csrf_token")):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    from app.services.abs_index import retry_job_abs_scan
+
+    db = get_sync_db()
+    try:
+        job = db.get(Job, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        retry_job_abs_scan(db, job, cfg)
+        db.commit()
+    finally:
+        db.close()
+    return _job_page_redirect(job_id)
+
+
+@router.post("/jobs/{job_id}/abs-check", response_class=HTMLResponse)
+async def page_check_job_abs_index(
+    request: Request, job_id: str, cfg: SettingsDep
+) -> RedirectResponse:
+    form = {key: str(value) for key, value in (await request.form()).items()}
+    if not validate_csrf_token(form.get("csrf_token")):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    from app.services.abs_index import check_job_abs_index_again
+
+    db = get_sync_db()
+    try:
+        job = db.get(Job, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        check_job_abs_index_again(db, job, cfg)
+        db.commit()
+    finally:
+        db.close()
+    return _job_page_redirect(job_id)
+
+
 @router.get("/jobs/{job_id}", response_class=HTMLResponse)
 async def page_job_detail(
     request: Request, job_id: str, db: DbDep, cfg: SettingsDep
@@ -674,6 +726,15 @@ async def page_job_detail(
             except json.JSONDecodeError, TypeError:
                 pass
 
+    from app.services.audiobookshelf import item_open_url
+
+    abs_open_url = None
+    if cfg.abs_base_url and job.abs_library_item_id:
+        abs_open_url = item_open_url(cfg.abs_base_url, job.abs_library_item_id)
+    elif cfg.abs_base_url and (job.abs_library_id or cfg.abs_library_id):
+        lid = job.abs_library_id or cfg.abs_library_id
+        abs_open_url = f"{cfg.abs_base_url.rstrip('/')}/#/library/{lid}"
+
     return templates.TemplateResponse(
         request,
         "job_detail.html",
@@ -684,6 +745,8 @@ async def page_job_detail(
             "log": log_content,
             "conversion_meta": conversion_meta,
             "collision_meta": collision_meta,
+            "csrf_token": issue_csrf_token(),
+            "abs_open_url": abs_open_url,
         },
     )
 
@@ -1138,7 +1201,42 @@ async def page_abs_test(request: Request, cfg: SettingsDep) -> JSONResponse:
 
     base_url = (form.get("abs_base_url") or cfg.abs_base_url or "").strip()
     token = (form.get("abs_api_token") or "").strip() or (cfg.abs_api_token or "")
+    current_id = (form.get("abs_library_id") or cfg.abs_library_id or "").strip()
     libraries, error = AudiobookshelfClient(cfg).list_libraries(base_url=base_url, api_token=token)
     if error:
-        return JSONResponse({"ok": False, "error": error, "libraries": []}, status_code=400)
-    return JSONResponse({"ok": True, "libraries": libraries})
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": error,
+                "libraries": [],
+                "preferred_library_ids": [],
+                "current_library_id": current_id or None,
+                "library_missing": False,
+                "warning": None,
+            },
+            status_code=400,
+        )
+
+    preferred = [
+        lib["id"]
+        for lib in libraries
+        if str(lib.get("mediaType") or "").lower() in {"book", "audiobook"}
+    ]
+    known_ids = {lib["id"] for lib in libraries}
+    library_missing = bool(current_id) and current_id not in known_ids
+    warning = (
+        "Saved library is no longer on this Audiobookshelf server. "
+        "Pick a library below — nothing was changed until you Save."
+        if library_missing
+        else None
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "libraries": libraries,
+            "preferred_library_ids": preferred,
+            "current_library_id": current_id or None,
+            "library_missing": library_missing,
+            "warning": warning,
+        }
+    )

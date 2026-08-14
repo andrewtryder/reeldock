@@ -21,6 +21,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 
+@pytest.fixture(autouse=True)
+def _mock_abs_enqueue():
+    with patch("app.services.abs_index.enqueue_reconcile") as mock_enq:
+        yield mock_enq
+
+
 @pytest.fixture
 def abs_db():
     engine = create_engine(
@@ -87,7 +93,7 @@ def _client(success: bool = True, skipped: bool = False, error: str | None = Non
     return client
 
 
-def test_one_child_one_scan(abs_db, abs_settings):
+def test_one_child_one_scan(abs_db, abs_settings, _mock_abs_enqueue):
     _batch(abs_db)
     job = _child(abs_db, "batch-1", "c1", JobStatus.succeeded)
     client = _client()
@@ -98,9 +104,12 @@ def test_one_child_one_scan(abs_db, abs_settings):
     assert batch is not None
     assert batch.abs_scan_status == "succeeded"
     assert batch.abs_scan_dirty is False
+    _mock_abs_enqueue.assert_called_once_with("c1", attempt=0)
+    abs_db.refresh(job)
+    assert job.abs_index_status == "indexing"
 
 
-def test_ten_successes_one_scan(abs_db, abs_settings):
+def test_ten_successes_one_scan(abs_db, abs_settings, _mock_abs_enqueue):
     _batch(abs_db)
     client = _client()
     jobs = [_child(abs_db, "batch-1", f"c{i}", JobStatus.queued) for i in range(10)]
@@ -112,6 +121,7 @@ def test_ten_successes_one_scan(abs_db, abs_settings):
             if index < 9:
                 assert client.trigger_scan.call_count == 0
     assert client.trigger_scan.call_count == 1
+    assert _mock_abs_enqueue.call_count == 10
 
 
 def test_mixed_results_one_scan_if_any_success(abs_db, abs_settings):
@@ -155,7 +165,7 @@ def test_concurrent_terminals_single_scan(abs_db, abs_settings):
     assert client.trigger_scan.call_count == 1
 
 
-def test_scan_failure_leaves_jobs_succeeded(abs_db, abs_settings):
+def test_scan_failure_leaves_jobs_succeeded(abs_db, abs_settings, _mock_abs_enqueue):
     _batch(abs_db)
     job = _child(abs_db, "batch-1", "ok", JobStatus.succeeded)
     client = _client(success=False, error="abs down")
@@ -167,6 +177,8 @@ def test_scan_failure_leaves_jobs_succeeded(abs_db, abs_settings):
     assert batch is not None
     assert batch.abs_scan_status == "failed"
     assert batch.abs_scan_error == "abs down"
+    _mock_abs_enqueue.assert_not_called()
+    assert job.abs_index_status == "not_requested"
 
 
 def test_retry_after_failed_scan_runs_again(abs_db, abs_settings):

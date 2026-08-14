@@ -44,6 +44,16 @@ def job_dict(job: Job) -> dict[str, Any]:
         "batch_title": batch_title,
         "rq_job_id": job.rq_job_id,
         "log_file_path": job.log_file_path,
+        "trigger_abs_scan": job.trigger_abs_scan,
+        "abs_library_id": job.abs_library_id,
+        "abs_library_item_id": job.abs_library_item_id,
+        "abs_index_status": job.abs_index_status,
+        "abs_indexed_at": job.abs_indexed_at.isoformat() if job.abs_indexed_at else None,
+        "abs_index_error": job.abs_index_error,
+        "abs_last_checked_at": (
+            job.abs_last_checked_at.isoformat() if job.abs_last_checked_at else None
+        ),
+        "abs_index_attempts": job.abs_index_attempts,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,

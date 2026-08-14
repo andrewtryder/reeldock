@@ -360,21 +360,27 @@ def test_running_job_keeps_claim_after_old_lease_wall(ledger_db):
     assert acquire_claim_sync(ledger_db, "vidLive", "job-other") is False
 
 
-def test_two_takeovers_of_expired_terminal_claim_one_winner(ledger_db):
+def test_two_takeovers_of_expired_terminal_claim_one_winner(tmp_path: Path):
     from concurrent.futures import ThreadPoolExecutor
 
-    now = datetime.now(tz=UTC).replace(tzinfo=None)
-    ledger_db.add(_job("job-old", "vidRace", status=JobStatus.failed))
-    ledger_db.add(
-        VideoImportClaim(
-            video_id="vidRace",
-            job_id="job-old",
-            claimed_at=now - timedelta(hours=2),
-            expires_at=now - timedelta(minutes=1),
-        )
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'claim-race.db'}",
+        connect_args={"check_same_thread": False},
     )
-    ledger_db.commit()
-    factory = sessionmaker(bind=ledger_db.bind)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    now = datetime.now(tz=UTC).replace(tzinfo=None)
+    with factory() as session:
+        session.add(_job("job-old", "vidRace", status=JobStatus.failed))
+        session.add(
+            VideoImportClaim(
+                video_id="vidRace",
+                job_id="job-old",
+                claimed_at=now - timedelta(hours=2),
+                expires_at=now - timedelta(minutes=1),
+            )
+        )
+        session.commit()
 
     def attempt(job_id: str) -> bool:
         with factory() as session:
@@ -388,6 +394,7 @@ def test_two_takeovers_of_expired_terminal_claim_one_winner(ledger_db):
             for future in (pool.submit(attempt, "job-a"), pool.submit(attempt, "job-b"))
         ]
     assert results.count(True) == 1
-    claim = ledger_db.get(VideoImportClaim, "vidRace")
-    assert claim is not None
-    assert claim.job_id in {"job-a", "job-b"}
+    with factory() as session:
+        claim = session.get(VideoImportClaim, "vidRace")
+        assert claim is not None
+        assert claim.job_id in {"job-a", "job-b"}

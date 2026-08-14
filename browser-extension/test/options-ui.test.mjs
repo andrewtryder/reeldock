@@ -144,11 +144,11 @@ describe('options ui', () => {
     assert.ok(byId.get('status').textContent);
   });
 
-  it('rejects an empty token on save', async () => {
+  it('saves import defaults without a legacy token', async () => {
     byId.get('serverUrl').value = 'http://127.0.0.1:8080';
     byId.get('apiToken').value = '';
     await emitAsync(byId.get('save'), 'click');
-    assert.match(byId.get('status').textContent, /token/i);
+    assert.match(byId.get('status').textContent, /saved/i);
   });
 
   it('rejects a bad server url', async () => {

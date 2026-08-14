@@ -95,6 +95,7 @@ function publicState(overrides = {}) {
     configured: true,
     legacyMessage: '',
     connectionError: '',
+    connectionState: { state: 'connected', message: '', hasCredential: true },
     ...overrides,
   };
 }

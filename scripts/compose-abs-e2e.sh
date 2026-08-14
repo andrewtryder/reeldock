@@ -169,5 +169,4 @@ done
 curl -fsS "$BASE/ready" >/dev/null
 
 echo "==> Running Playwright ABS integration..."
-REELDOCK_BASE_URL="$BASE" \
-  npm --prefix e2e exec -- playwright test tests/abs-integration.spec.ts --project=abs
+REELDOCK_BASE_URL="$BASE" npm --prefix e2e run test:abs

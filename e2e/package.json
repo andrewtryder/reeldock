@@ -5,6 +5,7 @@
   "scripts": {
     "test": "playwright test --project=chromium",
     "test:extension": "playwright test --project=extension",
+    "test:abs": "playwright test --project=abs",
     "test:headed": "playwright test --headed --project=chromium"
   },
   "devDependencies": {

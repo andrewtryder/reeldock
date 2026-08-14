@@ -69,6 +69,7 @@ services:
       context: $FAKE_ABS_DIR
       dockerfile: Dockerfile
     image: reeldock-fake-abs:e2e
+    platform: linux/amd64
     environment:
       FAKE_ABS_TOKEN: fake-abs-token
       FAKE_ABS_LIBRARY_ID: lib-e2e-books
@@ -151,7 +152,12 @@ services:
 EOF
 
 echo "==> Starting Compose for ABS e2e..."
-"${COMPOSE[@]}" up -d --build
+if ! "${COMPOSE[@]}" up -d --build; then
+  echo "==> fake-abs logs (compose up failed)"
+  "${COMPOSE[@]}" logs fake-abs || true
+  docker inspect reeldock-fake-abs-1 --format '{{json .State}}' || true
+  exit 1
+fi
 
 echo "==> Waiting for /ready..."
 for _ in $(seq 1 90); do

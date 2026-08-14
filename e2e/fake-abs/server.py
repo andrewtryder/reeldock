@@ -125,6 +125,7 @@ class Handler(BaseHTTPRequestHandler):
         _json(self, 404, {"error": "Not found"})
 
     def do_POST(self) -> None:
+        global _scan_count, _items_visible
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         length = int(self.headers.get("Content-Length") or 0)
@@ -137,7 +138,6 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == f"/api/libraries/{LIBRARY_ID}/scan":
             with _lock:
-                global _scan_count, _items_visible
                 _scan_count += 1
                 _items_visible = True
             _json(self, 200, {"success": True})
@@ -145,7 +145,6 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/_test/reset":
             with _lock:
-                global _scan_count, _items_visible
                 _scan_count = 0
                 _items_visible = False
             _json(self, 200, {"ok": True})
@@ -162,4 +161,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+        raise

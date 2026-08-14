@@ -405,7 +405,9 @@ export async function startOptions() {
   $('disconnect')?.addEventListener('click', onDisconnect);
   $('change-server')?.addEventListener('click', onChangeServer);
   const { connection } = await refreshView();
-  document.documentElement.dataset.reeldockReady = '1';
+  if (document.documentElement) {
+    document.documentElement.dataset.reeldockReady = '1';
+  }
   if (connection?.state === 'connected' || connection?.hasCredential) {
     // refreshView already applied capabilities when public state was available.
   }

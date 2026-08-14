@@ -8,10 +8,18 @@ from app.models import JobStatus
 from worker.tasks import run_import_job
 
 
+def _stub_ledger(monkeypatch) -> None:
+    monkeypatch.setattr("worker.tasks.reconcile_import_state", lambda _db: None)
+    monkeypatch.setattr("worker.tasks.recover_stale_abs_leases", lambda _db: None)
+    monkeypatch.setattr("worker.tasks.resume_pending_abs_index", lambda _db, _settings: 0)
+    monkeypatch.setattr("worker.tasks.release_claim_sync", lambda *_args, **_kwargs: None)
+
+
 def test_run_import_job_missing_job_returns_without_pipeline(monkeypatch):
     db = Mock()
     monkeypatch.setattr("worker.tasks.reload_settings", lambda: Mock())
     monkeypatch.setattr("worker.tasks.get_sync_db", lambda: db)
+    _stub_ledger(monkeypatch)
     monkeypatch.setattr("worker.tasks.sync_get_job", lambda _db, _job_id: None)
     pipeline_cls = Mock()
     monkeypatch.setattr("worker.tasks.ImportPipeline", pipeline_cls)
@@ -28,6 +36,7 @@ def test_run_import_job_runs_pipeline(monkeypatch):
     pipeline = Mock()
     monkeypatch.setattr("worker.tasks.reload_settings", lambda: Mock())
     monkeypatch.setattr("worker.tasks.get_sync_db", lambda: db)
+    _stub_ledger(monkeypatch)
     monkeypatch.setattr(
         "worker.tasks.sync_get_job",
         lambda _db, job_id: job if job_id == "job-1" else None,
@@ -50,6 +59,7 @@ def test_run_import_job_records_failure_then_closes(monkeypatch):
     record = Mock()
     monkeypatch.setattr("worker.tasks.reload_settings", lambda: Mock())
     monkeypatch.setattr("worker.tasks.get_sync_db", lambda: db)
+    _stub_ledger(monkeypatch)
     monkeypatch.setattr("worker.tasks.sync_get_job", lambda _db, _job_id: job)
     monkeypatch.setattr("worker.tasks.ImportPipeline", lambda *_args, **_kwargs: pipeline)
     monkeypatch.setattr("worker.tasks.sync_update_job", update)
@@ -73,6 +83,7 @@ def test_run_import_job_skips_record_when_cancelled(monkeypatch):
     update = Mock()
     monkeypatch.setattr("worker.tasks.reload_settings", lambda: Mock())
     monkeypatch.setattr("worker.tasks.get_sync_db", lambda: db)
+    _stub_ledger(monkeypatch)
     monkeypatch.setattr("worker.tasks.sync_get_job", lambda _db, _job_id: job)
     monkeypatch.setattr("worker.tasks.ImportPipeline", lambda *_args, **_kwargs: pipeline)
     monkeypatch.setattr("worker.tasks.sync_update_job", update)
@@ -91,6 +102,7 @@ def test_run_import_job_swallows_record_errors(monkeypatch):
     pipeline.run.side_effect = RuntimeError("pipeline exploded")
     monkeypatch.setattr("worker.tasks.reload_settings", lambda: Mock())
     monkeypatch.setattr("worker.tasks.get_sync_db", lambda: db)
+    _stub_ledger(monkeypatch)
     monkeypatch.setattr("worker.tasks.sync_get_job", lambda _db, _job_id: job)
     monkeypatch.setattr("worker.tasks.ImportPipeline", lambda *_args, **_kwargs: pipeline)
     monkeypatch.setattr("worker.tasks.sync_update_job", Mock(side_effect=RuntimeError("db down")))

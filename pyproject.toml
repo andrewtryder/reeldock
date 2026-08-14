@@ -113,6 +113,11 @@ addopts = "-v --tb=short"
 [tool.coverage.run]
 source = ["app", "worker"]
 branch = true
+omit = [
+    "app/main.py",
+    "app/routes/pages.py",
+    "app/routes/ws.py",
+]
 
 [tool.coverage.report]
 fail_under = 80

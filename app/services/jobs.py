@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import Settings
 from app.models import ImportBatch, ImportedVideo, Job, JobAttempt, JobStatus, VideoImportClaim
 from app.queue import enqueue_job_task
-from app.services.destination import resolve_destination_folder
+from app.services.destination import apply_implicit_channel_destination, resolve_destination_folder
 from app.services.filesystem import FilesystemService
 from app.services.import_ledger import acquire_claim, reconcile_import_state_async, release_claim
 from app.services.ytdlp import PlaylistEntry, YtDlpService
@@ -215,6 +215,34 @@ def _or_none_int(value: int | None) -> int | None:
     return value
 
 
+def _resolve_and_prepare_destination(
+    settings: Settings,
+    *,
+    new_folder: str,
+    destination_folder: str | None,
+    channel: str | None = None,
+    uploader: str | None = None,
+) -> str:
+    """Resolve destination, mkdir new/implicit folders, return the relative name."""
+    created = (new_folder or "").strip()
+    if created:
+        FilesystemService(settings).create_folder(created)
+    resolved = resolve_destination_folder(
+        new_folder=new_folder or "",
+        destination_folder=destination_folder,
+        default_destination_folder=settings.default_destination_folder,
+    )
+    final = apply_implicit_channel_destination(
+        resolved,
+        destination_folder=destination_folder,
+        channel=channel,
+        uploader=uploader,
+    )
+    if final and not created and not (resolved or "").strip():
+        FilesystemService(settings).create_folder(final)
+    return final
+
+
 async def submit_job(
     session: AsyncSession,
     settings: Settings,
@@ -228,13 +256,12 @@ async def submit_job(
         if not validation.valid:
             raise InvalidJobUrlError(validation.error or "Invalid URL")
 
-    new_folder = (params.new_folder or "").strip()
-    if new_folder:
-        FilesystemService(settings).create_folder(new_folder)
-    destination_folder = resolve_destination_folder(
+    destination_folder = _resolve_and_prepare_destination(
+        settings,
         new_folder=params.new_folder or "",
         destination_folder=params.destination_folder,
-        default_destination_folder=settings.default_destination_folder,
+        channel=params.channel,
+        uploader=params.uploader,
     )
 
     job = await create_job(
@@ -305,13 +332,13 @@ async def submit_batch(
     if params.source_type not in {"playlist", "channel"}:
         raise ValueError("source_type must be 'playlist' or 'channel'")
 
-    new_folder = (params.new_folder or "").strip()
-    if new_folder:
-        FilesystemService(settings).create_folder(new_folder)
-    destination_folder = resolve_destination_folder(
+    first = entries[0]
+    destination_folder = _resolve_and_prepare_destination(
+        settings,
         new_folder=params.new_folder or "",
         destination_folder=params.destination_folder,
-        default_destination_folder=settings.default_destination_folder,
+        channel=first.channel,
+        uploader=first.uploader,
     )
     resolved_destination = _or_none(destination_folder)
 

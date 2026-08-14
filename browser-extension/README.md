@@ -86,7 +86,7 @@ Click the extension icon → Options (or the gear icon on the popup) and set:
 
 - **ReelDock origin** + **pairing code** from Settings (recommended)
 - **Advanced / legacy token** only if you still use `EXTENSION_API_TOKEN`
-- **Default destination**: server default, library root, or a folder from your ReelDock library
+- **Default destination**: server default (channel folder), library root, or a folder from your ReelDock library
 - **Default quality**: Standard / High / Best
 - **Embed metadata / thumbnail / chapters** and optional SponsorBlock
 - **Trigger Audiobookshelf scan after success**: shown only when ABS is configured

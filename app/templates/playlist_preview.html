@@ -36,6 +36,8 @@
       <input type="hidden" name="source_url" value="{{ url | e }}" />
       <input type="hidden" name="source_type" value="{{ meta.source_type | e }}" />
       <input type="hidden" name="batch_title" value="{{ meta.title | e }}" />
+      <input type="hidden" id="preview-channel" value="{{ preview_channel | default('') | e }}" />
+      <input type="hidden" id="preview-uploader" value="{{ preview_uploader | default('') | e }}" />
 
       <!-- Left: entry checklist -->
       <div class="md:col-span-7 flex flex-col gap-stack-md">
@@ -148,7 +150,7 @@
                 {% if default_folder %}
                 Applied to every selected video. Blank uses your default under
                 {% else %}
-                Applied to every selected video. Blank saves directly under
+                Applied to every selected video. Blank uses a channel folder under
                 {% endif %}
                 <code class="font-code text-code text-amber">{{ settings.output_root }}</code>.
               </p>
@@ -289,6 +291,8 @@
         body.set('summary_kind', 'batch');
         body.set('new_folder', newFolderInput.value);
         body.set('destination_folder', destSelect.value);
+        body.set('channel', (document.getElementById('preview-channel') || {}).value || '');
+        body.set('uploader', (document.getElementById('preview-uploader') || {}).value || '');
         fetch('/preview/destination', { method: 'POST', body })
           .then((r) => (r.ok ? r.json() : null))
           .then(applyDestSummary)

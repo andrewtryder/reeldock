@@ -253,6 +253,129 @@ async def test_submit_job_new_folder_sets_destination(submit_job_db: Settings, t
 
 
 @pytest.mark.asyncio
+async def test_submit_omitted_dest_uses_channel_folder(submit_job_db: Settings):
+    await init_db()
+    mock_svc = Mock()
+    mock_svc.validate_url.return_value = Mock(valid=True)
+    submit_job_db.default_destination_folder = None
+
+    with patch("app.services.jobs.YtDlpService", return_value=mock_svc):
+        factory = get_async_session_factory()
+        async with factory() as session:
+            job, _rq_id = await submit_job(
+                session,
+                submit_job_db,
+                JobSubmitParams(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    video_id="abc123",
+                    channel="Some Channel",
+                    uploader="Uploader Name",
+                ),
+            )
+
+    assert job.destination_folder == "Some Channel"
+    assert (submit_job_db.output_root / "Some Channel").is_dir()
+
+
+@pytest.mark.asyncio
+async def test_submit_job_omitted_dest_no_channel_root(submit_job_db: Settings):
+    await init_db()
+    mock_svc = Mock()
+    mock_svc.validate_url.return_value = Mock(valid=True)
+    submit_job_db.default_destination_folder = None
+
+    with patch("app.services.jobs.YtDlpService", return_value=mock_svc):
+        factory = get_async_session_factory()
+        async with factory() as session:
+            job, _rq_id = await submit_job(
+                session,
+                submit_job_db,
+                JobSubmitParams(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    video_id="abc123",
+                ),
+            )
+
+    assert job.destination_folder is None
+    assert list(submit_job_db.output_root.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_submit_job_quoted_empty_stays_at_root(submit_job_db: Settings):
+    await init_db()
+    mock_svc = Mock()
+    mock_svc.validate_url.return_value = Mock(valid=True)
+    submit_job_db.default_destination_folder = None
+
+    with patch("app.services.jobs.YtDlpService", return_value=mock_svc):
+        factory = get_async_session_factory()
+        async with factory() as session:
+            job, _rq_id = await submit_job(
+                session,
+                submit_job_db,
+                JobSubmitParams(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    video_id="abc123",
+                    destination_folder="",
+                    channel="Some Channel",
+                ),
+            )
+
+    assert job.destination_folder is None
+    assert not (submit_job_db.output_root / "Some Channel").exists()
+
+
+@pytest.mark.asyncio
+async def test_submit_keeps_named_folder_not_channel(submit_job_db: Settings):
+    await init_db()
+    mock_svc = Mock()
+    mock_svc.validate_url.return_value = Mock(valid=True)
+    submit_job_db.default_destination_folder = None
+    named = "Theology"
+
+    with patch("app.services.jobs.YtDlpService", return_value=mock_svc):
+        factory = get_async_session_factory()
+        async with factory() as session:
+            job, _rq_id = await submit_job(
+                session,
+                submit_job_db,
+                JobSubmitParams(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    video_id="abc123",
+                    destination_folder=named,
+                    channel="Some Channel",
+                ),
+            )
+
+    assert job.destination_folder == named
+    assert not (submit_job_db.output_root / "Some Channel").exists()
+
+
+@pytest.mark.asyncio
+async def test_submit_job_sanitizes_implicit_channel(submit_job_db: Settings):
+    await init_db()
+    mock_svc = Mock()
+    mock_svc.validate_url.return_value = Mock(valid=True)
+    submit_job_db.default_destination_folder = None
+
+    with patch("app.services.jobs.YtDlpService", return_value=mock_svc):
+        factory = get_async_session_factory()
+        async with factory() as session:
+            job, _rq_id = await submit_job(
+                session,
+                submit_job_db,
+                JobSubmitParams(
+                    url="https://www.youtube.com/watch?v=abc123",
+                    video_id="abc123",
+                    channel="My: Channel",
+                ),
+            )
+
+    assert job.destination_folder == "My Channel"
+    assert (submit_job_db.output_root / "My Channel").is_dir()
+
+
+@pytest.mark.asyncio
 async def test_submit_job_in_progress_is_dup(submit_job_db: Settings):
     await init_db()
     mock_svc = Mock()

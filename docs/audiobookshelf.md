@@ -22,8 +22,10 @@ Ensure your Audiobookshelf instance is pointed to the same physical storage fold
 
 Audiobookshelf scans files based on directory groupings. By default, it expects a structure of **`LibraryRoot/PodcastTitle/Episode.m4b`**.
 
+`reeldock` writes **`LibraryRoot/ChannelName/Title.m4b`** when you leave destination unset (no server default). Channel display name is preferred, then uploader. Pick **Library root** in the extension (or an explicit empty destination) to write at the media root instead.
+
 `reeldock` automatically handles this:
-1. When submitting a video, you choose or create a destination folder (e.g. `TechTalk`).
+1. When submitting a video, you choose or create a destination folder (e.g. `TechTalk`), or accept the channel folder default.
 2. The background worker downloads the video, converts it, and writes it to `/media/podcasts/TechTalk/Video Title.m4b`.
 3. In Audiobookshelf, `TechTalk` will appear as a Podcast or Audiobook series, and `Video Title.m4b` will appear as an episode/track.
 

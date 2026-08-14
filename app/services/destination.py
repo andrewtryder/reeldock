@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.config import Settings
-from app.services.filesystem import FilesystemService, resolve_safe_path
+from app.services.filesystem import FilesystemService, resolve_safe_path, safe_folder_name
 
 
 def resolve_destination_folder(
@@ -20,9 +20,12 @@ def resolve_destination_folder(
 
     Precedence (preview-safe; does not create directories):
       1. non-empty ``new_folder``
-      2. ``destination_folder is None`` → configured default (or library root)
+      2. ``destination_folder is None`` → configured default (or empty)
       3. ``destination_folder == ""`` → explicit library root (OUTPUT_ROOT)
       4. non-empty ``destination_folder`` → that folder
+
+    An empty result after an omitted destination (``None``) is filled by
+    ``apply_implicit_channel_destination`` using channel/uploader names.
     """
     new_stripped = (new_folder or "").strip()
     if new_stripped:
@@ -34,12 +37,45 @@ def resolve_destination_folder(
     return destination_folder.strip()
 
 
+def implicit_channel_folder_name(
+    *,
+    channel: str | None = None,
+    uploader: str | None = None,
+) -> str:
+    """Sanitized channel display name, else uploader; empty if neither is usable."""
+    for raw in ((channel or "").strip(), (uploader or "").strip()):
+        if not raw:
+            continue
+        cleaned = safe_folder_name(raw)
+        if cleaned and cleaned != "untitled":
+            return cleaned
+    return ""
+
+
+def apply_implicit_channel_destination(
+    resolved: str,
+    *,
+    destination_folder: str | None,
+    channel: str | None = None,
+    uploader: str | None = None,
+) -> str:
+    """Use a channel/uploader folder when destination was omitted and resolve is empty.
+
+    Explicit ``destination_folder == ""`` stays at the library root.
+    """
+    if (resolved or "").strip():
+        return resolved
+    if destination_folder is not None:
+        return resolved
+    return implicit_channel_folder_name(channel=channel, uploader=uploader)
+
+
 def blank_destination_option_label(default_destination_folder: str | None) -> str:
     """User-facing label for the blank Destination Folder select option."""
     default = (default_destination_folder or "").strip()
     if default:
         return f"— Use default: {default} —"
-    return "— Use library root —"
+    return "— Use channel folder —"
 
 
 def format_folder_display_path(output_root: Path, destination_folder: str) -> str:
@@ -91,6 +127,12 @@ def preview_audiobook_destination(
         destination_folder=destination_folder,
         default_destination_folder=settings.default_destination_folder,
     )
+    resolved = apply_implicit_channel_destination(
+        resolved,
+        destination_folder=destination_folder,
+        channel=channel,
+        uploader=uploader,
+    )
     folder_path = format_folder_display_path(settings.output_root, resolved)
     blank_label = blank_destination_option_label(settings.default_destination_folder)
 
@@ -134,7 +176,7 @@ def initial_selected_destination_folder(
     """Pick exactly one preselect with explicit precedence.
 
     Order: configured default → uploader ID → uploader name → channel (optional).
-    Returns ``\"\"`` when nothing matches (library root / blank option).
+    Returns ``\"\"`` when nothing matches (blank option: channel folder or server default).
     """
     folder_set = set(folders)
     if default_folder and default_folder in folder_set:

@@ -157,6 +157,7 @@ def _get_job_row(job_id: str):
 def _queue_job(client: TestClient, extra: dict | None = None) -> str:
     payload = {
         "url": "https://www.youtube.com/watch?v=test123",
+        "destination_folder": "",
         "output_title": "",
         "embed_metadata": True,
         "embed_thumbnail": True,
@@ -659,6 +660,27 @@ def test_queue_omit_uses_server_default(tmp_path, monkeypatch, mocked_ytdlp, moc
         job = client.get(f"/api/extension/jobs/{job_id}", headers=EXT_AUTH)
         assert job.json()["destination_folder"] == "Theology"
         assert _get_job_row(job_id).destination_folder == "Theology"
+
+
+def test_queue_omit_uses_channel_when_no_server_default(
+    tmp_path, monkeypatch, mocked_ytdlp, mocked_enqueue
+):
+    output_root = tmp_path / "library"
+    output_root.mkdir()
+    monkeypatch.setenv("EXTENSION_API_ENABLED", "true")
+    monkeypatch.setenv("EXTENSION_API_TOKEN", "test-token-12345")
+    monkeypatch.setenv("OUTPUT_ROOT", str(output_root))
+    monkeypatch.delenv("DEFAULT_DESTINATION_FOLDER", raising=False)
+    import app.config as cfg_module
+
+    cfg_module._settings = None
+    with TestClient(create_app()) as client:
+        response = client.post("/api/extension/queue", headers=EXT_AUTH, json=_queue_payload())
+        assert response.status_code == 201, response.text
+        job_id = response.json()["job_id"]
+        job = client.get(f"/api/extension/jobs/{job_id}", headers=EXT_AUTH)
+        assert job.json()["destination_folder"] == "Test Channel"
+        assert (output_root / "Test Channel").is_dir()
 
 
 def test_queue_empty_string_is_root(tmp_path, monkeypatch, mocked_ytdlp, mocked_enqueue):

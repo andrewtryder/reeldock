@@ -234,6 +234,13 @@ async def page_preview(
         entry_ids = [entry.id for entry in playlist_meta.entries if entry.id]
         imported_ids = await get_imported_video_ids(db, entry_ids)
         default_folder = cfg.default_destination_folder or ""
+        first_entry = playlist_meta.entries[0] if playlist_meta.entries else None
+        preview_channel = getattr(playlist_meta, "channel", None) or (
+            first_entry.channel if first_entry else None
+        )
+        preview_uploader = getattr(playlist_meta, "uploader", None) or (
+            first_entry.uploader if first_entry else None
+        )
         initial_dest = initial_selected_destination_folder(
             folders,
             default_folder=default_folder,
@@ -245,6 +252,8 @@ async def page_preview(
         dest_preview = preview_audiobook_destination(
             cfg,
             destination_folder=initial_dest or None,
+            uploader=preview_uploader,
+            channel=preview_channel,
             summary_kind="batch",
         )
         return templates.TemplateResponse(
@@ -262,6 +271,8 @@ async def page_preview(
                     cfg.default_destination_folder
                 ),
                 "dest_preview": dest_preview,
+                "preview_channel": preview_channel or "",
+                "preview_uploader": preview_uploader or "",
                 "max_entries": cfg.max_playlist_entries,
                 "imported_ids": imported_ids,
             },

@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 from app.config import Settings
 from app.services.destination import (
+    apply_implicit_channel_destination,
     blank_destination_option_label,
+    implicit_channel_folder_name,
     initial_selected_destination_folder,
     preview_audiobook_destination,
     resolve_destination_folder,
@@ -70,9 +72,54 @@ def test_resolve_library_root_when_no_default():
 
 
 def test_blank_option_labels():
-    assert blank_destination_option_label(None) == "— Use library root —"
-    assert blank_destination_option_label("") == "— Use library root —"
+    assert blank_destination_option_label(None) == "— Use channel folder —"
+    assert blank_destination_option_label("") == "— Use channel folder —"
     assert blank_destination_option_label("Podcasts") == "— Use default: Podcasts —"
+
+
+def test_implicit_channel_name_prefers_channel():
+    assert (
+        implicit_channel_folder_name(channel="Some Channel", uploader="Uploader") == "Some Channel"
+    )
+    assert implicit_channel_folder_name(channel=None, uploader="Uploader") == "Uploader"
+    assert implicit_channel_folder_name(channel="", uploader="") == ""
+    assert implicit_channel_folder_name(channel="My: Channel") == "My Channel"
+
+
+def test_apply_implicit_omitted_root_and_named():
+    assert (
+        apply_implicit_channel_destination(
+            "",
+            destination_folder=None,
+            channel="Theology",
+        )
+        == "Theology"
+    )
+    assert (
+        apply_implicit_channel_destination(
+            "",
+            destination_folder=None,
+            channel=None,
+            uploader=None,
+        )
+        == ""
+    )
+    assert (
+        apply_implicit_channel_destination(
+            "",
+            destination_folder="",
+            channel="Theology",
+        )
+        == ""
+    )
+    assert (
+        apply_implicit_channel_destination(
+            "Podcasts",
+            destination_folder="Podcasts",
+            channel="Theology",
+        )
+        == "Podcasts"
+    )
 
 
 def test_preview_single_filename_and_extension(tmp_path: Path):
@@ -157,6 +204,26 @@ def test_preview_default_folder_and_library_root(tmp_path: Path):
     )
     assert at_root.destination_folder == ""
     assert at_root.folder_path == str(output_root.resolve()) + "/"
+
+    channel_default = preview_audiobook_destination(
+        settings,
+        output_title="T",
+        video_id="v",
+        channel="Some Channel",
+        summary_kind="single",
+    )
+    assert channel_default.destination_folder == "Some Channel"
+    assert channel_default.folder_path.endswith("Some Channel/")
+
+    explicit_root = preview_audiobook_destination(
+        settings,
+        destination_folder="",
+        output_title="T",
+        video_id="v",
+        channel="Some Channel",
+        summary_kind="single",
+    )
+    assert explicit_root.destination_folder == ""
 
 
 def test_preview_path_stays_under_output_root(tmp_path: Path):

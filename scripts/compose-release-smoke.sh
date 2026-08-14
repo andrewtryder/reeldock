@@ -232,7 +232,7 @@ echo "==> Happy path"
 JOB="$(create_job "$SMOKE_TITLE" "")"
 echo "    created job $JOB"
 wait_job "$JOB" succeeded
-assert_m4b "$TMP/podcasts/${SMOKE_TITLE}.m4b"
+assert_m4b "$TMP/podcasts/ReelDock CI/${SMOKE_TITLE}.m4b"
 echo "PASS: happy path"
 
 # ── Collision: skip ─────────────────────────────────────────────────────────

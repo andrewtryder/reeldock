@@ -17,7 +17,7 @@ async function configureAbs(page: import("@playwright/test").Page) {
   if (!(await scanToggle.isChecked())) {
     await scanToggle.check({ force: true });
   }
-  await page.locator('form.settings-form').getByRole("button", { name: /^Save$/i }).click();
+  await page.locator("footer.settings-save-footer button[type='submit']").click();
   await expect(page.getByText("Settings saved successfully and reloaded.")).toBeVisible({
     timeout: 30_000,
   });

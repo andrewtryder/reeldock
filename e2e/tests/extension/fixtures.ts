@@ -107,6 +107,8 @@ export async function configureOptions(
   page: Page,
   options: { serverUrl?: string; token?: string } = {},
 ): Promise<void> {
+  // Wait until options.js has bound click handlers and hydrated the form.
+  await expect(page.locator("#status")).toHaveText(/.+/, { timeout: 15_000 });
   await page.locator("#serverUrl").fill(options.serverUrl ?? serverOrigin());
   await page.locator("#legacy-token-wrap").evaluate((el) => {
     (el as HTMLDetailsElement).open = true;

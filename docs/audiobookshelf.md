@@ -1,6 +1,6 @@
 # Audiobookshelf Setup & Integration
 
-`reeldock` is designed to run alongside [Audiobookshelf](https://www.audiobookshelf.org/) (ABS). It writes files to a directory that ABS monitors, can trigger a library scan when a job completes, and tracks when each audiobook appears in ABS.
+`reeldock` is designed to run alongside [Audiobookshelf](https://www.audiobookshelf.org/) (ABS). It writes files to a directory that ABS monitors, can trigger a library scan when a job completes, and tracks when each audiobook appears in ABS (2.0.0).
 
 ## 1. Directory Alignment
 

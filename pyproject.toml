@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reeldock"
-version = "2.0.0"
+version = "2.0.1"
 description = "Selective YouTube-to-Audiobookshelf importer"
 readme = "README.md"
 license = {text = "MIT"}

@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/andrewtryder/reeldock/compare/v2.0.0...v2.0.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* clear in-repo CodeQL and Scorecard findings ([#144](https://github.com/andrewtryder/reeldock/issues/144)) ([a450682](https://github.com/andrewtryder/reeldock/commit/a450682546c14a67a9128710007de4b8f79c60e0))
+* post-merge hardening for ABS integration, extension trust state, and pairing durability ([#146](https://github.com/andrewtryder/reeldock/issues/146)) ([de67089](https://github.com/andrewtryder/reeldock/commit/de67089c94ff5e45a4134e58ba0bfa5ff7fc2f61))
+
 ## [2.0.0](https://github.com/andrewtryder/reeldock/compare/v1.11.0...v2.0.0) (2026-08-14)
 
 

@@ -87,10 +87,13 @@ async def api_extension_pair(body: PairRequest, request: Request) -> dict[str, A
 
     remember_pairing_result(redis, pairing_id, device)
 
+    from app.services.instance_id import get_or_create_instance_id
+
     return {
         "ok": True,
         "device_id": device.id,
         "device_token": token,
+        "instance_id": get_or_create_instance_id(),
         "api_version": EXTENSION_API_VERSION,
         "supports": dict(EXTENSION_SUPPORTS),
     }

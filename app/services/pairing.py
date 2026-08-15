@@ -159,6 +159,8 @@ def consume_pairing_code(
         last_seen_at=now,
     )
     session.add(device)
+    session.flush()
+    pairing_row.paired_device_id = device.id
     purge_expired_pairing_codes(session)
     session.commit()
     session.refresh(device)
@@ -209,16 +211,21 @@ def pairing_status(
             except Exception:
                 logger.warning("Could not read pairing result cache", exc_info=True)
         if device_payload is None:
-            # Fallback when Redis missed: nearest device created around consume time.
-            window_start = row.consumed_at
-            device = session.scalar(
-                select(ExtensionDevice)
-                .where(ExtensionDevice.created_at >= window_start)
-                .order_by(ExtensionDevice.created_at.asc())
-                .limit(1)
-            )
-            if device is not None:
-                device_payload = {"id": device.id, "display_name": device.display_name}
+            if row.paired_device_id:
+                device = session.get(ExtensionDevice, row.paired_device_id)
+                if device is not None:
+                    device_payload = {"id": device.id, "display_name": device.display_name}
+            else:
+                # Legacy fallback when paired_device_id was unset
+                window_start = row.consumed_at
+                device = session.scalar(
+                    select(ExtensionDevice)
+                    .where(ExtensionDevice.created_at >= window_start)
+                    .order_by(ExtensionDevice.created_at.asc())
+                    .limit(1)
+                )
+                if device is not None:
+                    device_payload = {"id": device.id, "display_name": device.display_name}
         result: dict[str, object] = {"status": "paired", "expires_at": expires_at}
         if device_payload is not None:
             result["device"] = device_payload

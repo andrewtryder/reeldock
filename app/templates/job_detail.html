@@ -277,6 +277,11 @@
         {% if job.abs_index_error %}
         <p id="abs-index-detail" class="font-code text-code text-paper-muted">{{ job.abs_index_error | e }}</p>
         {% endif %}
+        {% elif abs_status == 'not_found' %}
+        <p id="abs-index-headline" class="font-body-md text-body-md text-warning">Audiobook created, but it has not appeared in Audiobookshelf yet.</p>
+        {% if job.abs_index_error %}
+        <p id="abs-index-detail" class="font-label-md text-label-md text-paper-muted">{{ job.abs_index_error | e }}</p>
+        {% endif %}
         {% elif abs_status in ['scan_requested', 'indexing', 'scan_pending'] %}
         <p id="abs-index-headline" class="font-body-md text-body-md text-paper-muted">Waiting for Audiobookshelf…</p>
         <p id="abs-index-detail" class="font-label-md text-label-md text-paper-muted">Looking for this file in your library after the scan.</p>
@@ -507,16 +512,21 @@ function renderAbsCard(job) {
   if (headline) {
     if (status === 'indexed') headline.textContent = 'Added to Audiobookshelf';
     else if (status === 'failed') headline.textContent = 'Audiobookshelf scan failed';
+    else if (status === 'not_found') headline.textContent = 'Audiobook created, but it has not appeared in Audiobookshelf yet.';
     else if (['scan_requested', 'indexing', 'scan_pending'].includes(status)) {
       headline.textContent = 'Waiting for Audiobookshelf…';
     } else headline.textContent = 'Not yet in Audiobookshelf';
     headline.classList.toggle('text-error', status === 'failed');
-    headline.classList.toggle('text-paper-muted', status !== 'indexed' && status !== 'failed');
-    headline.classList.toggle('text-paper', status === 'indexed' || status === 'failed');
+    headline.classList.toggle('text-warning', status === 'not_found');
+    headline.classList.toggle('text-paper-muted', status !== 'indexed' && status !== 'failed' && status !== 'not_found');
+    headline.classList.toggle('text-paper', status === 'indexed');
   }
   if (detail) {
     if (status === 'failed' && job.abs_index_error) {
       detail.textContent = job.abs_index_error;
+      detail.style.display = '';
+    } else if (status === 'not_found') {
+      detail.textContent = job.abs_index_error || 'Audiobook created, but it has not appeared in Audiobookshelf yet.';
       detail.style.display = '';
     } else if (['scan_requested', 'indexing', 'scan_pending'].includes(status)) {
       detail.textContent = 'Looking for this file in your library after the scan.';

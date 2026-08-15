@@ -11,6 +11,7 @@ from typing import Any
 from app.path_checks import check_writable_directory
 from app.validators import (
     ValidationResult,
+    validate_abs_url,
     validate_audio_bitrate,
     validate_extra_args,
     validate_filename_template,
@@ -344,6 +345,7 @@ SETTINGS_REGISTRY: list[SettingSpec] = [
             "Base URL of your Audiobookshelf server (for example http://abs:13378). "
             "Use Test Connection, then pick a library by name."
         ),
+        validate=validate_abs_url,
     ),
     SettingSpec(
         key="abs_api_token",

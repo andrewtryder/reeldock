@@ -33,3 +33,26 @@ def test_validate_audio_bitrate_accepts_plain_integer():
 def test_validate_audio_bitrate_rejects_invalid():
     error, _warning = validate_audio_bitrate("fast")
     assert error is not None
+
+
+def test_validate_abs_url_accepts_valid_urls():
+    from app.validators import validate_abs_url
+
+    assert validate_abs_url("") == (None, None)
+    assert validate_abs_url("   ") == (None, None)
+    assert validate_abs_url("http://audiobookshelf:13378") == (None, None)
+    assert validate_abs_url("http://192.168.1.20:13378") == (None, None)
+    assert validate_abs_url("https://abs.example.com") == (None, None)
+    assert validate_abs_url("http://localhost:13378/abs") == (None, None)
+
+
+def test_validate_abs_url_rejects_invalid_urls():
+    from app.validators import validate_abs_url
+
+    assert validate_abs_url("javascript:alert(1)")[0] is not None
+    assert validate_abs_url("file:///etc/passwd")[0] is not None
+    assert validate_abs_url("ftp://server/path")[0] is not None
+    assert validate_abs_url("http://user:password@abs.local:13378")[0] is not None
+    assert validate_abs_url("http://abs.local:13378?query=1")[0] is not None
+    assert validate_abs_url("http://abs.local:13378#fragment")[0] is not None
+    assert validate_abs_url("just-a-string")[0] is not None

@@ -48,6 +48,7 @@ export async function pairWithOrigin({ serverUrl, pairingCode, deviceName, fetch
     origin,
     deviceId: payload.device_id,
     deviceToken: payload.device_token,
+    instanceId: payload.instance_id ? String(payload.instance_id) : '',
     apiVersion: payload.api_version,
     supports: payload.supports || {},
   };

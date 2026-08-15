@@ -200,4 +200,24 @@ describe('background service worker', () => {
     const settings = await sendBackground(mocks.onMessage, { action: 'getSettings' });
     assert.equal(settings.ok, true);
   });
+
+  it('proves storage remains inst-a after a successful HTTP response from inst-b', async () => {
+    await mocks.chrome.storage.local.set({
+      pairedServerInstanceId: 'inst-a',
+      serverUrl: 'http://127.0.0.1:8080',
+      apiToken: 'tok',
+    });
+    installFetch({
+      'GET /api/extension/status': {
+        ...v2Status(),
+        instance_id: 'inst-b',
+      },
+      'GET /api/extension/destinations': { folders: ['Podcasts'], default: 'Podcasts' },
+    });
+    const state = await sendBackground(mocks.onMessage, { action: 'getPublicState' });
+    assert.equal(state.ok, true);
+    assert.equal(state.connectionState.state, 'server_changed');
+    const stored = await mocks.chrome.storage.local.get('pairedServerInstanceId');
+    assert.equal(stored.pairedServerInstanceId, 'inst-a');
+  });
 });

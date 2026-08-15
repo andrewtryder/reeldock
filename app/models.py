@@ -82,6 +82,7 @@ ABS_INDEX_SCAN_PENDING = "scan_pending"
 ABS_INDEX_SCAN_REQUESTED = "scan_requested"
 ABS_INDEX_INDEXING = "indexing"
 ABS_INDEX_INDEXED = "indexed"
+ABS_INDEX_NOT_FOUND = "not_found"
 ABS_INDEX_FAILED = "failed"
 
 
@@ -347,3 +348,6 @@ class ExtensionPairingCode(Base):
     )
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    paired_device_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("extension_devices.id"), nullable=True
+    )

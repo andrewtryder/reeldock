@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/andrewtryder/reeldock/compare/browser-extension-v2.0.0...browser-extension-v2.0.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* post-merge hardening for ABS integration, extension trust state, and pairing durability ([#146](https://github.com/andrewtryder/reeldock/issues/146)) ([de67089](https://github.com/andrewtryder/reeldock/commit/de67089c94ff5e45a4134e58ba0bfa5ff7fc2f61))
+
 ## [2.0.0](https://github.com/andrewtryder/reeldock/compare/browser-extension-v1.11.0...browser-extension-v2.0.0) (2026-08-14)
 
 

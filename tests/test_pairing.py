@@ -227,6 +227,7 @@ def test_pairing_status_pending_paired_expired(pairing_env: FakeRedis, tmp_path:
     from datetime import UTC, datetime, timedelta
 
     from app.db import get_sync_session_factory
+    from app.models import ExtensionPairingCode
     from app.services.pairing import pairing_status
 
     with get_sync_session_factory()() as session:
@@ -252,6 +253,17 @@ def test_pairing_status_pending_paired_expired(pairing_env: FakeRedis, tmp_path:
         assert "hmac" not in after.text.lower()
 
     with get_sync_session_factory()() as session:
+        # Verify paired_device_id is directly set on the pairing row
+        refreshed_row = session.get(ExtensionPairingCode, row.id)
+        assert refreshed_row is not None
+        assert refreshed_row.paired_device_id is not None
+
+        # Verify fallback without Redis uses paired_device_id
+        no_redis_status = pairing_status(session, row.id, redis=None)
+        assert no_redis_status["status"] == "paired"
+        assert no_redis_status["device"]["id"] == refreshed_row.paired_device_id
+        assert no_redis_status["device"]["display_name"] == "Status Browser"
+
         expired_row, _expired_code = create_pairing_code(session)
         expired_row.expires_at = datetime.now(tz=UTC).replace(tzinfo=None) - timedelta(minutes=1)
         session.commit()

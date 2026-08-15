@@ -29,6 +29,7 @@ describe('pairing helpers', () => {
         json: async () => ({
           device_id: 'dev-1',
           device_token: 'rdx_deadbeef',
+          instance_id: 'inst-a1b2',
           api_version: 1,
           supports: { destinations: true },
         }),
@@ -43,6 +44,7 @@ describe('pairing helpers', () => {
     assert.equal(result.origin, 'http://127.0.0.1:8080');
     assert.equal(result.deviceToken, 'rdx_deadbeef');
     assert.equal(result.deviceId, 'dev-1');
+    assert.equal(result.instanceId, 'inst-a1b2');
     const body = JSON.parse(calls[0].options.body);
     assert.equal(body.pairing_code, 'RDK-AB2D-EFGH');
     assert.equal(body.device_name, 'Office Chrome');

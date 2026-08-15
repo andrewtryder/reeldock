@@ -288,3 +288,11 @@ def test_item_open_url():
     from app.services.audiobookshelf import item_open_url
 
     assert item_open_url("http://abs:13378/", "li-1") == "http://abs:13378/#/item/li-1"
+    assert (
+        item_open_url("https://abs.example.com", "item 1/2")
+        == "https://abs.example.com/#/item/item%201%2F2"
+    )
+    assert item_open_url("", "li-1") is None
+    assert item_open_url("http://abs:13378", "") is None
+    assert item_open_url("javascript:alert(1)", "li-1") is None
+    assert item_open_url("file:///etc/passwd", "li-1") is None

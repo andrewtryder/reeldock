@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_INSTANCE_ID_PATH = DEFAULT_KEY_PATH.with_name(".reeldock-instance-id")
 
+_MEM_INSTANCE_ID: dict[Path, str] = {}
+
 
 def instance_id_path() -> Path:
     override = os.getenv("REELDOCK_INSTANCE_ID_FILE", "").strip()
@@ -28,11 +30,16 @@ def get_or_create_instance_id(path: Path | None = None) -> str:
         if target.exists():
             raw = target.read_text(encoding="utf-8").strip()
             if raw:
+                _MEM_INSTANCE_ID[target] = raw
                 return raw
     except OSError:
         logger.warning("Could not read instance id at %s", target, exc_info=True)
 
+    if target in _MEM_INSTANCE_ID:
+        return _MEM_INSTANCE_ID[target]
+
     value = str(uuid.uuid4())
+    _MEM_INSTANCE_ID[target] = value
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(value + "\n", encoding="utf-8")

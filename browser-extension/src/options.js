@@ -221,7 +221,7 @@ async function onPair() {
       apiToken: paired.deviceToken,
       deviceId: paired.deviceId,
       deviceName,
-      pairedServerInstanceId: '',
+      pairedServerInstanceId: paired.instanceId || '',
     });
     $('pairingCode').value = '';
     $('apiToken').value = '';

@@ -156,6 +156,7 @@ Thumbs.db
 data/
 
 # Proxmox / Native Deployment configuration and data
+config/
 config.yml
 cookies.txt
 output/

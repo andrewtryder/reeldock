@@ -161,7 +161,30 @@ def test_check_abs_api_skipped(default_settings: Settings):
     assert check.status == "skipped"
 
 
-def test_check_abs_integration_ok(default_settings: Settings):
+def test_check_abs_integration_read_only_by_default(default_settings: Settings):
+    from app.diagnostics import check_abs_integration
+
+    default_settings.abs_base_url = "http://abs:13378"
+    default_settings.abs_api_token = "token"
+    default_settings.abs_library_id = "lib-001"
+    libraries = [{"id": "lib-001", "name": "Books", "mediaType": "book"}]
+    with (
+        patch(
+            "app.diagnostics.AudiobookshelfClient.list_libraries",
+            return_value=(libraries, None),
+        ),
+        patch("app.diagnostics.AudiobookshelfClient.trigger_scan") as mock_scan,
+    ):
+        checks = {c.id: c for c in check_abs_integration(default_settings)}
+        assert checks["abs_connection"].status == "ok"
+        assert checks["abs_auth"].status == "ok"
+        assert checks["abs_library"].status == "ok"
+        assert checks["abs_scan"].status == "skipped"
+        assert checks["abs_scan"].summary == "Not tested"
+        mock_scan.assert_not_called()
+
+
+def test_check_abs_integration_test_scan_ok(default_settings: Settings):
     from app.diagnostics import check_abs_integration
 
     default_settings.abs_base_url = "http://abs:13378"
@@ -176,14 +199,15 @@ def test_check_abs_integration_ok(default_settings: Settings):
         patch(
             "app.diagnostics.AudiobookshelfClient.trigger_scan",
             return_value=ScanResult(success=True),
-        ),
+        ) as mock_scan,
     ):
-        checks = {c.id: c for c in check_abs_integration(default_settings)}
+        checks = {c.id: c for c in check_abs_integration(default_settings, test_scan=True)}
         assert checks["abs_connection"].status == "ok"
         assert checks["abs_auth"].status == "ok"
         assert checks["abs_library"].status == "ok"
         assert checks["abs_scan"].status == "ok"
-        assert check_abs_api(default_settings).status == "ok"
+        assert checks["abs_scan"].summary == "Scan permitted"
+        mock_scan.assert_called_once_with(library_id="lib-001")
 
 
 def test_check_abs_scan_403_is_warning(default_settings: Settings):
@@ -203,7 +227,7 @@ def test_check_abs_scan_403_is_warning(default_settings: Settings):
             return_value=ScanResult(success=False, error="ABS API returned 403"),
         ),
     ):
-        checks = {c.id: c for c in check_abs_integration(default_settings)}
+        checks = {c.id: c for c in check_abs_integration(default_settings, test_scan=True)}
     assert checks["abs_connection"].status == "ok"
     assert checks["abs_auth"].status == "ok"
     assert checks["abs_scan"].status == "warn"
@@ -280,3 +304,29 @@ def test_api_diagnostics_returns_json(mock_run: MagicMock, client: TestClient):
     body = response.json()
     assert body["checks"][0]["id"] == "ytdlp"
     assert body["checks"][0]["status"] == "ok"
+
+
+def test_api_diagnostics_test_scan_returns_scan_check(client: TestClient):
+    with (
+        patch(
+            "app.diagnostics.AudiobookshelfClient.list_libraries",
+            return_value=([{"id": "lib-001", "name": "Books", "mediaType": "book"}], None),
+        ),
+        patch(
+            "app.diagnostics.AudiobookshelfClient.trigger_scan",
+            return_value=ScanResult(success=True),
+        ) as mock_scan,
+    ):
+        import app.config as cfg_module
+
+        cfg = cfg_module.get_settings()
+        cfg.abs_base_url = "http://abs:13378"
+        cfg.abs_api_token = "token"
+        cfg.abs_library_id = "lib-001"
+
+        response = client.post("/api/diagnostics/test-scan")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["check"]["id"] == "abs_scan"
+        assert data["check"]["status"] == "ok"
+        mock_scan.assert_called_once_with(library_id="lib-001")

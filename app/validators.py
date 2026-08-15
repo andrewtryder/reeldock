@@ -74,3 +74,27 @@ def validate_audio_bitrate(value: str) -> ValidationResult:
     if stripped.isdigit():
         return None, None
     return 'Must be digits followed by "k" (e.g. 192k) or a plain integer bitrate.', None
+
+
+def validate_abs_url(value: str) -> ValidationResult:
+    """Validate structure of configured Audiobookshelf base URL."""
+    from urllib.parse import urlparse
+
+    stripped = value.strip()
+    if not stripped:
+        return None, None
+    try:
+        parsed = urlparse(stripped)
+    except Exception:
+        return "Invalid Audiobookshelf URL.", None
+    if parsed.scheme.lower() not in ("http", "https"):
+        return "Audiobookshelf URL must use http:// or https://.", None
+    if not parsed.hostname:
+        return "Audiobookshelf URL must include a valid host or IP address.", None
+    if parsed.username or parsed.password:
+        return "Audiobookshelf URL must not include embedded credentials.", None
+    if parsed.query:
+        return "Audiobookshelf base URL must not contain query parameters.", None
+    if parsed.fragment:
+        return "Audiobookshelf base URL must not contain URL fragments.", None
+    return None, None

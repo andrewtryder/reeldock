@@ -330,7 +330,7 @@ def check_abs_api(settings: Settings) -> DiagnosticCheck:
     )
 
 
-def check_abs_integration(settings: Settings) -> list[DiagnosticCheck]:
+def check_abs_integration(settings: Settings, *, test_scan: bool = False) -> list[DiagnosticCheck]:
     """Split ABS diagnostics: connection, auth, library, and scan permission."""
     base_url = (settings.abs_base_url or "").strip().rstrip("/")
     token = (settings.abs_api_token or "").strip()
@@ -457,6 +457,16 @@ def check_abs_integration(settings: Settings) -> list[DiagnosticCheck]:
         summary=str(lib.get("name") or library_id),
         detail=f"mediaType={lib.get('mediaType') or 'unknown'}",
     )
+
+    if not test_scan:
+        scan = DiagnosticCheck(
+            id="abs_scan",
+            label="ABS library scan",
+            status="skipped",
+            summary="Not tested",
+            detail="Diagnostics is read-only. Use 'Test scan permission' to verify.",
+        )
+        return [connection, auth, library, scan]
 
     scan_result = client.trigger_scan(library_id=library_id)
     if scan_result.skipped:

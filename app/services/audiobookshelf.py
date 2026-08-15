@@ -6,6 +6,7 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -33,10 +34,19 @@ def normalize_rel_path(path: str) -> str:
     return text
 
 
-def item_open_url(base_url: str, item_id: str) -> str:
+def item_open_url(base_url: str, item_id: str) -> str | None:
     """Build the Audiobookshelf web UI URL for a library item."""
-    base = base_url.rstrip("/")
-    return f"{base}/#/item/{item_id}"
+    if not base_url or not item_id:
+        return None
+    base = base_url.strip().rstrip("/")
+    try:
+        parsed = urlparse(base)
+    except Exception:
+        return None
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
+        return None
+    encoded_id = quote(item_id, safe="")
+    return f"{base}/#/item/{encoded_id}"
 
 
 def _auth_headers(token: str) -> dict[str, str]:

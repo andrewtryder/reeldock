@@ -35,10 +35,11 @@
 
         <div class="divide-y divide-outline-variant/30">
           {% for check in group.checks %}
-          <div class="flex flex-col gap-2 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
+          <div id="check-row-{{ check.id }}" class="flex flex-col gap-2 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2 flex-wrap">
+              <div class="flex items-center gap-2 flex-wrap" id="check-header-{{ check.id }}">
                 <h3 class="font-body-md text-body-md text-on-surface font-medium">{{ check.label | e }}</h3>
+                <span id="check-badge-{{ check.id }}">
                 {% if check.status == 'ok' %}
                 {{ badge('OK', variant='success', icon='check_circle') }}
                 {% elif check.status == 'warn' %}
@@ -48,15 +49,30 @@
                 {% else %}
                 {{ badge('Error', variant='error', icon='cancel') }}
                 {% endif %}
+                </span>
               </div>
-              <p class="font-body-md text-body-md text-on-surface-variant mt-1">{{ check.summary | e }}</p>
+              <p id="check-summary-{{ check.id }}" class="font-body-md text-body-md text-on-surface-variant mt-1">{{ check.summary | e }}</p>
               {% if check.path %}
               <p class="font-code text-code text-on-surface-variant opacity-80 mt-1 break-all">{{ check.path | e }}</p>
               {% endif %}
-              {% if check.detail %}
-              <p class="font-label-md text-label-md text-on-surface-variant opacity-90 mt-1 break-words">{{ check.detail | e }}</p>
-              {% endif %}
+              <p id="check-detail-{{ check.id }}" class="font-label-md text-label-md text-on-surface-variant opacity-90 mt-1 break-words {% if not check.detail %}hidden{% endif %}">{{ check.detail | e }}</p>
             </div>
+            {% if check.id == 'abs_scan' and settings.abs_configured %}
+            <div class="mt-2 sm:mt-0 flex flex-col items-start sm:items-end gap-1 shrink-0">
+              <button
+                type="button"
+                id="btn-test-abs-scan"
+                onclick="runAbsScanTest()"
+                class="inline-flex items-center gap-2 rounded-lg border border-amber/40 bg-panel-raised px-3 py-1.5 font-label-md text-label-md text-amber uppercase hover:bg-panel transition-colors active:scale-95 cursor-pointer"
+              >
+                <span class="material-symbols-outlined text-base">sensors</span>
+                <span>Test scan permission</span>
+              </button>
+              <span class="font-label-sm text-[11px] text-paper-muted opacity-80 max-w-[220px] sm:text-right">
+                Triggers a real Audiobookshelf library scan to test permissions.
+              </span>
+            </div>
+            {% endif %}
           </div>
           {% endfor %}
         </div>
@@ -65,4 +81,51 @@
     </div>
   </div>
 </main>
+
+<script nonce="{{ csp_nonce }}">
+async function runAbsScanTest() {
+  const btn = document.getElementById('btn-test-abs-scan');
+  const badgeEl = document.getElementById('check-badge-abs_scan');
+  const summaryEl = document.getElementById('check-summary-abs_scan');
+  const detailEl = document.getElementById('check-detail-abs_scan');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.classList.add('opacity-50', 'pointer-events-none');
+  if (summaryEl) summaryEl.textContent = 'Testing Audiobookshelf scan permission…';
+  if (detailEl) detailEl.classList.add('hidden');
+  try {
+    const res = await fetch('/api/diagnostics/test-scan', { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const check = data?.check;
+    if (check) {
+      if (summaryEl) summaryEl.textContent = check.summary || '';
+      if (detailEl) {
+        detailEl.textContent = check.detail || '';
+        detailEl.classList.toggle('hidden', !check.detail);
+      }
+      if (badgeEl) {
+        if (check.status === 'ok') {
+          badgeEl.innerHTML = '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-label-md text-label-md border w-fit bg-success-container/40 text-on-success-container border-success/30"><span class="material-symbols-outlined text-[13px]">check_circle</span>OK</span>';
+        } else if (check.status === 'warn') {
+          badgeEl.innerHTML = '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-label-md text-label-md border w-fit bg-warning-container/40 text-on-warning-container border-warning/30"><span class="material-symbols-outlined text-[13px]">warning</span>Warn</span>';
+        } else if (check.status === 'skipped') {
+          badgeEl.innerHTML = '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-label-md text-label-md border w-fit bg-warning-container/40 text-on-warning-container border-warning/30"><span class="material-symbols-outlined text-[13px]">remove_circle</span>Skipped</span>';
+        } else {
+          badgeEl.innerHTML = '<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-label-md text-label-md border w-fit bg-error-container/40 text-error border-error/30"><span class="material-symbols-outlined text-[13px]">cancel</span>Error</span>';
+        }
+      }
+    }
+  } catch (err) {
+    if (summaryEl) summaryEl.textContent = 'Test failed';
+    if (detailEl) {
+      detailEl.textContent = err.message || 'Request failed';
+      detailEl.classList.remove('hidden');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('opacity-50', 'pointer-events-none');
+  }
+}
+</script>
 {% endblock %}

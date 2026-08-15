@@ -15,6 +15,7 @@ from app.models import (
     ABS_INDEX_FAILED,
     ABS_INDEX_INDEXED,
     ABS_INDEX_INDEXING,
+    ABS_INDEX_NOT_FOUND,
     ABS_INDEX_SCAN_REQUESTED,
     Job,
     JobStatus,
@@ -23,7 +24,7 @@ from app.services.audiobookshelf import AudiobookshelfClient, ScanResult
 
 logger = logging.getLogger(__name__)
 
-# Bounded backoff before giving up (~77s of waits; leave status as indexing).
+# Bounded backoff before giving up (~77s of waits; transitions to not_found).
 RECONCILE_DELAYS_SECONDS = (2, 5, 10, 20, 40)
 
 
@@ -50,11 +51,13 @@ def enqueue_reconcile(job_id: str, attempt: int = 0) -> None:
 
     from app.queue import get_queue
 
+    rq_job_id = f"abs-reconcile:{job_id}"
     get_queue().enqueue_in(
         timedelta(seconds=delay),
         reconcile_abs_index,
         job_id,
         attempt,
+        job_id=rq_job_id,
     )
     logger.debug("Enqueued ABS reconcile for job %s attempt=%s delay=%ss", job_id, attempt, delay)
 
@@ -126,6 +129,13 @@ def reconcile_abs_index(job_id: str, attempt: int = 0) -> None:
         rel = relative_output_path(job.final_output_path or "", settings.output_root)
         if not rel:
             logger.info("ABS reconcile: job %s has no relative output path", job_id)
+            if attempt + 1 >= len(RECONCILE_DELAYS_SECONDS):
+                job.abs_index_status = ABS_INDEX_NOT_FOUND
+                job.abs_index_error = (
+                    "Audiobook created, but it has not appeared in Audiobookshelf yet."
+                )
+                db.commit()
+                return
             db.commit()
             _maybe_requeue(job_id, attempt)
             return
@@ -153,6 +163,19 @@ def reconcile_abs_index(job_id: str, attempt: int = 0) -> None:
             logger.info("ABS reconcile: job %s indexed as %s", job_id, job.abs_library_item_id)
             return
 
+        if attempt + 1 >= len(RECONCILE_DELAYS_SECONDS):
+            job.abs_index_status = ABS_INDEX_NOT_FOUND
+            job.abs_index_error = (
+                "Audiobook created, but it has not appeared in Audiobookshelf yet."
+            )
+            db.commit()
+            logger.info(
+                "ABS reconcile: job %s still missing after %s attempts; marked not_found",
+                job_id,
+                attempt + 1,
+            )
+            return
+
         job.abs_index_status = ABS_INDEX_INDEXING
         db.commit()
         _maybe_requeue(job_id, attempt)
@@ -167,24 +190,21 @@ def reconcile_abs_index(job_id: str, attempt: int = 0) -> None:
 def _maybe_requeue(job_id: str, attempt: int) -> None:
     next_attempt = attempt + 1
     if next_attempt >= len(RECONCILE_DELAYS_SECONDS):
-        logger.info(
-            "ABS reconcile: job %s still missing after %s attempts; leaving indexing",
-            job_id,
-            attempt + 1,
-        )
         return
     enqueue_reconcile(job_id, attempt=next_attempt)
 
 
-def resume_pending_abs_index(session: Session, settings: Settings) -> int:
-    """Re-enqueue jobs waiting on ABS index after worker restart."""
+def resume_pending_abs_index(session: Session, settings: Settings, stale_seconds: int = 60) -> int:
+    """Re-enqueue jobs waiting on ABS index after worker restart (only stale / unchecked)."""
     if not settings.abs_configured:
         return 0
+    cutoff = _naive_utc() - timedelta(seconds=stale_seconds)
     pending = list(
         session.scalars(
             select(Job).where(
                 Job.abs_index_status.in_((ABS_INDEX_SCAN_REQUESTED, ABS_INDEX_INDEXING)),
                 Job.status == JobStatus.succeeded,
+                (Job.abs_last_checked_at.is_(None)) | (Job.abs_last_checked_at < cutoff),
             )
         ).all()
     )

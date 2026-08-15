@@ -142,7 +142,7 @@ async function apiFetch(path, options = {}) {
 
 async function rememberSuccessfulConnection(status) {
   const patch = { lastConnectedAt: Date.now() };
-  if (status?.instance_id) {
+  if (!settings.pairedServerInstanceId && status?.instance_id) {
     patch.pairedServerInstanceId = String(status.instance_id);
   }
   if (status?.device_id) {

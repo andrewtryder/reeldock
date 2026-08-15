@@ -306,7 +306,19 @@ def test_api_diagnostics_returns_json(mock_run: MagicMock, client: TestClient):
     assert body["checks"][0]["status"] == "ok"
 
 
+def test_api_diagnostics_test_scan_requires_csrf(client: TestClient):
+    response = client.post("/api/diagnostics/test-scan")
+    assert response.status_code == 403
+
+
 def test_api_diagnostics_test_scan_returns_scan_check(client: TestClient):
+    import re
+
+    page = client.get("/diagnostics")
+    match = re.search(r'id="csrf_token"[^>]*value="([^"]+)"', page.text)
+    assert match, "csrf_token missing from diagnostics page"
+    csrf = match.group(1)
+
     with (
         patch(
             "app.diagnostics.AudiobookshelfClient.list_libraries",
@@ -324,7 +336,7 @@ def test_api_diagnostics_test_scan_returns_scan_check(client: TestClient):
         cfg.abs_api_token = "token"
         cfg.abs_library_id = "lib-001"
 
-        response = client.post("/api/diagnostics/test-scan")
+        response = client.post("/api/diagnostics/test-scan", headers={"X-CSRF-Token": csrf})
         assert response.status_code == 200
         data = response.json()
         assert data["check"]["id"] == "abs_scan"

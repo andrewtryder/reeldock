@@ -285,7 +285,7 @@ def test_find_item_ambiguous_title_returns_none():
 
 
 def test_item_open_url():
-    from app.services.audiobookshelf import item_open_url
+    from app.services.audiobookshelf import item_open_url, library_open_url
 
     assert item_open_url("http://abs:13378/", "li-1") == "http://abs:13378/#/item/li-1"
     assert (
@@ -296,3 +296,6 @@ def test_item_open_url():
     assert item_open_url("http://abs:13378", "") is None
     assert item_open_url("javascript:alert(1)", "li-1") is None
     assert item_open_url("file:///etc/passwd", "li-1") is None
+    assert library_open_url("http://abs:13378/", "lib-1") == "http://abs:13378/#/library/lib-1"
+    assert library_open_url("javascript:alert(1)", "lib-1") is None
+    assert library_open_url("http://abs:13378", "") is None

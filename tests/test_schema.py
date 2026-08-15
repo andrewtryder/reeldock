@@ -71,12 +71,16 @@ async def test_init_db_creates_schema_on_fresh_database(schema_db: Path):
 
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
         assert version is not None
-        assert version[0] == "0005_pairing_code_device_fk"
+        assert version[0] == "0006_pairing_device_fk_constraint"
 
         pairing_cols = {
             row[1] for row in conn.execute("PRAGMA table_info(extension_pairing_codes)")
         }
         assert "paired_device_id" in pairing_cols
+        pairing_fks = conn.execute("PRAGMA foreign_key_list(extension_pairing_codes)").fetchall()
+        assert any(
+            row[2] == "extension_devices" and row[3] == "paired_device_id" for row in pairing_fks
+        )
 
         batch_cols = {row[1] for row in conn.execute("PRAGMA table_info(import_batches)")}
         assert "abs_scan_requested" in batch_cols
@@ -141,7 +145,7 @@ async def test_init_db_stamps_legacy_database(schema_db: Path):
         assert "app_settings" in tables
         assert "alembic_version" in tables
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert version[0] == "0005_pairing_code_device_fk"
+        assert version[0] == "0006_pairing_device_fk_constraint"
 
 
 @pytest.mark.asyncio
@@ -176,7 +180,7 @@ async def test_legacy_reconcile_does_not_use_live_orm_metadata(
         assert "sponsorblock_remove" in jobs_cols
         assert "progress" in jobs_cols
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert version[0] == "0005_pairing_code_device_fk"
+        assert version[0] == "0006_pairing_device_fk_constraint"
 
 
 @pytest.mark.asyncio
@@ -205,7 +209,7 @@ async def test_init_db_stamps_retired_alembic_revision(schema_db: Path, retired_
         assert "app_settings" in tables
         assert "alembic_version" in tables
         version = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert version[0] == "0005_pairing_code_device_fk"
+        assert version[0] == "0006_pairing_device_fk_constraint"
         jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
         assert "batch_id" in jobs_cols
         assert "sponsorblock_remove" in jobs_cols

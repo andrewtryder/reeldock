@@ -736,14 +736,14 @@ async def page_job_detail(
             except json.JSONDecodeError, TypeError:
                 pass
 
-    from app.services.audiobookshelf import item_open_url
+    from app.services.audiobookshelf import item_open_url, library_open_url
 
     abs_open_url = None
     if cfg.abs_base_url and job.abs_library_item_id:
         abs_open_url = item_open_url(cfg.abs_base_url, job.abs_library_item_id)
     elif cfg.abs_base_url and (job.abs_library_id or cfg.abs_library_id):
         lid = job.abs_library_id or cfg.abs_library_id
-        abs_open_url = f"{cfg.abs_base_url.rstrip('/')}/#/library/{lid}"
+        abs_open_url = library_open_url(cfg.abs_base_url, lid or "")
 
     return templates.TemplateResponse(
         request,

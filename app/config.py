@@ -243,6 +243,21 @@ class Settings(BaseSettings):
 
     # ── Validators ────────────────────────────────────────────────────────────
 
+    @field_validator("abs_base_url", mode="before")
+    @classmethod
+    def validate_abs_base_url(cls, v: Any) -> Any:  # noqa: ANN401
+        if v is None:
+            return None
+        text = str(v).strip()
+        if not text:
+            return None
+        from app.validators import validate_abs_url
+
+        error, _ = validate_abs_url(text)
+        if error:
+            raise ValueError(error)
+        return text
+
     @field_validator("ytdlp_extra_args", "ffmpeg_extra_args", mode="before")
     @classmethod
     def parse_space_separated_list(cls, v: Any) -> Any:  # noqa: ANN401

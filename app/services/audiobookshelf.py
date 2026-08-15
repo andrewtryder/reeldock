@@ -34,9 +34,9 @@ def normalize_rel_path(path: str) -> str:
     return text
 
 
-def item_open_url(base_url: str, item_id: str) -> str | None:
-    """Build the Audiobookshelf web UI URL for a library item."""
-    if not base_url or not item_id:
+def _abs_ui_hash_url(base_url: str, hash_path: str) -> str | None:
+    """Build an Audiobookshelf UI URL with a hash route, or None if unsafe."""
+    if not base_url or not hash_path:
         return None
     base = base_url.strip().rstrip("/")
     try:
@@ -45,8 +45,24 @@ def item_open_url(base_url: str, item_id: str) -> str | None:
         return None
     if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
         return None
+    path = hash_path if hash_path.startswith("/") else f"/{hash_path}"
+    return f"{base}/#{path}"
+
+
+def item_open_url(base_url: str, item_id: str) -> str | None:
+    """Build the Audiobookshelf web UI URL for a library item."""
+    if not item_id:
+        return None
     encoded_id = quote(item_id, safe="")
-    return f"{base}/#/item/{encoded_id}"
+    return _abs_ui_hash_url(base_url, f"/item/{encoded_id}")
+
+
+def library_open_url(base_url: str, library_id: str) -> str | None:
+    """Build the Audiobookshelf web UI URL for a library."""
+    if not library_id:
+        return None
+    encoded_id = quote(library_id, safe="")
+    return _abs_ui_hash_url(base_url, f"/library/{encoded_id}")
 
 
 def _auth_headers(token: str) -> dict[str, str]:

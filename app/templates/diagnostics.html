@@ -21,6 +21,7 @@
   </header>
 
   <div class="pt-8 pb-32 px-container-padding max-w-5xl mx-auto w-full">
+    <input type="hidden" id="csrf_token" name="csrf_token" value="{{ csrf_token | e }}" />
     <p class="font-body-md text-body-md text-on-surface-variant mb-stack-lg section-entrance section-entrance-1">
       Verify external tools, storage, queue connectivity, and integrations before importing media.
     </p>
@@ -94,7 +95,10 @@ async function runAbsScanTest() {
   if (summaryEl) summaryEl.textContent = 'Testing Audiobookshelf scan permission…';
   if (detailEl) detailEl.classList.add('hidden');
   try {
-    const res = await fetch('/api/diagnostics/test-scan', { method: 'POST' });
+    const res = await fetch('/api/diagnostics/test-scan', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': document.getElementById('csrf_token')?.value || '' },
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const check = data?.check;

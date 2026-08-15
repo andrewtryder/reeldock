@@ -42,24 +42,43 @@ def relative_output_path(final_output_path: str | Path, output_root: str | Path)
     return text or None
 
 
-def enqueue_reconcile(job_id: str, attempt: int = 0) -> None:
-    """Schedule a delayed ABS index reconcile for *job_id*."""
+def abs_reconcile_rq_job_id(job_id: str) -> str:
+    """RQ custom job ids may only contain letters, numbers, underscores, and dashes."""
+    return f"abs-reconcile-{job_id}"
+
+
+def enqueue_reconcile(job_id: str, attempt: int = 0) -> bool:
+    """Schedule a delayed ABS index reconcile for *job_id*.
+
+    Returns False if the attempt is out of range or RQ rejects the enqueue.
+    Callers must not let enqueue failures fail the import job.
+    """
     if attempt < 0 or attempt >= len(RECONCILE_DELAYS_SECONDS):
-        return
+        return False
     delay = RECONCILE_DELAYS_SECONDS[attempt]
     from worker.tasks import reconcile_abs_index
 
     from app.queue import get_queue
 
-    rq_job_id = f"abs-reconcile:{job_id}"
-    get_queue().enqueue_in(
-        timedelta(seconds=delay),
-        reconcile_abs_index,
-        job_id,
-        attempt,
-        job_id=rq_job_id,
-    )
+    rq_job_id = abs_reconcile_rq_job_id(job_id)
+    try:
+        get_queue().enqueue_in(
+            timedelta(seconds=delay),
+            reconcile_abs_index,
+            args=(job_id, attempt),
+            job_id=rq_job_id,
+        )
+    except Exception:
+        logger.exception("Failed to enqueue ABS reconcile for job %s attempt=%s", job_id, attempt)
+        return False
     logger.debug("Enqueued ABS reconcile for job %s attempt=%s delay=%ss", job_id, attempt, delay)
+    return True
+
+
+def _mark_reconcile_enqueue_failed(job: Job) -> ScanResult:
+    job.abs_index_status = ABS_INDEX_FAILED
+    job.abs_index_error = "Failed to schedule Audiobookshelf index check"
+    return ScanResult(success=False, error=job.abs_index_error)
 
 
 def request_scan_and_reconcile(
@@ -97,7 +116,10 @@ def request_scan_and_reconcile(
     job.abs_index_error = None
     job.abs_index_attempts = 0
     session.flush()
-    enqueue_reconcile(job.id, attempt=0)
+    if not enqueue_reconcile(job.id, attempt=0):
+        result = _mark_reconcile_enqueue_failed(job)
+        session.flush()
+        return result
     return result
 
 
@@ -242,8 +264,11 @@ def mark_batch_children_indexing(
         job.abs_last_checked_at = now
         job.abs_index_attempts = 0
         session.flush()
-        enqueue_reconcile(job.id, attempt=0)
-        marked += 1
+        if enqueue_reconcile(job.id, attempt=0):
+            marked += 1
+        else:
+            _mark_reconcile_enqueue_failed(job)
+            session.flush()
     return marked
 
 
@@ -268,7 +293,10 @@ def retry_job_abs_scan(
         if result.success:
             job.abs_index_status = ABS_INDEX_INDEXING
             session.flush()
-            enqueue_reconcile(job.id, attempt=0)
+            if not enqueue_reconcile(job.id, attempt=0):
+                _mark_reconcile_enqueue_failed(job)
+                session.flush()
+                return ScanResult(success=False, error=job.abs_index_error)
         elif not result.skipped:
             job.abs_index_status = ABS_INDEX_FAILED
             job.abs_index_error = result.error or "Audiobookshelf scan failed"
@@ -291,4 +319,6 @@ def check_job_abs_index_again(
     job.abs_index_error = None
     job.abs_last_checked_at = _naive_utc()
     session.flush()
-    enqueue_reconcile(job.id, attempt=0)
+    if not enqueue_reconcile(job.id, attempt=0):
+        _mark_reconcile_enqueue_failed(job)
+        session.flush()

@@ -21,6 +21,7 @@ from app.models import (
 )
 from app.services.abs_index import (
     RECONCILE_DELAYS_SECONDS,
+    abs_reconcile_rq_job_id,
     check_job_abs_index_again,
     enqueue_reconcile,
     mark_batch_children_indexing,
@@ -108,17 +109,26 @@ def test_enqueue_reconcile_uses_delay_and_deterministic_job_id():
         patch("app.queue.get_queue", return_value=mock_queue),
         patch("worker.tasks.reconcile_abs_index", create=True),
     ):
-        enqueue_reconcile("job-x", attempt=2)
+        assert enqueue_reconcile("job-x", attempt=2) is True
     mock_queue.enqueue_in.assert_called_once()
     delay = mock_queue.enqueue_in.call_args.args[0]
     assert delay == timedelta(seconds=10)
-    assert mock_queue.enqueue_in.call_args.kwargs.get("job_id") == "abs-reconcile:job-x"
+    assert mock_queue.enqueue_in.call_args.kwargs.get("job_id") == "abs-reconcile-job-x"
+    assert mock_queue.enqueue_in.call_args.kwargs.get("args") == ("job-x", 2)
+
+
+def test_reconcile_rq_job_id_is_legal_for_rq():
+    from rq.job import validate_job_id
+
+    validate_job_id(abs_reconcile_rq_job_id("550e8400-e29b-41d4-a716-446655440000"))
+    with pytest.raises(ValueError, match="letters, numbers, underscores and dashes"):
+        validate_job_id("abs-reconcile:job-x")
 
 
 def test_enqueue_reconcile_stops_after_last():
     mock_queue = MagicMock()
     with patch("app.queue.get_queue", return_value=mock_queue):
-        enqueue_reconcile("job-x", attempt=5)
+        assert enqueue_reconcile("job-x", attempt=5) is False
     mock_queue.enqueue_in.assert_not_called()
 
 
@@ -149,6 +159,27 @@ def test_scan_success_enqueues_reconcile(idx_db, idx_settings):
     assert job.abs_index_status == ABS_INDEX_SCAN_REQUESTED
     assert job.abs_library_id == "lib-1"
     mock_enq.assert_called_once_with(job.id, attempt=0)
+
+
+def test_enqueue_failure_does_not_fail_import_job(idx_db, idx_settings):
+    job = _job(idx_db)
+    client = MagicMock()
+    client.trigger_scan.return_value = ScanResult(success=True)
+    mock_queue = MagicMock()
+    mock_queue.enqueue_in.side_effect = ValueError(
+        "Job ID must only contain letters, numbers, underscores and dashes"
+    )
+    with (
+        patch("app.queue.get_queue", return_value=mock_queue),
+        patch("worker.tasks.reconcile_abs_index", create=True),
+    ):
+        result = request_scan_and_reconcile(idx_db, job, idx_settings, client=client)
+    idx_db.commit()
+    idx_db.refresh(job)
+    assert result.success is False
+    assert job.status == JobStatus.succeeded
+    assert job.abs_index_status == ABS_INDEX_FAILED
+    assert job.abs_index_error == "Failed to schedule Audiobookshelf index check"
 
 
 def test_reconcile_marks_indexed_on_match(idx_db, idx_settings, tmp_path: Path):

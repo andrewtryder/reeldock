@@ -174,6 +174,8 @@ REELDOCK_BASE_URL="$BASE" npm --prefix e2e run test:abs
 status=$?
 set -e
 if [[ "$status" -ne 0 ]]; then
+  echo "==> recent jobs"
+  curl -fsS "$BASE/api/jobs" || true
   echo "==> app logs"
   "${COMPOSE[@]}" logs --tail 80 app || true
   echo "==> worker logs"

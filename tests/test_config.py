@@ -58,6 +58,18 @@ def test_invalid_collision_mode(monkeypatch: pytest.MonkeyPatch):
         Settings()
 
 
+def test_abs_base_url_from_env_rejects_unsafe_schemes(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("ABS_BASE_URL", "javascript:alert(1)")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_abs_base_url_from_env_accepts_http(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("ABS_BASE_URL", "http://abs:13378")
+    s = Settings()
+    assert s.abs_base_url == "http://abs:13378"
+
+
 def test_yaml_loading_returns_empty_when_no_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "nonexistent.yaml"))
     import app.config as cfg_module

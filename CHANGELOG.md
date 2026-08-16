@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/andrewtryder/reeldock/compare/v2.0.1...v2.0.2) (2026-08-16)
+
+
+### Bug Fixes
+
+* CSRF-protect diagnostics scan and add pairing FK ([#148](https://github.com/andrewtryder/reeldock/issues/148)) ([1a9b762](https://github.com/andrewtryder/reeldock/commit/1a9b762c476dd1d1e70bd90078c93daab481399f))
+
 ## [2.0.1](https://github.com/andrewtryder/reeldock/compare/v2.0.0...v2.0.1) (2026-08-15)
 
 

@@ -10,7 +10,7 @@
 #   - yt-dlp release tag + SHA256
 # ============================================================
 
-FROM python:3.14.0-slim@sha256:0aecac02dc3d4c5dbb024b753af084cafe41f5416e02193f1ce345d671ec966e AS base
+FROM python:3.14.7-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4 AS base
 
 LABEL org.opencontainers.image.title="reeldock"
 LABEL org.opencontainers.image.description="YouTube to Audiobookshelf importer"
